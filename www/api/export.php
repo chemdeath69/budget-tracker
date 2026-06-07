@@ -11,15 +11,17 @@ if (!is_logged_in()) {
 $uid = current_user_id();
 $pdo = db();
 
-// Optional filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&q=text
+// Optional filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&q=text&account_id=...
 $from = $_GET['from'] ?? null;
 $to   = $_GET['to'] ?? null;
 $q    = trim((string)($_GET['q'] ?? ''));
+$acct = trim((string)($_GET['account_id'] ?? ''));
 
 $where = ['(a.visibility = "shared" OR i.user_id = :uid)'];
 $params = [':uid' => $uid];
 if ($from) { $where[] = 't.date >= :from'; $params[':from'] = $from; }
 if ($to)   { $where[] = 't.date <= :to';   $params[':to']   = $to; }
+if ($acct !== '') { $where[] = 't.account_id = :acct'; $params[':acct'] = $acct; }
 if ($q !== '') {
     $where[] = '(t.merchant_name LIKE :q OR t.name LIKE :q OR COALESCE(t.category_override,t.pfc_primary) LIKE :q)';
     $params[':q'] = '%' . $q . '%';

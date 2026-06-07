@@ -114,6 +114,7 @@ function google_handle_callback(): ?string
     $verified = (bool)($claims['email_verified'] ?? false);
     $name     = (string)($claims['name'] ?? $email);
     $sub      = (string)($claims['sub'] ?? '');
+    $picture  = (string)($claims['picture'] ?? '');
 
     if (!$email || !$verified) {
         return 'Your Google email is not verified.';
@@ -143,6 +144,7 @@ function google_handle_callback(): ?string
     $_SESSION['user_id']    = $uid;
     $_SESSION['user_email'] = $email;
     $_SESSION['name']       = $name;
+    $_SESSION['picture']    = $picture; // Google profile photo URL (may be empty)
     return null;
 }
 

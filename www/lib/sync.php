@@ -61,6 +61,20 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
     }
 }
 
+/**
+ * Strip the Unicode replacement char (U+FFFD) that some institutions send in
+ * names (e.g. Wells Fargo "WAY2SAVE® SAVINGS" arrives as "WAY2SAVE�� SAVINGS"),
+ * then collapse any doubled whitespace left behind.
+ */
+function clean_name(?string $s): ?string
+{
+    if ($s === null) return null;
+    $s = preg_replace('/\x{FFFD}+/u', '', $s);
+    $s = preg_replace('/\s{2,}/u', ' ', (string)$s);
+    $s = trim((string)$s);
+    return $s === '' ? null : $s;
+}
+
 /** /accounts/balance/get -> upsert accounts. */
 function sync_balances(PDO $pdo, string $itemId, string $token): void
 {
@@ -83,7 +97,7 @@ function sync_balances(PDO $pdo, string $itemId, string $token): void
         $upd = $b['last_updated_datetime'] ?? null;
         $stmt->execute([
             ':id' => $a['account_id'], ':item' => $itemId,
-            ':name' => $a['name'] ?? null, ':oname' => $a['official_name'] ?? null,
+            ':name' => clean_name($a['name'] ?? null), ':oname' => clean_name($a['official_name'] ?? null),
             ':mask' => $a['mask'] ?? null, ':type' => $a['type'] ?? null, ':subtype' => $a['subtype'] ?? null,
             ':av' => $b['available'] ?? null, ':cur' => $b['current'] ?? null, ':lim' => $b['limit'] ?? null,
             ':iso' => $b['iso_currency_code'] ?? 'USD',

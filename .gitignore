@@ -10,3 +10,7 @@ docs/CREDENTIALS.local.md
 
 # Playwright scratch from setup
 .playwright-mcp/
+
+# Local UI preview harness (static mock pages) + throwaway screenshots
+preview/
+*.png

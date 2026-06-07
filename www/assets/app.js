@@ -1,267 +1,217 @@
 'use strict';
 
+/* ==========================================================================
+   Budget Tracker — front-end behaviour
+   Pages are server-rendered; this wires up the interactive bits only.
+   ========================================================================== */
+
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
 const usd = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const $ = sel => document.querySelector(sel);
-
-const PALETTE = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#a855f7'];
-
-let allTx = [];
-let currentUserId = null;
-
-async function load() {
-    let data;
-    try {
-        const res = await fetch('/api/data.php', { credentials: 'same-origin' });
-        if (res.status === 401) { location.href = '/login.php'; return; }
-        data = await res.json();
-    } catch (e) {
-        $('#loading').textContent = 'Could not load data.';
-        return;
-    }
-    $('#loading').hidden = true;
-    render(data);
-}
-
-function render(d) {
-    currentUserId = d.user_id;
-    const hasAccounts = (d.accounts || []).length > 0;
-    if (!hasAccounts) { $('#empty').hidden = false; return; }
-
-    renderStats(d.stats);
-    renderAccounts(d.accounts);
-    renderLiabilities(d.liabilities);
-    renderHoldings(d.holdings);
-    renderNetWorth(d.networth);
-    renderSpending(d.spending);
-    renderRecurring(d.recurring);
-    renderTx(d.transactions);
-    loadBudgets();
-    setupBudgetForm();
-}
-
-function renderStats(s) {
-    const el = $('#stats');
-    el.innerHTML = '';
-    for (const [label, val] of [['Net worth', usd(s.net_worth)], ['Assets', usd(s.assets)], ['Liabilities', usd(s.liabilities)], ['Accounts', s.accounts]]) {
-        const div = document.createElement('div');
-        div.className = 'stat';
-        div.innerHTML = `<div class="stat-val">${val}</div><div class="stat-label">${label}</div>`;
-        el.appendChild(div);
-    }
-    el.hidden = false;
-}
-
-function renderAccounts(accounts) {
-    const tb = $('#accounts-table tbody');
-    tb.innerHTML = '';
-    for (const a of accounts) {
-        const tr = document.createElement('tr');
-        const label = (a.name || a.official_name || 'Account') + (a.mask ? ` ••${a.mask}` : '');
-        const owned = Number(a.owner_id) === Number(currentUserId);
-        const relink = owned ? ` · <a href="/link.php?item_id=${encodeURIComponent(a.item_id)}" title="Re-link to grant consent (e.g. cards, investments) or fix a connection">↻ re-link</a>` : '';
-        const visCell = owned
-            ? `<select class="vis-select" data-account="${esc(a.account_id)}">
-                 <option value="shared"${a.visibility === 'shared' ? ' selected' : ''}>shared</option>
-                 <option value="private"${a.visibility === 'private' ? ' selected' : ''}>private</option>
-               </select>`
-            : `<span class="tag">${esc(a.visibility)}</span>`;
-        tr.innerHTML =
-            `<td>${esc(label)}<div class="muted" style="font-size:.8rem">${esc(a.institution_name || '')}${relink}</div></td>` +
-            `<td>${esc([a.type, a.subtype].filter(Boolean).join(' / '))}</td>` +
-            `<td class="num">${a.balance_available != null ? usd(a.balance_available) : '—'}</td>` +
-            `<td class="num">${a.balance_current != null ? usd(a.balance_current) : '—'}</td>` +
-            `<td>${visCell}</td>`;
-        tb.appendChild(tr);
-    }
-    tb.querySelectorAll('.vis-select').forEach(sel => sel.addEventListener('change', async ev => {
-        await postJSON('/api/account.php', { action: 'visibility', account_id: ev.target.dataset.account, visibility: ev.target.value });
-    }));
-    $('#accounts-card').hidden = false;
-}
-
-function renderLiabilities(rows) {
-    if (!rows || rows.length < 1) return;
-    const tb = $('#liabilities-table tbody');
-    tb.innerHTML = '';
-    for (const l of rows) {
-        const bal = l.outstanding_balance != null ? l.outstanding_balance : l.balance_current;
-        const tr = document.createElement('tr');
-        tr.innerHTML =
-            `<td>${esc(l.account_name || '')}${l.mask ? ` ••${esc(l.mask)}` : ''}</td>` +
-            `<td><span class="tag">${esc(l.liability_type)}</span></td>` +
-            `<td class="num">${bal != null ? usd(bal) : '—'}</td>` +
-            `<td class="num">${l.apr_percentage != null ? Number(l.apr_percentage).toFixed(2) + '%' : '—'}</td>` +
-            `<td>${esc(l.next_payment_due_date || '—')}</td>` +
-            `<td class="num">${l.minimum_payment_amount != null ? usd(l.minimum_payment_amount) : '—'}</td>`;
-        tb.appendChild(tr);
-    }
-    $('#liabilities-card').hidden = false;
-}
-
-function renderHoldings(rows) {
-    if (!rows || rows.length < 1) return;
-    const tb = $('#holdings-table tbody');
-    tb.innerHTML = '';
-    for (const h of rows) {
-        const tr = document.createElement('tr');
-        const sec = (h.ticker_symbol ? h.ticker_symbol + ' — ' : '') + (h.security_name || '');
-        tr.innerHTML =
-            `<td>${esc(sec || '—')}</td>` +
-            `<td>${esc(h.account_name || '')}${h.mask ? ` ••${esc(h.mask)}` : ''}</td>` +
-            `<td class="num">${h.quantity != null ? Number(h.quantity).toLocaleString() : '—'}</td>` +
-            `<td class="num">${h.institution_price != null ? usd(h.institution_price) : '—'}</td>` +
-            `<td class="num">${h.institution_value != null ? usd(h.institution_value) : '—'}</td>`;
-        tb.appendChild(tr);
-    }
-    $('#holdings-card').hidden = false;
-}
-
-function renderNetWorth(series) {
-    if (!series || series.length < 1) return;
-    $('#networth-card').hidden = false;
-    new Chart($('#networth-chart'), {
-        type: 'line',
-        data: { labels: series.map(p => p.snapshot_date), datasets: [{ label: 'Net worth', data: series.map(p => p.net_worth), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)', fill: true, tension: .25 }] },
-        options: { plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => usd(v) } } } }
-    });
-}
-
-function renderSpending(rows) {
-    if (!rows || rows.length < 1) return;
-    $('#spending-card').hidden = false;
-    new Chart($('#spending-chart'), {
-        type: 'doughnut',
-        data: { labels: rows.map(r => prettyCat(r.category)), datasets: [{ data: rows.map(r => Number(r.total)), backgroundColor: PALETTE }] },
-        options: { plugins: { legend: { position: 'right' } } }
-    });
-}
-
-function renderRecurring(rows) {
-    if (!rows || rows.length < 1) return;
-    const tb = $('#recurring-table tbody');
-    tb.innerHTML = '';
-    for (const r of rows) {
-        const amt = Math.abs(Number(r.average_amount));
-        const amtCell = r.direction === 'inflow' ? `<span style="color:#059669">+${usd(amt)}</span>` : usd(amt);
-        const tr = document.createElement('tr');
-        tr.innerHTML =
-            `<td>${esc(r.merchant_name || r.description || '—')}</td>` +
-            `<td>${r.category_primary ? `<span class="tag">${esc(prettyCat(r.category_primary))}</span>` : ''}</td>` +
-            `<td>${esc(prettyCat(r.frequency || ''))}</td>` +
-            `<td>${esc(r.account_name || '')}${r.mask ? ` ••${esc(r.mask)}` : ''}</td>` +
-            `<td class="num">${amtCell}</td>` +
-            `<td>${esc(r.last_date || '')}</td>`;
-        tb.appendChild(tr);
-    }
-    $('#recurring-card').hidden = false;
-}
-
-function renderTx(tx) {
-    allTx = tx || [];
-    drawTx(allTx);
-    $('#tx-card').hidden = false;
-    const search = $('#table-search');
-    search.addEventListener('input', ev => {
-        const q = ev.target.value.toLowerCase();
-        drawTx(allTx.filter(t =>
-            (t.merchant_name || t.name || '').toLowerCase().includes(q) ||
-            (t.category || '').toLowerCase().includes(q)
-        ));
-        $('#export-csv').href = '/api/export.php' + (q ? ('?q=' + encodeURIComponent(ev.target.value)) : '');
-    });
-}
-
-function drawTx(rows) {
-    const tb = $('#tx-table tbody');
-    tb.innerHTML = '';
-    for (const t of rows) {
-        const tr = document.createElement('tr');
-        const merchant = t.merchant_name || t.name || '—';
-        const amt = Number(t.amount);
-        const amtCell = amt < 0 ? `<span style="color:#059669">+${usd(-amt)}</span>` : usd(amt);
-        const catInner = t.category ? `<span class="tag">${esc(prettyCat(t.category))}</span>` : '<span class="muted">set…</span>';
-        tr.innerHTML =
-            `<td>${esc(t.date)}${t.pending == 1 ? ' <span class="tag">pending</span>' : ''}</td>` +
-            `<td>${esc(merchant)}</td>` +
-            `<td class="cat-cell" data-tx="${esc(t.transaction_id)}">${catInner}<span class="cat-edit-hint">✎</span></td>` +
-            `<td>${esc(t.account_name || '')}${t.mask ? ` ••${esc(t.mask)}` : ''}</td>` +
-            `<td class="num">${amtCell}</td>`;
-        tb.appendChild(tr);
-    }
-    tb.querySelectorAll('.cat-cell').forEach(cell => cell.addEventListener('click', () => recategorize(cell)));
-}
-
-async function recategorize(cell) {
-    const txId = cell.dataset.tx;
-    const current = (cell.querySelector('.tag')?.textContent || '').toUpperCase().replace(/ /g, '_');
-    const val = prompt('Category for this transaction (blank = revert to Plaid):', current);
-    if (val === null) return;
-    const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: txId, category: val.trim() });
-    if (out && out.ok) {
-        const t = allTx.find(x => x.transaction_id === txId);
-        if (t) t.category = out.category;
-        drawTx(filteredTx());
-    }
-}
-
-function filteredTx() {
-    const q = ($('#table-search').value || '').toLowerCase();
-    if (!q) return allTx;
-    return allTx.filter(t => (t.merchant_name || t.name || '').toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q));
-}
-
-/* ---- Budgets ---- */
-async function loadBudgets() {
-    let data;
-    try { data = await (await fetch('/api/budgets.php', { credentials: 'same-origin' })).json(); }
-    catch (e) { return; }
-    const list = $('#budgets-list');
-    list.innerHTML = '';
-    const budgets = data.budgets || [];
-    $('#budgets-empty').hidden = budgets.length > 0;
-    for (const b of budgets) {
-        const pct = b.monthly_limit > 0 ? Math.min(100, (b.spent / b.monthly_limit) * 100) : 0;
-        const over = b.spent > b.monthly_limit;
-        const row = document.createElement('div');
-        row.className = 'budget-row';
-        row.innerHTML =
-            `<div class="b-head"><span>${esc(prettyCat(b.category))} ${over ? '⚠️' : ''}</span>` +
-            `<span class="muted">${usd(b.spent)} / ${usd(b.monthly_limit)} <button class="budget-del" data-id="${b.id}">✕</button></span></div>` +
-            `<div class="budget-bar${over ? ' over' : ''}"><span style="width:${pct}%"></span></div>`;
-        list.appendChild(row);
-    }
-    list.querySelectorAll('.budget-del').forEach(btn => btn.addEventListener('click', async () => {
-        await postJSON('/api/budgets.php', { id: Number(btn.dataset.id) }, 'DELETE');
-        loadBudgets();
-    }));
-    $('#budgets-card').hidden = false;
-}
-
-function setupBudgetForm() {
-    const btn = $('#add-budget-btn'), form = $('#add-budget-form');
-    if (btn.dataset.wired) return;
-    btn.dataset.wired = '1';
-    btn.addEventListener('click', () => { form.hidden = !form.hidden; });
-    form.addEventListener('submit', async ev => {
-        ev.preventDefault();
-        const category = $('#budget-cat').value.trim();
-        const monthly_limit = Number($('#budget-limit').value);
-        if (!category || !(monthly_limit > 0)) return;
-        await postJSON('/api/budgets.php', { category, monthly_limit });
-        $('#budget-cat').value = ''; $('#budget-limit').value = '';
-        form.hidden = true;
-        loadBudgets();
-    });
-}
+const usdCompact = n => {
+  const a = Math.abs(Number(n) || 0);
+  if (a >= 1e6) return '$' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'k';
+  return '$' + Math.round(n);
+};
+const sliceColor = i => `hsl(${(i * 67) % 360},65%,55%)`;
 
 async function postJSON(url, body, method = 'POST') {
-    try {
-        const res = await fetch(url, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        return await res.json();
-    } catch (e) { return null; }
+  try {
+    const res = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (e) { return null; }
 }
 
-function prettyCat(c) { return (c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
-function esc(s) { return String(s ?? '').replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m])); }
+/* ---- Navigation drawer --------------------------------------------------- */
+function initDrawer() {
+  const open = $('#menu-open'), close = $('#menu-close'), scrim = $('#scrim'), drawer = $('#drawer');
+  if (!open || !drawer) return;
+  const setOpen = on => {
+    document.body.classList.toggle('menu-open', on);
+    open.setAttribute('aria-expanded', on ? 'true' : 'false');
+    drawer.setAttribute('aria-hidden', on ? 'false' : 'true');
+    if (on) { const f = drawer.querySelector('a, button'); f && f.focus(); }
+    else { open.focus(); }
+  };
+  open.addEventListener('click', () => setOpen(true));
+  close && close.addEventListener('click', () => setOpen(false));
+  scrim && scrim.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) setOpen(false); });
+}
 
-load();
+/* ---- Charts -------------------------------------------------------------- */
+function themeColors() {
+  const cs = getComputedStyle(document.body);
+  const v = n => cs.getPropertyValue(n).trim();
+  return { ink: v('--ink-2') || '#475569', muted: v('--muted') || '#8a94a6', line: v('--line') || '#e6e9ef', brand: v('--brand') || '#4f46e5' };
+}
+
+function readData(canvas) {
+  const el = document.getElementById(canvas.dataset.src);
+  if (!el) return null;
+  try { return JSON.parse(el.textContent); } catch (e) { return null; }
+}
+
+function initCharts() {
+  if (typeof Chart === 'undefined') return;
+  const c = themeColors();
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = c.muted;
+
+  $$('canvas[data-chart]').forEach(canvas => {
+    const d = readData(canvas);
+    if (!d) return;
+    const type = canvas.dataset.chart;
+
+    if (type === 'line' || type === 'spark') {
+      const ctx = canvas.getContext('2d');
+      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height || 240);
+      grad.addColorStop(0, hexA(c.brand, .28));
+      grad.addColorStop(1, hexA(c.brand, 0));
+      const spark = type === 'spark';
+      new Chart(canvas, {
+        type: 'line',
+        data: { labels: d.labels, datasets: [{
+          data: d.values, borderColor: c.brand, backgroundColor: grad,
+          borderWidth: 2, fill: true, tension: .3, pointRadius: 0, pointHoverRadius: spark ? 0 : 4,
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: !spark, callbacks: { label: i => usd(i.parsed.y) } } },
+          scales: spark
+            ? { x: { display: false }, y: { display: false } }
+            : {
+                x: { grid: { display: false }, ticks: { maxTicksLimit: 5, maxRotation: 0 } },
+                y: { grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+              },
+        },
+      });
+    }
+
+    if (type === 'doughnut') {
+      new Chart(canvas, {
+        type: 'doughnut',
+        data: { labels: d.labels, datasets: [{
+          data: d.values, backgroundColor: d.values.map((_, i) => sliceColor(i)),
+          borderColor: getComputedStyle(document.body).getPropertyValue('--surface').trim() || '#fff', borderWidth: 2,
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '62%',
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: i => `${i.label}: ${usd(i.parsed)}` } } },
+        },
+      });
+    }
+  });
+}
+
+/* turn a hex/rgb/hsl colour into a translucent rgba()/hsla() with the given alpha */
+function hexA(color, alpha) {
+  color = color.trim();
+  if (color.startsWith('#')) {
+    let h = color.slice(1);
+    if (h.length === 3) h = h.split('').map(x => x + x).join('');
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+  }
+  if (color.startsWith('hsl(')) return color.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `,${alpha})`);
+  if (color.startsWith('rgb(')) return color.replace(/^rgb\(/, 'rgba(').replace(/\)$/, `,${alpha})`);
+  return color;
+}
+
+/* ---- Search / filter ----------------------------------------------------- */
+function initFilters() {
+  $$('.search-input[data-filter]').forEach(input => {
+    const container = $(input.dataset.filter);
+    if (!container) return;
+    const exportSel = input.dataset.export;
+    const exportEl = exportSel ? $(exportSel) : null;
+    const exportBase = exportEl ? exportEl.getAttribute('href').split('?')[0] : null;
+    const exportQuery = exportEl ? (exportEl.getAttribute('href').split('?')[1] || '') : '';
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      $$('.row[data-search]', container).forEach(row => {
+        row.classList.toggle('is-hidden', q !== '' && !row.dataset.search.includes(q));
+      });
+      // collapse day-group headers that now have no visible rows
+      let dayEl = null, count = 0;
+      const finalize = () => { if (dayEl) dayEl.classList.toggle('is-hidden', count === 0); };
+      Array.from(container.children).forEach(ch => {
+        if (ch.hasAttribute('data-daygroup')) { finalize(); dayEl = ch; count = 0; }
+        else if (ch.classList.contains('row') && !ch.classList.contains('is-hidden')) { count++; }
+      });
+      finalize();
+      // keep CSV export link in sync
+      if (exportEl) {
+        const parts = [];
+        if (exportQuery) parts.push(exportQuery);
+        if (q) parts.push('q=' + encodeURIComponent(input.value.trim()));
+        exportEl.href = exportBase + (parts.length ? '?' + parts.join('&') : '');
+      }
+    });
+  });
+}
+
+/* ---- Recategorize -------------------------------------------------------- */
+function initRecategorize() {
+  $$('.cat-chip[data-tx]').forEach(chip => {
+    chip.addEventListener('click', async e => {
+      e.preventDefault(); e.stopPropagation();
+      const current = chip.textContent === 'Set category' ? '' : chip.textContent.toUpperCase().replace(/ /g, '_');
+      const val = prompt('Category for this transaction (blank = revert to Plaid):', current);
+      if (val === null) return;
+      const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: chip.dataset.tx, category: val.trim() });
+      if (out && out.ok) chip.textContent = out.category ? prettyCat(out.category) : 'Set category';
+    });
+  });
+}
+
+/* ---- Account visibility -------------------------------------------------- */
+function initVisibility() {
+  $$('.vis-select[data-account]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      await postJSON('/api/account.php', { action: 'visibility', account_id: sel.dataset.account, visibility: sel.value });
+      sel.disabled = false;
+    });
+  });
+}
+
+/* ---- Budgets ------------------------------------------------------------- */
+function initBudgets() {
+  const btn = $('#add-budget-btn'), form = $('#add-budget-form');
+  if (btn && form) {
+    btn.addEventListener('click', () => { form.hidden = !form.hidden; if (!form.hidden) $('#budget-cat').focus(); });
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const category = $('#budget-cat').value.trim();
+      const monthly_limit = Number($('#budget-limit').value);
+      if (!category || !(monthly_limit > 0)) return;
+      const out = await postJSON('/api/budgets.php', { category, monthly_limit });
+      if (out && out.ok) location.reload();
+    });
+  }
+  $$('.budget-del[data-id]').forEach(del => {
+    del.addEventListener('click', async e => {
+      e.preventDefault();
+      const out = await postJSON('/api/budgets.php', { id: Number(del.dataset.id) }, 'DELETE');
+      if (out && out.ok) location.reload();
+    });
+  });
+}
+
+function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
+
+/* ---- Boot ---------------------------------------------------------------- */
+initDrawer();
+initCharts();
+initFilters();
+initRecategorize();
+initVisibility();
+initBudgets();
