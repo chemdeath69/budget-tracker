@@ -54,4 +54,16 @@ return [
         'large_tx_threshold' => 200.0,    // USD; outflow above this triggers an email
         'from'              => 'budget@example.com',
     ],
+
+    // Manual (non-Plaid) accounts. Uploaded source documents (e.g. Webull PDFs)
+    // are kept on disk for audit/re-parse. Ideally OUTSIDE the web root — but on
+    // this host the home dir is root-owned and the only user-writable area is the
+    // docroot, so we keep them under it and hard-deny web access three ways:
+    // storage/.htaccess (Require all denied) + a root .htaccess rule + a deny file
+    // written at runtime by lib/manual/ingest.php.
+    'storage' => [
+        'manual_dir' => '/home/cpuser/www/budget/storage/manual',
+    ],
+    // poppler's pdftotext, used to read uploaded PDFs (host has it at /usr/bin).
+    'pdftotext' => '/usr/bin/pdftotext',
 ];

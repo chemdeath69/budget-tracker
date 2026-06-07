@@ -1,0 +1,4 @@
+# Kept source documents for manual accounts (e.g. Webull PDFs). NEVER web-served.
+Require all denied
+Deny from all
+Options -Indexes

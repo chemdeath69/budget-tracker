@@ -19,7 +19,7 @@ function q_accounts(PDO $pdo, int $uid): array
                 a.balance_available, a.balance_current, a.balance_limit,
                 a.visibility, i.institution_name, i.institution_id,
                 i.user_id AS owner_id, i.item_id, i.status AS item_status,
-                i.error_code
+                i.error_code, i.source, i.manual_type
          FROM accounts a JOIN items i ON a.item_id = i.item_id
          WHERE " . VIS . "
          ORDER BY i.institution_name, a.name"
@@ -34,9 +34,10 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
     $st = $pdo->prepare(
         "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
                 a.balance_available, a.balance_current, a.balance_limit,
-                a.iso_currency_code, a.visibility,
+                a.iso_currency_code, a.visibility, a.last_updated_datetime,
                 i.institution_name, i.institution_id, i.user_id AS owner_id,
-                i.item_id, i.status AS item_status, i.error_code, i.last_synced_at
+                i.item_id, i.status AS item_status, i.error_code, i.last_synced_at,
+                i.source, i.manual_type
          FROM accounts a JOIN items i ON a.item_id = i.item_id
          WHERE a.account_id = :acct AND " . VIS . "
          LIMIT 1"
@@ -115,7 +116,7 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
-         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
          GROUP BY category
          ORDER BY total DESC"
@@ -134,7 +135,7 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
-         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)"
     );
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
@@ -243,7 +244,7 @@ function q_budgets(PDO $pdo): array
         "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
                 SUM(t.amount) AS spent
          FROM transactions t
-         WHERE t.pending = 0 AND t.amount > 0
+         WHERE t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND DATE_FORMAT(t.date, '%Y-%m') = :m
          GROUP BY category"
     );
@@ -280,4 +281,39 @@ function account_label(array $a): string
 function is_liability(array $a): bool
 {
     return in_array($a['type'] ?? '', ['credit', 'loan'], true);
+}
+
+/** Is this a manual (document-updated, non-Plaid) account? */
+function is_manual(array $a): bool
+{
+    return ($a['source'] ?? 'plaid') === 'manual';
+}
+
+/**
+ * Ingested documents for a manual account (newest first). The caller must have
+ * already fetched the account via q_account() (which enforces visibility).
+ */
+function q_manual_documents(PDO $pdo, string $accountId): array
+{
+    $st = $pdo->prepare(
+        'SELECT id, doc_type, period_key, original_name, byte_size, summary, uploaded_at
+         FROM manual_documents WHERE account_id = ?
+         ORDER BY uploaded_at DESC'
+    );
+    $st->execute([$accountId]);
+    return $st->fetchAll();
+}
+
+/** Yearly 1099 tax summaries for a manual account (newest year first). */
+function q_tax_summaries(PDO $pdo, string $accountId): array
+{
+    $st = $pdo->prepare(
+        'SELECT tax_year, ordinary_dividends, qualified_dividends, capital_gain_distributions,
+                interest_income, federal_tax_withheld, foreign_tax_paid,
+                proceeds, cost_basis, net_gain_loss
+         FROM manual_tax_summaries WHERE account_id = ?
+         ORDER BY tax_year DESC'
+    );
+    $st->execute([$accountId]);
+    return $st->fetchAll();
 }

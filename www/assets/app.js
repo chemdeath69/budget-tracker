@@ -43,6 +43,16 @@ function initDrawer() {
   close && close.addEventListener('click', () => setOpen(false));
   scrim && scrim.addEventListener('click', () => setOpen(false));
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) setOpen(false); });
+
+  // On desktop the drawer is a permanent sidebar (CSS): expose it to assistive
+  // tech and make sure no left-over mobile "open" state lingers across resizes.
+  const desktop = window.matchMedia('(min-width: 1024px)');
+  const syncDesktop = () => {
+    if (desktop.matches) { document.body.classList.remove('menu-open'); drawer.setAttribute('aria-hidden', 'false'); }
+    else { drawer.setAttribute('aria-hidden', 'true'); }
+  };
+  desktop.addEventListener('change', syncDesktop);
+  syncDesktop();
 }
 
 /* ---- Charts -------------------------------------------------------------- */

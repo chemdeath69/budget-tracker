@@ -23,11 +23,20 @@ if (!$acct) {
 $owner   = (int)$acct['owner_id'] === $uid;
 $debt    = is_liability($acct);
 $isInvest = ($acct['type'] ?? '') === 'investment';
+$manual  = is_manual($acct);
 $bal     = (float)($acct['balance_current'] ?? 0);
 $txns    = q_transactions($pdo, $uid, ['account_id' => $accountId, 'limit' => 200]);
 $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
 $holds   = $isInvest ? q_holdings($pdo, $uid, $accountId) : [];
 $errored = ($acct['item_status'] ?? '') === 'error' || !empty($acct['error_code']);
+
+$manualCfg = null; $mdocs = []; $taxes = [];
+if ($manual) {
+    require_once __DIR__ . '/lib/manual/registry.php';
+    $manualCfg = manual_type($acct['manual_type'] ?? '');
+    $mdocs = q_manual_documents($pdo, $accountId);
+    $taxes = q_tax_summaries($pdo, $accountId);
+}
 
 render_header($acct['name'] ?: 'Account', '', [
     'back'     => '/index.php',
@@ -35,12 +44,19 @@ render_header($acct['name'] ?: 'Account', '', [
 ]);
 ?>
 
+<?php foreach (flash_take() as $fl): ?>
+    <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
+<?php endforeach; ?>
+
 <?php if ($errored): ?>
     <div class="notice warn">
         This connection needs attention<?= $acct['error_code'] ? ' (' . e($acct['error_code']) . ')' : '' ?>.
         <?php if ($owner): ?><a href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link now ›</a><?php endif; ?>
     </div>
 <?php endif; ?>
+
+<div class="cols aside">
+<div class="col"><!-- summary / details -->
 
 <!-- Balance summary -->
 <section class="card balance-card">
@@ -59,7 +75,31 @@ render_header($acct['name'] ?: 'Account', '', [
         <div><span class="muted"><?= $debt ? 'Credit limit' : 'Limit' ?></span><strong><?= e(usd($acct['balance_limit'])) ?></strong></div>
         <?php endif; ?>
     </div>
+    <?php if ($manual && $acct['last_updated_datetime']): ?>
+    <div class="balance-asof muted">As of statement <?= e(substr((string)$acct['last_updated_datetime'], 0, 10)) ?></div>
+    <?php endif; ?>
 </section>
+
+<!-- Manual update (owner only) -->
+<?php if ($manual && $owner): ?>
+<section class="card update-card">
+    <h2>Update <?= e($manualCfg['label'] ?? 'account') ?></h2>
+    <p class="muted">Upload a document to refresh balances, holdings and transactions. Re-uploading
+        the same period replaces it — no duplicates. The document type is detected automatically.</p>
+    <form method="post" action="/api/manual_upload.php" enctype="multipart/form-data" class="upload-form">
+        <input type="hidden" name="account_id" value="<?= e($accountId) ?>">
+        <input class="input file-input" type="file" name="document" accept="application/pdf,.pdf" required>
+        <button class="btn" type="submit">Upload &amp; update</button>
+    </form>
+    <?php if ($manualCfg): ?>
+    <p class="muted upload-hint">Accepted: <?= e(implode(' · ', array_values($manualCfg['doc_types']))) ?>.</p>
+    <?php endif; ?>
+</section>
+<?php elseif ($manual && !$mdocs): ?>
+<section class="card">
+    <p class="muted">No documents uploaded yet. The owner can upload a statement to populate this account.</p>
+</section>
+<?php endif; ?>
 
 <!-- Liability details -->
 <?php foreach ($liabs as $l): ?>
@@ -97,6 +137,45 @@ render_header($acct['name'] ?: 'Account', '', [
 </section>
 <?php endif; ?>
 
+<!-- Tax summary (manual 1099) -->
+<?php if ($manual && $taxes): ?>
+<section class="card">
+    <h2>Tax summary (1099)</h2>
+    <?php foreach ($taxes as $tx): ?>
+    <div class="tax-year">
+        <div class="tax-year-head"><strong><?= e($tx['tax_year']) ?></strong></div>
+        <div class="kv-grid">
+            <div><span class="muted">Ordinary dividends</span><strong><?= e(usd($tx['ordinary_dividends'])) ?></strong></div>
+            <div><span class="muted">Qualified dividends</span><strong><?= e(usd($tx['qualified_dividends'])) ?></strong></div>
+            <?php if ($tx['interest_income'] !== null): ?><div><span class="muted">Interest income</span><strong><?= e(usd($tx['interest_income'])) ?></strong></div><?php endif; ?>
+            <?php if ($tx['capital_gain_distributions'] !== null): ?><div><span class="muted">Cap. gain distributions</span><strong><?= e(usd($tx['capital_gain_distributions'])) ?></strong></div><?php endif; ?>
+            <?php if ($tx['proceeds'] !== null): ?><div><span class="muted">Sale proceeds</span><strong><?= e(usd($tx['proceeds'])) ?></strong></div><?php endif; ?>
+            <?php if ($tx['net_gain_loss'] !== null): ?><div><span class="muted">Net gain/loss</span><strong><?= e(usd($tx['net_gain_loss'])) ?></strong></div><?php endif; ?>
+            <?php if ($tx['federal_tax_withheld'] !== null): ?><div><span class="muted">Fed. tax withheld</span><strong><?= e(usd($tx['federal_tax_withheld'])) ?></strong></div><?php endif; ?>
+        </div>
+    </div>
+    <?php endforeach; ?>
+</section>
+<?php endif; ?>
+
+<!-- Uploaded documents (manual) -->
+<?php if ($manual && $mdocs): ?>
+<section class="block">
+    <div class="block-head"><h2>Uploaded documents</h2></div>
+    <div class="rows">
+        <?php foreach ($mdocs as $d):
+            $label = $manualCfg['doc_types'][$d['doc_type']] ?? ucfirst($d['doc_type']); ?>
+        <div class="row">
+            <span class="row-main">
+                <span class="row-title"><?= e($label) ?> · <?= e($d['period_key']) ?></span>
+                <span class="row-sub muted"><?= e($d['original_name'] ?: 'document.pdf') ?> · uploaded <?= e(substr((string)$d['uploaded_at'], 0, 10)) ?></span>
+            </span>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</section>
+<?php endif; ?>
+
 <!-- Owner controls -->
 <?php if ($owner): ?>
 <section class="card">
@@ -110,6 +189,7 @@ render_header($acct['name'] ?: 'Account', '', [
             <option value="private"<?= $acct['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
         </select>
     </div>
+    <?php if (!$manual): ?>
     <div class="control-row">
         <div>
             <strong>Connection</strong>
@@ -117,8 +197,12 @@ render_header($acct['name'] ?: 'Account', '', [
         </div>
         <a class="btn-ghost" href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link</a>
     </div>
+    <?php endif; ?>
 </section>
 <?php endif; ?>
+
+</div><!-- /.col summary -->
+<div class="col"><!-- transactions -->
 
 <!-- Transactions for this account -->
 <section class="block">
@@ -149,5 +233,8 @@ render_header($acct['name'] ?: 'Account', '', [
         <?php endforeach; endif; ?>
     </div>
 </section>
+
+</div><!-- /.col transactions -->
+</div><!-- /.cols aside -->
 
 <?php render_footer(); ?>

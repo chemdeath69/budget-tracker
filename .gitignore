@@ -14,3 +14,7 @@ docs/CREDENTIALS.local.md
 # Local UI preview harness (static mock pages) + throwaway screenshots
 preview/
 *.png
+
+# Kept manual-account documents (server-side data; never commit). Keep the deny .htaccess.
+www/storage/manual/
+!www/storage/.htaccess

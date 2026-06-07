@@ -349,3 +349,79 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 @media (prefers-reduced-motion: reduce) {
   .drawer, .scrim, .budget-bar > span { transition: none; }
 }
+
+/* ---- Manual accounts (add / upload / docs / tax) ------------------------ */
+.notice.ok { background: color-mix(in srgb, var(--pos) 14%, transparent); color: var(--pos);
+  border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent); }
+.stack-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.input { font: inherit; padding: 11px 13px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: var(--surface); color: var(--ink); width: 100%; }
+.upload-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.file-input { padding: 9px; cursor: pointer; }
+.file-input::file-selector-button { font: inherit; font-weight: 600; margin-right: 10px;
+  padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.upload-hint { font-size: .8rem; margin-top: 2px; }
+.balance-asof { font-size: .8rem; margin-top: 12px; }
+.tax-year + .tax-year { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tax-year-head { margin-bottom: 4px; }
+
+/* ==========================================================================
+   Responsive multi-column wrappers
+   `.cols` auto-fits: one column when its container is narrow (mobile, where
+   `.screen` is ~600px), two when it's wide (desktop). No media query needed —
+   the column count follows the available width. `.cols.aside` is an explicit
+   summary+detail split that only kicks in on desktop (see the desktop block).
+   ========================================================================== */
+.cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+.cols > * { min-width: 0; }
+.col { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.cols.aside { display: flex; flex-direction: column; }  /* stacks until desktop */
+
+/* ==========================================================================
+   Desktop / wide screens (>= 1024px) — persistent sidebar + roomier content.
+   Below this width the mobile-first single-column design is left untouched.
+   ========================================================================== */
+@media (min-width: 1024px) {
+  :root { --sidebar-w: 264px; }
+
+  /* Shift app pages right of the fixed sidebar (login/link pages have no
+     data-page attribute, so they keep their full-bleed centered layout). */
+  body[data-page] { padding-left: var(--sidebar-w); }
+
+  /* The slide-out drawer becomes a permanent left sidebar. */
+  .drawer {
+    transform: none;
+    width: var(--sidebar-w);
+    box-shadow: none;
+    border-right: 1px solid var(--line);
+  }
+  .scrim { display: none !important; }
+  .drawer-close { display: none; }
+
+  /* Banner: drop the hamburger, left-align the title, give it breathing room. */
+  #menu-open { display: none; }
+  .banner {
+    grid-template-columns: auto 1fr auto;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .banner-title { text-align: left; }
+
+  /* Wider — but still centered and capped — content column. */
+  .screen { max-width: 1180px; padding-left: 24px; padding-right: 24px; }
+  .screen.narrow { max-width: 820px; }
+
+  /* Asymmetric summary (left) + detail (right) split for the account page. */
+  .cols.aside {
+    display: grid;
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+    gap: var(--gap);
+    align-items: start;
+  }
+}

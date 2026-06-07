@@ -63,6 +63,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
         </div>
     </section>
 
+    <div class="cols">
     <!-- Accounts (the hero of an account-centric dashboard) -->
     <?php
     $byInst = [];
@@ -128,6 +129,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <?php endif; ?>
         </a>
     </section>
+    </div><!-- /.cols -->
 
 <?php endif; ?>
 

@@ -11,7 +11,7 @@ $uid  = current_user_id();
 $accounts = q_accounts($pdo, $uid);
 $owned = array_filter($accounts, fn($a) => (int)$a['owner_id'] === $uid);
 
-render_header('Settings', 'settings');
+render_header('Settings', 'settings', ['narrow' => true]);
 ?>
 
 <!-- Profile -->
@@ -34,6 +34,14 @@ render_header('Settings', 'settings');
         </span>
         <span class="chev" aria-hidden="true">›</span>
     </a>
+    <a class="card action-card" href="/manual_add.php">
+        <span class="acct-icon"><?= nav_icon('invest') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Add a manual account</span>
+            <span class="acct-sub muted">For institutions not on Plaid (e.g. Webull) — update by uploading documents</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
 </section>
 
 <!-- Manage owned accounts -->
@@ -53,7 +61,11 @@ render_header('Settings', 'settings');
                     <option value="shared"<?= $a['visibility'] === 'shared' ? ' selected' : '' ?>>Shared</option>
                     <option value="private"<?= $a['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
                 </select>
-                <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
+                <?php if (($a['source'] ?? 'plaid') === 'manual'): ?>
+                    <a class="btn-ghost sm" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Update</a>
+                <?php else: ?>
+                    <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
+                <?php endif; ?>
             </span>
         </div>
         <?php endforeach; ?>

@@ -3,6 +3,9 @@ RewriteEngine On
 RewriteCond %{HTTPS} off
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
+# Never serve kept manual-account documents (defense in depth; storage/.htaccess also denies)
+RewriteRule ^storage/ - [F]
+
 # Security headers
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"

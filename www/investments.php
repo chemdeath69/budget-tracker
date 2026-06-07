@@ -11,7 +11,7 @@ $uid  = current_user_id();
 $holds = q_holdings($pdo, $uid);
 $total = array_sum(array_map(fn($h) => (float)($h['institution_value'] ?? 0), $holds));
 
-render_header('Investments', 'investments');
+render_header('Investments', 'investments', ['narrow' => true]);
 ?>
 
 <?php if (!$holds): ?>

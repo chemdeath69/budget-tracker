@@ -45,3 +45,17 @@ function usd($n): string
 {
     return '$' . number_format((float)$n, 2);
 }
+
+/** Queue a one-shot flash message (consumed on the next page render). */
+function flash_set(string $type, string $msg): void
+{
+    $_SESSION['flash'][] = ['type' => $type, 'msg' => $msg];
+}
+
+/** Take and clear queued flash messages. */
+function flash_take(): array
+{
+    $f = $_SESSION['flash'] ?? [];
+    unset($_SESSION['flash']);
+    return is_array($f) ? $f : [];
+}

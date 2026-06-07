@@ -10,7 +10,7 @@ $pdo  = db();
 $uid  = current_user_id();
 $txns = q_transactions($pdo, $uid, ['limit' => 300]);
 
-render_header('Transactions', 'transactions');
+render_header('Transactions', 'transactions', ['narrow' => true]);
 ?>
 
 <div class="search-bar sticky-search">

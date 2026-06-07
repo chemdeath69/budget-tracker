@@ -84,7 +84,10 @@ function user_avatar_html(bool $large = false): string
 
 /**
  * Emit the document head + banner + drawer and open <main>.
- *  $active = nav key to highlight. $opts: ['chart'=>bool, 'back'=>?string url, 'subtitle'=>string]
+ *  $active = nav key to highlight.
+ *  $opts: ['chart'=>bool, 'back'=>?string url, 'subtitle'=>string, 'narrow'=>bool]
+ *  narrow => true caps the desktop content column tighter (~820px) for linear,
+ *  single-column pages (lists, forms) instead of the default wide (~1180px).
  */
 function render_header(string $title, string $active = '', array $opts = []): void
 {
@@ -162,7 +165,7 @@ function render_header(string $title, string $active = '', array $opts = []): vo
         </div>
     </nav>
 
-    <main class="screen" id="main">
+    <main class="screen<?= !empty($opts['narrow']) ? ' narrow' : '' ?>" id="main">
     <?php if (!empty($opts['subtitle'])): ?>
         <p class="screen-subtitle"><?= e($opts['subtitle']) ?></p>
     <?php endif;

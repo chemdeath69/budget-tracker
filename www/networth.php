@@ -60,6 +60,7 @@ function nw_account_rows(array $rows, bool $debt): void
     <?php endif; ?>
 </section>
 
+<div class="cols">
 <section class="block">
     <div class="block-head"><h2>Assets</h2><span class="split-value pos"><?= e(usd($stats['assets'])) ?></span></div>
     <div class="rows">
@@ -73,5 +74,6 @@ function nw_account_rows(array $rows, bool $debt): void
         <?php $debts ? nw_account_rows($debts, true) : print('<p class="muted" style="padding:1rem">No debts. 🎉</p>'); ?>
     </div>
 </section>
+</div><!-- /.cols -->
 
 <?php render_footer(); ?>

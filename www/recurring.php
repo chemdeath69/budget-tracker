@@ -43,6 +43,7 @@ function recurring_rows(array $rows): void
         <p class="muted">Plaid identifies subscriptions and recurring bills automatically once enough transaction history is synced.</p>
     </div>
 <?php else: ?>
+    <div class="cols">
     <?php if ($out): ?>
     <section class="block">
         <div class="block-head"><h2>Subscriptions &amp; bills</h2><span class="count-pill"><?= count($out) ?></span></div>
@@ -56,6 +57,7 @@ function recurring_rows(array $rows): void
         <div class="rows card"><?php recurring_rows($in); ?></div>
     </section>
     <?php endif; ?>
+    </div><!-- /.cols -->
 <?php endif; ?>
 
 <?php render_footer(); ?>

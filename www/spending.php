@@ -15,6 +15,7 @@ $bud   = q_budgets($pdo);
 render_header('Spending & budgets', 'spending', ['chart' => true]);
 ?>
 
+<div class="cols">
 <!-- Spending by category -->
 <section class="card">
     <div class="block-head">
@@ -83,5 +84,6 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
     </div>
     <p class="muted load-note">Budgets are shared across the household and reset monthly.</p>
 </section>
+</div><!-- /.cols -->
 
 <?php render_footer(); ?>

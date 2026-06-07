@@ -21,14 +21,18 @@ CREATE TABLE users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
--- items — one Plaid Item = one bank login. access_token encrypted at rest.
+-- items — one feed = one Plaid Item (bank login) OR one manual account source.
+-- For source='plaid' the access_token is encrypted at rest; for source='manual'
+-- there is no token (data arrives via uploaded documents, e.g. Webull PDFs).
 -- ---------------------------------------------------------------------------
 CREATE TABLE items (
-  item_id              VARCHAR(64)  NOT NULL,      -- Plaid item_id
-  user_id              INT UNSIGNED NOT NULL,      -- owner (who linked it)
+  item_id              VARCHAR(64)  NOT NULL,      -- Plaid item_id, or synthetic mnl_… for manual
+  user_id              INT UNSIGNED NOT NULL,      -- owner (who linked/created it)
+  source               ENUM('plaid','manual') NOT NULL DEFAULT 'plaid', -- feed type
+  manual_type          VARCHAR(32)  NULL,          -- when source='manual': e.g. 'webull'
   institution_id       VARCHAR(64)  NULL,
   institution_name     VARCHAR(255) NULL,
-  access_token_enc     VARBINARY(512) NOT NULL,    -- sodium secretbox (nonce||ciphertext)
+  access_token_enc     VARBINARY(512) NULL,        -- sodium secretbox; NULL for manual items
   transactions_cursor  TEXT NULL,                  -- /transactions/sync next_cursor
   status               VARCHAR(32) NOT NULL DEFAULT 'active', -- active | error | removed
   error_code           VARCHAR(64) NULL,           -- e.g. ITEM_LOGIN_REQUIRED
@@ -85,6 +89,8 @@ CREATE TABLE transactions (
   pfc_detailed            VARCHAR(96) NULL,        -- personal_finance_category.detailed
   category_override       VARCHAR(96) NULL,        -- manual; survives re-sync
   payment_channel         VARCHAR(32) NULL,
+  ext_source              VARCHAR(16) NULL,        -- manual feed origin (e.g. 'webull'); NULL = Plaid
+  ext_period              VARCHAR(16) NULL,        -- doc bucket key (e.g. '2026-05'); scopes re-ingest
   large_tx_alerted        TINYINT(1) NOT NULL DEFAULT 0, -- de-dupe large-tx email
   raw                     JSON NULL,               -- optional full payload
   imported_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -94,10 +100,14 @@ CREATE TABLE transactions (
   KEY idx_tx_account (account_id),
   KEY idx_tx_date (date),
   KEY idx_tx_pfc (pfc_primary),
+  KEY idx_tx_ext (account_id, ext_source, ext_period),
   CONSTRAINT fk_tx_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- Upsert from sync: INSERT ... ON DUPLICATE KEY UPDATE everything EXCEPT
 -- category_override and large_tx_alerted (preserve those). 'removed' => DELETE by id.
+-- Manual rows carry ext_source/ext_period so a re-uploaded document can replace
+-- exactly its own bucket. Spending/budget queries exclude rows where ext_source
+-- IS NOT NULL (brokerage trades/cash moves are not household "spending").
 
 -- ---------------------------------------------------------------------------
 -- liabilities — credit/loan/mortgage detail (Plaid /liabilities/get)
@@ -238,4 +248,61 @@ CREATE TABLE webhook_log (
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_webhooklog_item (item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- manual_documents — one row per ingested document for a manual account.
+-- The (account_id, doc_type, period_key) UNIQUE is the dedup "bucket": one slot
+-- per monthly statement ('2026-05') or tax year ('2025'). Re-uploading the same
+-- file (same file_sha256) is a no-op; a different file in the same bucket is a
+-- correction that REPLACES that bucket's derived rows. Also points at the raw
+-- PDF kept on the server (outside the web root).
+-- ---------------------------------------------------------------------------
+CREATE TABLE manual_documents (
+  id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  account_id     VARCHAR(64) NOT NULL,
+  manual_type    VARCHAR(32) NOT NULL,             -- 'webull'
+  doc_type       VARCHAR(32) NOT NULL,             -- 'statement' | 'tax'
+  period_key     VARCHAR(16) NOT NULL,             -- 'YYYY-MM' (statement) | 'YYYY' (tax)
+  file_sha256    CHAR(64) NOT NULL,                -- exact-duplicate detection
+  stored_path    VARCHAR(255) NULL,                -- absolute path to kept PDF (outside web root)
+  original_name  VARCHAR(255) NULL,
+  byte_size      INT UNSIGNED NULL,
+  summary        JSON NULL,                        -- parsed headline figures (for the UI)
+  uploaded_by    INT UNSIGNED NULL,
+  uploaded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_doc_bucket (account_id, doc_type, period_key),
+  KEY idx_doc_hash (file_sha256),
+  KEY idx_doc_account (account_id),
+  CONSTRAINT fk_doc_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- manual_tax_summaries — yearly 1099 totals, kept in their own bucket so they
+-- are NEVER summed into the monthly transaction ledger (separate-buckets dedup).
+-- One row per (account_id, tax_year); re-uploading a corrected 1099 replaces it.
+-- ---------------------------------------------------------------------------
+CREATE TABLE manual_tax_summaries (
+  id                          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  account_id                  VARCHAR(64) NOT NULL,
+  tax_year                    CHAR(4) NOT NULL,
+  ordinary_dividends          DECIMAL(15,2) NULL,   -- 1099-DIV 1a
+  qualified_dividends         DECIMAL(15,2) NULL,   -- 1099-DIV 1b
+  capital_gain_distributions  DECIMAL(15,2) NULL,   -- 1099-DIV 2a
+  nondividend_distributions   DECIMAL(15,2) NULL,   -- 1099-DIV 3
+  section_199a_dividends      DECIMAL(15,2) NULL,   -- 1099-DIV 5
+  interest_income             DECIMAL(15,2) NULL,   -- 1099-INT 1
+  federal_tax_withheld        DECIMAL(15,2) NULL,   -- 1099-DIV/INT box 4
+  foreign_tax_paid            DECIMAL(15,2) NULL,
+  proceeds                    DECIMAL(15,2) NULL,   -- Summary of Sale Proceeds: Total Proceeds
+  cost_basis                  DECIMAL(15,2) NULL,   -- Summary of Sale Proceeds: Total Cost Basis
+  net_gain_loss               DECIMAL(15,2) NULL,   -- Summary of Sale Proceeds: Net Gain or Loss
+  document_id                 INT UNSIGNED NULL,
+  raw                         JSON NULL,            -- all parsed boxes for reference
+  updated_at                  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_tax_account_year (account_id, tax_year),
+  CONSTRAINT fk_tax_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

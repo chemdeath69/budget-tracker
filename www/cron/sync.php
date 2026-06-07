@@ -18,7 +18,11 @@ require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/sync.php';
 
 $pdo = db();
-$items = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor FROM items WHERE status <> "removed"')->fetchAll();
+// Only Plaid items have a live feed to sync. Manual (source='manual') items are
+// updated by document upload and have no access_token — skip them here (their
+// balances still flow into the snapshot written below).
+$items = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor
+                      FROM items WHERE status <> "removed" AND source = "plaid"')->fetchAll();
 
 $ts = date('Y-m-d H:i:s T');
 echo "[$ts] cron sync start — " . count($items) . " item(s)\n";
