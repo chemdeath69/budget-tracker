@@ -1,0 +1,36 @@
+<?php
+/**
+ * Daily cron — iterate all Items, sync each (transactions + balances + extras),
+ * then write the household net-worth snapshot.
+ *
+ * Run via cPanel Cron Job with the explicit PHP 8.3 CLI (bare `php` is 5.6):
+ *   /usr/local/bin/php83.cli /home/cpuser/www/budget/cron/sync.php >> ~/budget-cron.log 2>&1
+ *
+ * CLI-only guard so it can't be hit over the web.
+ */
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit("CLI only\n");
+}
+
+require __DIR__ . '/../lib/bootstrap.php';
+require __DIR__ . '/../lib/db.php';
+require __DIR__ . '/../lib/sync.php';
+
+$pdo = db();
+$items = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor FROM items WHERE status <> "removed"')->fetchAll();
+
+$ts = date('Y-m-d H:i:s T');
+echo "[$ts] cron sync start — " . count($items) . " item(s)\n";
+
+foreach ($items as $item) {
+    $r = sync_item($pdo, $item, 'cron');
+    if (!empty($r['ok'])) {
+        echo "  item {$item['item_id']}: +{$r['added']} ~{$r['modified']} -{$r['removed']}\n";
+    } else {
+        echo "  item {$item['item_id']}: FAILED — " . ($r['error'] ?? '?') . "\n";
+    }
+}
+
+write_networth_snapshot($pdo);
+echo "[" . date('Y-m-d H:i:s T') . "] cron sync done; snapshot written.\n";

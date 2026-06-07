@@ -1,0 +1,12 @@
+# Secrets — never commit
+www/lib/config.php
+docs/CREDENTIALS.local.md
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Playwright scratch from setup
+.playwright-mcp/

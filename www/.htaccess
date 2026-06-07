@@ -1,0 +1,19 @@
+# Force HTTPS (AutoSSL provides the certificate)
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Don't serve dotfiles, the schema, or config
+<FilesMatch "(^\.|\.sql$|config.*\.php$)">
+    Require all denied
+</FilesMatch>
+
+DirectoryIndex index.php
+Options -Indexes

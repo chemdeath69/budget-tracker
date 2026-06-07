@@ -1,0 +1,63 @@
+<?php
+require __DIR__ . '/../lib/bootstrap.php';
+require __DIR__ . '/../lib/db.php';
+require __DIR__ . '/../lib/auth.php';
+
+header('Content-Type: application/json');
+if (!is_logged_in()) {
+    http_response_code(401);
+    echo json_encode(['error' => 'not authenticated']);
+    exit;
+}
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'method not allowed']);
+    exit;
+}
+
+$pdo = db();
+$uid = current_user_id();
+$in  = json_decode(file_get_contents('php://input'), true) ?: [];
+$action = $in['action'] ?? '';
+
+if ($action === 'visibility') {
+    $accountId  = (string)($in['account_id'] ?? '');
+    $visibility = ($in['visibility'] ?? '') === 'private' ? 'private' : 'shared';
+
+    // Only the owner of the Item that holds this account may change visibility.
+    $own = $pdo->prepare(
+        'SELECT i.user_id FROM accounts a JOIN items i ON a.item_id = i.item_id WHERE a.account_id = ?'
+    );
+    $own->execute([$accountId]);
+    $ownerId = $own->fetchColumn();
+    if ($ownerId === false) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
+    if ((int)$ownerId !== $uid) { http_response_code(403); echo json_encode(['error' => 'only the owner can change visibility']); exit; }
+
+    $pdo->prepare('UPDATE accounts SET visibility = ? WHERE account_id = ?')->execute([$visibility, $accountId]);
+    echo json_encode(['ok' => true, 'visibility' => $visibility]);
+    exit;
+}
+
+if ($action === 'recategorize') {
+    $txId = (string)($in['transaction_id'] ?? '');
+    $cat  = trim((string)($in['category'] ?? ''));
+    $cat  = $cat === '' ? null : strtoupper($cat);
+
+    // The user must be able to see this transaction (shared OR owns the item).
+    $vis = $pdo->prepare(
+        'SELECT 1 FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE t.transaction_id = ? AND (a.visibility = "shared" OR i.user_id = ?)'
+    );
+    $vis->execute([$txId, $uid]);
+    if (!$vis->fetchColumn()) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pdo->prepare('UPDATE transactions SET category_override = ? WHERE transaction_id = ?')
+        ->execute([$cat, $txId]);
+    echo json_encode(['ok' => true, 'category' => $cat]);
+    exit;
+}
+
+http_response_code(400);
+echo json_encode(['error' => 'unknown action']);

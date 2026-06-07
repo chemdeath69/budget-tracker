@@ -1,0 +1,2 @@
+# Block all direct web access to the library/config directory.
+Require all denied
