@@ -260,6 +260,54 @@ function q_budgets(PDO $pdo): array
     return ['month' => $month, 'budgets' => $budgets];
 }
 
+/**
+ * The canonical Plaid Personal-Finance **primary** categories — the "tag"
+ * values stored in `transactions.pfc_primary`. Used to offer budget categories
+ * even before any spend exists in them. (INCOME / TRANSFER_IN are inflows and
+ * are intentionally excluded from the budget picker by budget_category_options.)
+ */
+function pfc_primary_categories(): array
+{
+    return [
+        'INCOME', 'TRANSFER_IN', 'TRANSFER_OUT', 'LOAN_PAYMENTS', 'BANK_FEES',
+        'ENTERTAINMENT', 'FOOD_AND_DRINK', 'GENERAL_MERCHANDISE', 'HOME_IMPROVEMENT',
+        'MEDICAL', 'PERSONAL_CARE', 'GENERAL_SERVICES', 'GOVERNMENT_AND_NON_PROFIT',
+        'TRANSPORTATION', 'TRAVEL', 'RENT_AND_UTILITIES',
+    ];
+}
+
+/**
+ * Options for the budget category picker: the canonical Plaid spending
+ * categories unioned with any category that actually appears in the household's
+ * outflow transactions (covers custom overrides set via recategorize, plus
+ * UNCATEGORIZED) — i.e. exactly the labels the user sees on the spending list.
+ * Returns [['value' => TAG, 'label' => 'Friendly Name'], ...] sorted by label.
+ */
+function budget_category_options(PDO $pdo, int $uid): array
+{
+    // Inflow-only categories make no sense as a spending budget — drop them.
+    $cats = array_fill_keys(array_diff(pfc_primary_categories(), ['INCOME', 'TRANSFER_IN']), true);
+
+    $st = $pdo->prepare(
+        "SELECT DISTINCT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND t.amount > 0 AND t.ext_source IS NULL"
+    );
+    $st->execute([':uid' => $uid]);
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $c) {
+        if ((string)$c !== '') $cats[$c] = true;
+    }
+
+    $opts = [];
+    foreach (array_keys($cats) as $tag) {
+        $opts[] = ['value' => $tag, 'label' => pretty_cat($tag)];
+    }
+    usort($opts, fn($a, $b) => strcmp($a['label'], $b['label']));
+    return $opts;
+}
+
 /* ---- small presentation helpers (server-side) ---------------------------- */
 
 /** "FOOD_AND_DRINK" -> "Food And Drink". */

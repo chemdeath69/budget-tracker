@@ -11,6 +11,7 @@ $uid   = current_user_id();
 $spend = q_spending($pdo, $uid, 30);
 $total = array_sum(array_map(fn($r) => (float)$r['total'], $spend));
 $bud   = q_budgets($pdo);
+$catOptions = budget_category_options($pdo, $uid);
 
 render_header('Spending & budgets', 'spending', ['chart' => true]);
 ?>
@@ -57,7 +58,12 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
     <form id="add-budget-form" class="card budget-form" hidden>
         <label class="field">
             <span>Category</span>
-            <input id="budget-cat" placeholder="e.g. FOOD_AND_DRINK" autocomplete="off">
+            <select id="budget-cat" class="input">
+                <option value="" disabled selected>Choose a category…</option>
+                <?php foreach ($catOptions as $o): ?>
+                    <option value="<?= e($o['value']) ?>"><?= e($o['label']) ?></option>
+                <?php endforeach; ?>
+            </select>
         </label>
         <label class="field">
             <span>Monthly limit ($)</span>
