@@ -287,7 +287,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     $limit = (int)($opts['limit'] ?? 100);
     $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending,
                    COALESCE(t.category_override, t.pfc_primary) AS category,
-                   a.name AS account_name, a.mask, a.account_id
+                   a.name AS account_name, a.mask, a.account_id, i.user_id AS owner_id
             FROM transactions t
             JOIN accounts a ON t.account_id = a.account_id
             JOIN items i ON a.item_id = i.item_id
@@ -330,7 +330,7 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
                 h.security_id, h.quantity, h.cost_basis, h.institution_price, h.institution_value,
                 a.name AS account_name, a.mask, a.account_id, a.last_updated_datetime,
                 a.type, a.subtype, a.retirement_flag,
-                i.institution_name, i.source, i.manual_type
+                i.institution_name, i.source, i.manual_type, i.user_id AS owner_id
          FROM holdings h
          JOIN accounts a ON h.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -508,7 +508,7 @@ function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
     $st = $pdo->prepare(
         "SELECT r.stream_id, r.direction, r.description, r.merchant_name, r.frequency,
                 r.average_amount, r.last_amount, r.last_date, r.is_active, r.category_primary,
-                a.name AS account_name, a.mask, a.account_id
+                a.name AS account_name, a.mask, a.account_id, i.user_id AS owner_id
          FROM recurring_streams r
          JOIN accounts a ON r.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -623,6 +623,38 @@ function account_label(array $a): string
 {
     $name = $a['name'] ?: ($a['official_name'] ?: 'Account');
     return $name . ($a['mask'] ? " ••{$a['mask']}" : '');
+}
+
+/**
+ * Household user display names, [user_id => name], fetched once per request.
+ * The household is tiny (2 users), so this is a single cached query via the db() singleton.
+ */
+function household_users(): array
+{
+    static $cache = null;
+    if ($cache === null) {
+        $cache = [];
+        foreach (db()->query('SELECT id, name, email FROM users')->fetchAll() as $u) {
+            $cache[(int)$u['id']] = (string)($u['name'] ?: $u['email']);
+        }
+    }
+    return $cache;
+}
+
+/** Owner's first name — a subtle "whose account is this" marker ('' if unknown). */
+function owner_first_name($ownerId): string
+{
+    $name = household_users()[(int)$ownerId] ?? '';
+    if ($name === '') return '';
+    if (strpos($name, '@') !== false) $name = strstr($name, '@', true); // email → local part
+    return preg_split('/\s+/', trim($name))[0] ?? '';
+}
+
+/** Subtle " · Name" owner suffix (HTML, pre-escaped) for an account sub-line; '' if unknown. */
+function owner_suffix($ownerId): string
+{
+    $n = owner_first_name($ownerId);
+    return $n === '' ? '' : ' · <span class="acct-owner">' . e($n) . '</span>';
 }
 
 /** Is this account a liability (debt)? */

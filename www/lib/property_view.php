@@ -98,6 +98,7 @@ function build_property_view(PDO $pdo, int $uid): ?array
 
         $M = [
             'name'            => $mort['account']['name'] ?: 'Mortgage',
+            'owner_id'        => $mort['account']['owner_id'] ?? null,
             'balance'         => $mort['balance'],
             'rate'            => $rate !== null ? (float)$rate : null,
             'rate_type'       => $raw['interest_rate']['type'] ?? null,

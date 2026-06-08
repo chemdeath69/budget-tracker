@@ -44,7 +44,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
                     <span class="row-title"><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                     <span class="row-sub">
                         <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
-                        <span class="muted">· <?= e($acctLabel) ?></span>
+                        <span class="muted">· <?= e($acctLabel) ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>
                     </span>
                 </span>
                 <span class="row-amt <?= $amt < 0 ? 'pos' : '' ?>"><?= $amt < 0 ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>

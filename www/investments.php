@@ -61,6 +61,7 @@ foreach ($holds as $h) {
             'name'    => $h['account_name'],
             'mask'    => $h['mask'],
             'inst'    => $h['institution_name'],
+            'owner_id'=> $h['owner_id'] ?? null,
             'source'  => $h['source'],
             'asof'    => $h['last_updated_datetime'],
             'value'   => 0.0,
@@ -218,7 +219,7 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
         $asof = $cov['latest'] ?? ($g['asof'] ? substr((string)$g['asof'], 0, 7) : null); ?>
     <section class="block">
         <div class="block-head">
-            <h2><a href="/account.php?account_id=<?= e(urlencode($aid)) ?>"><?= e($g['name'] ?: 'Account') ?></a><?= $g['mask'] ? ' <span class="muted">••' . e($g['mask']) . '</span>' : '' ?></h2>
+            <h2><a href="/account.php?account_id=<?= e(urlencode($aid)) ?>"><?= e($g['name'] ?: 'Account') ?></a><?= $g['mask'] ? ' <span class="muted">••' . e($g['mask']) . '</span>' : '' ?><?= owner_suffix($g['owner_id'] ?? null) ?></h2>
             <span class="split-value"><?= e(usd($g['value'])) ?></span>
         </div>
         <?php if ($asof): ?>

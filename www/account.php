@@ -39,9 +39,12 @@ if ($manual) {
     $taxes = q_tax_summaries($pdo, $accountId);
 }
 
+$acctSubtitle = trim($acct['institution_name'] ?: '');
+$acctOwner = owner_first_name($acct['owner_id'] ?? null);
+if ($acctOwner !== '') $acctSubtitle = ($acctSubtitle !== '' ? $acctSubtitle . ' · ' : '') . $acctOwner;
 render_header($acct['name'] ?: 'Account', '', [
     'back'     => '/index.php',
-    'subtitle' => $acct['institution_name'] ?: '',
+    'subtitle' => $acctSubtitle,
 ]);
 ?>
 

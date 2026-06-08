@@ -193,7 +193,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
                 <span class="acct-main">
                     <a class="acct-name" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>"><?= e($a['name'] ?: 'Retirement') ?></a>
                     <span class="acct-sub">
-                        <?= e($a['institution_name'] ?: 'Retirement') ?>
+                        <?= e($a['institution_name'] ?: 'Retirement') ?><?= owner_suffix($a['owner_id'] ?? null) ?>
                         <?php if ($manual): ?>
                             <?php if ($c['last_date']): ?> · as of <?= e((string)$c['last_date']) ?><?php else: ?> · <span class="mini-tag">no statements</span><?php endif; ?>
                             <?php if ($stale): ?> <span class="mini-tag warn"><?= (int)floor($c['stale_days'] / 30) ?> mo old</span><?php endif; ?>

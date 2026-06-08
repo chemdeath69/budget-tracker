@@ -27,7 +27,7 @@ function recurring_rows(array $rows): void
                 <span class="row-sub">
                     <?= e(pretty_cat($r['frequency'] ?: '')) ?>
                     <?php if ($r['category_primary']): ?>· <?= e(pretty_cat($r['category_primary'])) ?><?php endif; ?>
-                    · <?= e($acct) ?>
+                    · <?= e($acct) ?><?= owner_suffix($r['owner_id'] ?? null) ?>
                 </span>
             </span>
             <span class="row-amt <?= $inflow ? 'pos' : '' ?>"><?= ($inflow ? '+' : '') . e(usd($amt)) ?></span>

@@ -160,7 +160,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                         <span class="acct-main">
                             <span class="acct-name"><?= e($a['name'] ?: ($a['official_name'] ?: 'Account')) ?></span>
                             <span class="acct-sub">
-                                <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?>
+                                <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?>
                                 <?php if ($a['visibility'] === 'private'): ?><span class="mini-tag">private</span><?php endif; ?>
                                 <?php if ($errored): ?><span class="mini-tag warn">needs attention</span><?php endif; ?>
                             </span>

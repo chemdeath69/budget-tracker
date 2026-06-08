@@ -53,7 +53,7 @@ $equity = $dv['equity'] ?? null;
         </div>
         <?php if ($m): ?>
         <div class="split-cell">
-            <span class="split-label"><?= e($m['name']) ?> balance</span>
+            <span class="split-label"><?= e($m['name']) ?> balance<?= owner_suffix($m['owner_id'] ?? null) ?></span>
             <span class="split-value neg">-<?= e(usd($m['balance'])) ?></span>
         </div>
         <?php endif; ?>

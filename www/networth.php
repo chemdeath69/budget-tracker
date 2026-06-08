@@ -27,7 +27,7 @@ function nw_account_rows(array $rows, bool $debt): void
         <a class="row" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">
             <span class="row-main">
                 <span class="row-title"><?= e($a['name'] ?: 'Account') ?></span>
-                <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?></span>
+                <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?></span>
             </span>
             <span class="row-amt <?= $debt ? 'neg' : '' ?>"><?= e(($debt && $bal > 0 ? '-' : '') . usd(abs($bal))) ?></span>
             <span class="chev" aria-hidden="true">›</span>
