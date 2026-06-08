@@ -277,24 +277,23 @@ function pfc_primary_categories(): array
 }
 
 /**
- * Options for the budget category picker: the canonical Plaid spending
- * categories unioned with any category that actually appears in the household's
- * outflow transactions (covers custom overrides set via recategorize, plus
- * UNCATEGORIZED) — i.e. exactly the labels the user sees on the spending list.
+ * Build a category picker option list: the canonical Plaid primary categories
+ * (minus $exclude) unioned with any category that actually appears in the
+ * household's visible transactions (covers custom overrides set via
+ * recategorize, plus UNCATEGORIZED). When $outflowOnly the data scan is limited
+ * to spend (amount > 0, non-manual) so it mirrors the spending list.
  * Returns [['value' => TAG, 'label' => 'Friendly Name'], ...] sorted by label.
  */
-function budget_category_options(PDO $pdo, int $uid): array
+function category_options(PDO $pdo, int $uid, array $exclude = [], bool $outflowOnly = false): array
 {
-    // Inflow-only categories make no sense as a spending budget — drop them.
-    $cats = array_fill_keys(array_diff(pfc_primary_categories(), ['INCOME', 'TRANSFER_IN']), true);
+    $cats = array_fill_keys(array_diff(pfc_primary_categories(), $exclude), true);
 
-    $st = $pdo->prepare(
-        "SELECT DISTINCT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category
-         FROM transactions t
-         JOIN accounts a ON t.account_id = a.account_id
-         JOIN items i ON a.item_id = i.item_id
-         WHERE " . VIS . " AND t.amount > 0 AND t.ext_source IS NULL"
-    );
+    $sql = "SELECT DISTINCT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.account_id
+            JOIN items i ON a.item_id = i.item_id
+            WHERE " . VIS . ($outflowOnly ? " AND t.amount > 0 AND t.ext_source IS NULL" : "");
+    $st = $pdo->prepare($sql);
     $st->execute([':uid' => $uid]);
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $c) {
         if ((string)$c !== '') $cats[$c] = true;
@@ -306,6 +305,19 @@ function budget_category_options(PDO $pdo, int $uid): array
     }
     usort($opts, fn($a, $b) => strcmp($a['label'], $b['label']));
     return $opts;
+}
+
+/** Categories for the budget picker (spending only — inflow categories dropped). */
+function budget_category_options(PDO $pdo, int $uid): array
+{
+    return category_options($pdo, $uid, ['INCOME', 'TRANSFER_IN'], true);
+}
+
+/** Categories for the transaction recategorize picker (full set — a transaction
+ *  can legitimately be income or a transfer). */
+function transaction_category_options(PDO $pdo, int $uid): array
+{
+    return category_options($pdo, $uid);
 }
 
 /* ---- small presentation helpers (server-side) ---------------------------- */

@@ -26,6 +26,7 @@ $isInvest = ($acct['type'] ?? '') === 'investment';
 $manual  = is_manual($acct);
 $bal     = (float)($acct['balance_current'] ?? 0);
 $txns    = q_transactions($pdo, $uid, ['account_id' => $accountId, 'limit' => 200]);
+$catOptions = transaction_category_options($pdo, $uid);
 $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
 $holds   = $isInvest ? q_holdings($pdo, $uid, $accountId) : [];
 $errored = ($acct['item_status'] ?? '') === 'error' || !empty($acct['error_code']);
@@ -236,5 +237,7 @@ render_header($acct['name'] ?: 'Account', '', [
 
 </div><!-- /.col transactions -->
 </div><!-- /.cols aside -->
+
+<script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES) ?></script>
 
 <?php render_footer(); ?>

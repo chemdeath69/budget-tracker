@@ -169,16 +169,65 @@ function initFilters() {
 }
 
 /* ---- Recategorize -------------------------------------------------------- */
+// Category options ([{value:TAG,label:Friendly}]) emitted server-side per page.
+let CATEGORY_OPTIONS = [];
+
+const chipTag = chip => {
+  const label = chip.textContent.trim();
+  return label === 'Set category' ? '' : label.toUpperCase().replace(/ /g, '_');
+};
+
+// Build a fresh category chip (button) wired to open the picker on click.
+function makeCatChip(tx, tag) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'cat-chip';
+  btn.dataset.tx = tx;
+  btn.textContent = tag ? prettyCat(tag) : 'Set category';
+  btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openCatPicker(btn); });
+  return btn;
+}
+
+// Swap a chip for an inline <select>; commit on change, restore on dismiss.
+function openCatPicker(chip) {
+  const tx = chip.dataset.tx;
+  const currentTag = chipTag(chip);
+
+  const sel = document.createElement('select');
+  sel.className = 'cat-chip-select';
+  sel.add(new Option('— Plaid default —', ''));
+  let matched = false;
+  CATEGORY_OPTIONS.forEach(c => {
+    const o = new Option(c.label, c.value);
+    if (c.value === currentTag) { o.selected = true; matched = true; }
+    sel.add(o);
+  });
+  // Preserve a custom category that isn't in the canonical list.
+  if (currentTag && !matched) { const o = new Option(prettyCat(currentTag), currentTag); o.selected = true; sel.add(o); }
+
+  chip.replaceWith(sel);
+
+  let done = false;
+  const restore = tag => { if (done) return; done = true; if (sel.isConnected) sel.replaceWith(makeCatChip(tx, tag)); };
+
+  sel.addEventListener('change', async () => {
+    if (done) return; done = true;
+    const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: tx, category: sel.value });
+    if (sel.isConnected) sel.replaceWith(makeCatChip(tx, out && out.ok ? out.category : currentTag));
+  });
+  // Dismissed without choosing → put the original chip back (delay lets a
+  // selection's change event win the race over blur).
+  sel.addEventListener('blur', () => setTimeout(() => restore(currentTag), 150));
+
+  sel.focus();
+  try { sel.showPicker && sel.showPicker(); } catch (e) { /* not all browsers */ }
+}
+
 function initRecategorize() {
+  const el = document.getElementById('cat-options');
+  if (el) { try { CATEGORY_OPTIONS = JSON.parse(el.textContent) || []; } catch (e) { CATEGORY_OPTIONS = []; } }
   $$('.cat-chip[data-tx]').forEach(chip => {
-    chip.addEventListener('click', async e => {
-      e.preventDefault(); e.stopPropagation();
-      const current = chip.textContent === 'Set category' ? '' : chip.textContent.toUpperCase().replace(/ /g, '_');
-      const val = prompt('Category for this transaction (blank = revert to Plaid):', current);
-      if (val === null) return;
-      const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: chip.dataset.tx, category: val.trim() });
-      if (out && out.ok) chip.textContent = out.category ? prettyCat(out.category) : 'Set category';
-    });
+    chip.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openCatPicker(chip); });
   });
 }
 

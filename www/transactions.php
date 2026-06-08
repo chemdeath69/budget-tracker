@@ -9,6 +9,7 @@ require_login();
 $pdo  = db();
 $uid  = current_user_id();
 $txns = q_transactions($pdo, $uid, ['limit' => 300]);
+$catOptions = transaction_category_options($pdo, $uid);
 
 render_header('Transactions', 'transactions', ['narrow' => true]);
 ?>
@@ -53,5 +54,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
         <p class="muted load-note">Showing the most recent <?= count($txns) ?> transactions. Use search or export CSV for the full history.</p>
     </section>
 <?php endif; ?>
+
+<script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES) ?></script>
 
 <?php render_footer(); ?>

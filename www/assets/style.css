@@ -306,6 +306,11 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
   background: var(--brand-weak); border: 0; padding: 2px 9px; border-radius: var(--r-pill); cursor: pointer;
 }
 .cat-chip:active { filter: brightness(.95); }
+.cat-chip-select {
+  font: inherit; font-size: .76rem; font-weight: 600; color: var(--brand);
+  background: var(--brand-weak); border: 1px solid var(--brand-weak);
+  padding: 1px 4px; border-radius: var(--r-pill); cursor: pointer; max-width: 220px;
+}
 .row.is-hidden { display: none; }
 .tx-day.is-hidden { display: none; }
 .load-note { font-size: .8rem; text-align: center; padding: 6px 0; }
