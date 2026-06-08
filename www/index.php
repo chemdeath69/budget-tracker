@@ -16,6 +16,7 @@ $change   = q_networth_change($pdo, $stats['net_worth'], 30);
 $spend30  = q_spending_total($pdo, $uid, 30);
 $topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
 $home     = q_home_equity($pdo, $accounts);
+$ret      = q_retirement_summary($pdo, $uid); // combined 401(k) total (0 accounts = hidden)
 
 render_header('Dashboard', 'dashboard', ['chart' => true]);
 ?>
@@ -87,6 +88,27 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                 <span class="split-value neg">-<?= e(usd($home['mortgage_balance'])) ?></span>
             </div>
             <?php endif; ?>
+        </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($ret['count'] > 0): ?>
+    <!-- Retirement (manual 401(k)s) — combined total -->
+    <section class="hero card">
+        <div class="hero-top">
+            <span class="hero-label">Retirement</span>
+            <?php if ($ret['latest']): ?><span class="delta-sub muted">as of <?= e($ret['latest']) ?></span><?php endif; ?>
+        </div>
+        <div class="hero-value"><?= e(usd($ret['total'])) ?></div>
+        <div class="hero-split">
+            <a class="split-cell" href="/retirement.php">
+                <span class="split-label">Accounts</span>
+                <span class="split-value"><?= (int)$ret['count'] ?></span>
+            </a>
+            <a class="split-cell" href="/retirement.php">
+                <span class="split-label">Projection</span>
+                <span class="split-value">View ›</span>
+            </a>
         </div>
     </section>
     <?php endif; ?>

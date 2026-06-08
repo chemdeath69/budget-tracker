@@ -38,6 +38,27 @@ if ($action === 'visibility') {
     exit;
 }
 
+if ($action === 'retirement') {
+    // Classify an account as retirement (Retirement page) or not. 'auto' = NULL =
+    // classify by subtype/manual_type; 'yes' = 1 (force in); 'no' = 0 (force out).
+    $accountId = (string)($in['account_id'] ?? '');
+    $val = (string)($in['retirement'] ?? 'auto');
+    $flag = $val === 'yes' ? 1 : ($val === 'no' ? 0 : null);
+
+    // Owner-only (same as visibility).
+    $own = $pdo->prepare(
+        'SELECT i.user_id FROM accounts a JOIN items i ON a.item_id = i.item_id WHERE a.account_id = ?'
+    );
+    $own->execute([$accountId]);
+    $ownerId = $own->fetchColumn();
+    if ($ownerId === false) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
+    if ((int)$ownerId !== $uid) { http_response_code(403); echo json_encode(['error' => 'only the owner can change this']); exit; }
+
+    $pdo->prepare('UPDATE accounts SET retirement_flag = ? WHERE account_id = ?')->execute([$flag, $accountId]);
+    echo json_encode(['ok' => true, 'retirement' => $val]);
+    exit;
+}
+
 if ($action === 'recategorize') {
     $txId = (string)($in['transaction_id'] ?? '');
     $cat  = trim((string)($in['category'] ?? ''));

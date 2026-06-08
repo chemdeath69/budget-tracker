@@ -55,6 +55,7 @@ CREATE TABLE accounts (
   mask                  VARCHAR(16)  NULL,
   type                  VARCHAR(32)  NULL,          -- depository|credit|loan|investment
   subtype               VARCHAR(48)  NULL,
+  retirement_flag       TINYINT NULL,              -- NULL=auto-classify by subtype/manual_type; 1=force retirement; 0=force not. See migration 007 + is_retirement_account().
   balance_available     DECIMAL(15,2) NULL,
   balance_current       DECIMAL(15,2) NULL,
   balance_limit         DECIMAL(15,2) NULL,
@@ -416,4 +417,49 @@ CREATE TABLE manual_tax_summaries (
   PRIMARY KEY (id),
   UNIQUE KEY uq_tax_account_year (account_id, tax_year),
   CONSTRAINT fk_tax_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- retirement_statements — hand-entered 401(k) statements (manual accounts with
+-- items.manual_type='retirement_401k'; accounts.type='investment', subtype='401k').
+-- One row per account per quarter; (account_id, period_key) is the dedup bucket so
+-- re-entering a quarter UPDATES it. Source of truth for the Retirement page; the
+-- latest row drives accounts.balance_current (folds the 401(k) into net worth).
+-- See migration 006_retirement.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE retirement_statements (
+  id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  account_id        VARCHAR(64)   NOT NULL,
+  period_key        VARCHAR(8)    NOT NULL,           -- 'YYYY-Qn'
+  statement_date    DATE          NOT NULL,
+  balance           DECIMAL(18,2) NOT NULL,
+  employee_contrib  DECIMAL(15,2) NULL,               -- this period's contribution
+  employer_contrib  DECIMAL(15,2) NULL,               -- this period's employer match
+  employee_ytd      DECIMAL(15,2) NULL,
+  employer_ytd      DECIMAL(15,2) NULL,
+  note              VARCHAR(255)  NULL,
+  created_by        INT UNSIGNED  NULL,
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_ret_bucket (account_id, period_key),
+  KEY idx_ret_acct_date (account_id, statement_date),
+  CONSTRAINT fk_ret_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- retirement_settings — single global row (id=1): combined-projection assumptions
+-- (target retirement year, expected ongoing annual contribution, growth override
+-- [NULL = derive from history] + default rate, optional target amount). Migration 006.
+-- ---------------------------------------------------------------------------
+CREATE TABLE retirement_settings (
+  id                  TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  retirement_year     SMALLINT      NULL,
+  annual_contribution DECIMAL(15,2) NULL,             -- expected ongoing; NULL = derive
+  growth_rate_override DECIMAL(6,4)  NULL,            -- e.g. 0.0700; NULL = derive from history
+  growth_default      DECIMAL(6,4)  NOT NULL DEFAULT 0.0600,
+  target_amount       DECIMAL(18,2) NULL,
+  updated_by          INT UNSIGNED  NULL,
+  updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

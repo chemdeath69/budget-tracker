@@ -302,6 +302,18 @@ function initVisibility() {
   });
 }
 
+/* Retirement classification override (Auto / Yes / No). Reloads so the change is
+   reflected (the account may move between the Investments and Retirement pages). */
+function initRetirement() {
+  $$('.ret-select[data-account]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      const out = await postJSON('/api/account.php', { action: 'retirement', account_id: sel.dataset.account, retirement: sel.value });
+      if (out && out.ok) location.reload(); else sel.disabled = false;
+    });
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -333,4 +345,5 @@ initCharts();
 initFilters();
 initRecategorize();
 initVisibility();
+initRetirement();
 initBudgets();

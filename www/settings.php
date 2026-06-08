@@ -42,6 +42,14 @@ render_header('Settings', 'settings', ['narrow' => true]);
         </span>
         <span class="chev" aria-hidden="true">›</span>
     </a>
+    <a class="card action-card" href="/retirement_add.php">
+        <span class="acct-icon"><?= nav_icon('nest') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Add a 401(k)</span>
+            <span class="acct-sub muted">Retirement plans that only mail statements — update by entering each one</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
 </section>
 
 <!-- Manage owned accounts -->

@@ -82,7 +82,15 @@ render_header($acct['name'] ?: 'Account', '', [
 </section>
 
 <!-- Manual update (owner only) -->
-<?php if ($manual && $owner): ?>
+<?php if ($manual && is_retirement($acct)): ?>
+<section class="card">
+    <h2>Retirement account</h2>
+    <p class="muted">This 401(k) is kept current by entering each statement (balance + contributions)
+        on the Retirement page, where it rolls into your combined total and projection.</p>
+    <?php if ($owner): ?><a class="btn" href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement</a><?php endif; ?>
+    <a class="btn-ghost" href="/retirement.php">Open Retirement ›</a>
+</section>
+<?php elseif ($manual && $owner): ?>
 <section class="card update-card">
     <h2>Update <?= e($manualCfg['label'] ?? 'account') ?></h2>
     <p class="muted">Upload a document to refresh balances, holdings and transactions. Re-uploading
@@ -117,7 +125,7 @@ render_header($acct['name'] ?: 'Account', '', [
 <?php endforeach; ?>
 
 <!-- Holdings -->
-<?php if ($isInvest): ?>
+<?php if ($isInvest && !is_retirement($acct)): ?>
 <section class="card">
     <h2>Holdings</h2>
     <?php if (!$holds): ?>
@@ -205,6 +213,21 @@ render_header($acct['name'] ?: 'Account', '', [
             <option value="private"<?= $acct['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
         </select>
     </div>
+    <?php if ($isInvest && !is_retirement($acct)):
+        $rf = $acct['retirement_flag'] ?? null;
+        $rfVal = $rf === null ? 'auto' : ((int)$rf === 1 ? 'yes' : 'no'); ?>
+    <div class="control-row">
+        <div>
+            <strong>Retirement account</strong>
+            <div class="muted">Show this on the Retirement page (with your 401(k)s) instead of Investments. Auto detects IRAs/401(k)s by type.</div>
+        </div>
+        <select class="select ret-select" data-account="<?= e($acct['account_id']) ?>">
+            <option value="auto"<?= $rfVal === 'auto' ? ' selected' : '' ?>>Auto</option>
+            <option value="yes"<?= $rfVal === 'yes' ? ' selected' : '' ?>>Yes</option>
+            <option value="no"<?= $rfVal === 'no' ? ' selected' : '' ?>>No</option>
+        </select>
+    </div>
+    <?php endif; ?>
     <?php if (!$manual): ?>
     <div class="control-row">
         <div>

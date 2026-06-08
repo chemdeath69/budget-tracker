@@ -11,12 +11,44 @@ declare(strict_types=1);
 
 const VIS = '(a.visibility = "shared" OR i.user_id = :uid)';
 
+/**
+ * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
+ * Used by is_retirement_account() + q_retirement_accounts() so Plaid-linked IRAs /
+ * 401(k)s / pensions land on the Retirement page (not the Investments page) without
+ * the owner having to flag them. The per-account `retirement_flag` override wins
+ * over this when set (Plaid's subtypes aren't always accurate).
+ */
+const RETIREMENT_SUBTYPES = [
+    '401a', '401k', '403b', '457b', 'ira', 'roth', 'roth ira', 'roth 401k',
+    'sep ira', 'simple ira', 'sarsep', 'pension', 'retirement', 'rollover',
+    'keogh', 'tsp', 'thrift savings plan', 'profit sharing plan',
+    'rrsp', 'rrif', 'lira', 'lrsp', 'lif', 'prif', 'rlif', 'sipp',
+];
+
+/**
+ * Is this account a retirement account? Precedence:
+ *   retirement_flag = 0 → never · = 1 → always · NULL → auto-classify:
+ *   a manual 401(k) (manual_type='retirement_401k'), or a Plaid investment account
+ *   whose subtype is in RETIREMENT_SUBTYPES. The row must carry retirement_flag,
+ *   manual_type, type and subtype (q_accounts/q_account/q_holdings/q_retirement_* all do).
+ */
+function is_retirement_account(array $a): bool
+{
+    $flag = $a['retirement_flag'] ?? null;
+    if ($flag !== null && $flag !== '') return (int)$flag === 1;
+    if (($a['manual_type'] ?? '') === 'retirement_401k') return true;
+    if (($a['type'] ?? '') === 'investment') {
+        return in_array(strtolower(trim((string)($a['subtype'] ?? ''))), RETIREMENT_SUBTYPES, true);
+    }
+    return false;
+}
+
 /** All accounts visible to $uid, ordered by institution then name. */
 function q_accounts(PDO $pdo, int $uid): array
 {
     $st = $pdo->prepare(
         "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
-                a.balance_available, a.balance_current, a.balance_limit,
+                a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
                 a.visibility, i.institution_name, i.institution_id,
                 i.user_id AS owner_id, i.item_id, i.status AS item_status,
                 i.error_code, i.source, i.manual_type
@@ -33,7 +65,7 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
 {
     $st = $pdo->prepare(
         "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
-                a.balance_available, a.balance_current, a.balance_limit,
+                a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
                 a.iso_currency_code, a.visibility, a.last_updated_datetime,
                 i.institution_name, i.institution_id, i.user_id AS owner_id,
                 i.item_id, i.status AS item_status, i.error_code, i.last_synced_at,
@@ -268,7 +300,8 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
         "SELECT s.ticker_symbol, s.name AS security_name, s.type AS security_type,
                 h.security_id, h.quantity, h.cost_basis, h.institution_price, h.institution_value,
                 a.name AS account_name, a.mask, a.account_id, a.last_updated_datetime,
-                i.institution_name, i.source
+                a.type, a.subtype, a.retirement_flag,
+                i.institution_name, i.source, i.manual_type
          FROM holdings h
          JOIN accounts a ON h.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -714,4 +747,117 @@ function q_account_balance_history(PDO $pdo, string $accountId): array
     );
     $st->execute([':a' => $accountId]);
     return $st->fetchAll();
+}
+
+/* ---- Retirement (manual 401(k)) ------------------------------------------- */
+
+/** Is this account a manually-tracked 401(k)? */
+function is_retirement(array $a): bool
+{
+    return ($a['manual_type'] ?? '') === 'retirement_401k';
+}
+
+/**
+ * Visible retirement accounts, VIS-scoped: manual 401(k)s (manual_type=
+ * 'retirement_401k') AND Plaid investment accounts classified as retirement
+ * (subtype in RETIREMENT_SUBTYPES), honouring the per-account `retirement_flag`
+ * override (1 = force in, 0 = force out). Mirrors is_retirement_account() in SQL.
+ */
+function q_retirement_accounts(PDO $pdo, int $uid): array
+{
+    $subs = []; $params = [':uid' => $uid];
+    foreach (array_values(RETIREMENT_SUBTYPES) as $k => $s) { $subs[] = ":s$k"; $params[":s$k"] = $s; }
+    $in = implode(',', $subs);
+    $st = $pdo->prepare(
+        "SELECT a.account_id, a.name, a.mask, a.type, a.subtype, a.retirement_flag,
+                a.balance_current, a.visibility, a.last_updated_datetime, i.institution_name,
+                i.user_id AS owner_id, i.item_id, i.source, i.manual_type
+         FROM accounts a JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND (
+                a.retirement_flag = 1
+                OR (a.retirement_flag IS NULL AND (
+                     i.manual_type = 'retirement_401k'
+                     OR (a.type = 'investment' AND LOWER(COALESCE(a.subtype, '')) IN ($in))
+                ))
+             )
+         ORDER BY i.institution_name, a.name"
+    );
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
+/**
+ * Statements for the visible 401(k) accounts (oldest first), VIS-scoped via the
+ * account/item join. Optionally scoped to one account. Each row carries the
+ * account name so callers can group without a second lookup.
+ */
+function q_retirement_statements(PDO $pdo, int $uid, ?string $accountId = null): array
+{
+    $where  = [VIS, "i.manual_type = 'retirement_401k'"];
+    $params = [':uid' => $uid];
+    if ($accountId !== null) { $where[] = 'rs.account_id = :acct'; $params[':acct'] = $accountId; }
+    $st = $pdo->prepare(
+        "SELECT rs.id, rs.account_id, rs.period_key, rs.statement_date, rs.balance,
+                rs.employee_contrib, rs.employer_contrib, rs.employee_ytd, rs.employer_ytd,
+                rs.note, a.name AS account_name
+         FROM retirement_statements rs
+         JOIN accounts a ON rs.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . implode(' AND ', $where) . "
+         ORDER BY rs.statement_date ASC, rs.id ASC"
+    );
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
+/**
+ * Headline figures for the dashboard card: combined current balance across visible
+ * 401(k) accounts, the account count, and the most recent statement date (or null).
+ * Returns ['total'=>float, 'count'=>int, 'latest'=>?string].
+ */
+function q_retirement_summary(PDO $pdo, int $uid): array
+{
+    $accts = q_retirement_accounts($pdo, $uid);
+    $total = 0.0;
+    foreach ($accts as $a) $total += (float)($a['balance_current'] ?? 0);
+
+    $latest = null;
+    if ($accts) {
+        $st = $pdo->prepare(
+            "SELECT MAX(rs.statement_date)
+             FROM retirement_statements rs
+             JOIN accounts a ON rs.account_id = a.account_id
+             JOIN items i ON a.item_id = i.item_id
+             WHERE " . VIS . " AND i.manual_type = 'retirement_401k'"
+        );
+        $st->execute([':uid' => $uid]);
+        $latest = $st->fetchColumn() ?: null;
+    }
+    return ['total' => round($total, 2), 'count' => count($accts), 'latest' => $latest];
+}
+
+/**
+ * The single global projection-assumptions row (id=1), with safe defaults if the
+ * row is missing. Not user-scoped — these are one shared household setting.
+ * Returns ['retirement_year'=>?int, 'annual_contribution'=>?float,
+ *          'growth_rate_override'=>?float, 'growth_default'=>float, 'target_amount'=>?float].
+ */
+function q_retirement_settings(PDO $pdo): array
+{
+    $row = $pdo->query(
+        "SELECT retirement_year, annual_contribution, growth_rate_override,
+                growth_default, target_amount
+         FROM retirement_settings WHERE id = 1"
+    )->fetch();
+    return [
+        'retirement_year'      => isset($row['retirement_year']) && $row['retirement_year'] !== null
+                                    ? (int)$row['retirement_year'] : null,
+        'annual_contribution'  => isset($row['annual_contribution']) && $row['annual_contribution'] !== null
+                                    ? (float)$row['annual_contribution'] : null,
+        'growth_rate_override' => isset($row['growth_rate_override']) && $row['growth_rate_override'] !== null
+                                    ? (float)$row['growth_rate_override'] : null,
+        'growth_default'       => isset($row['growth_default']) ? (float)$row['growth_default'] : 0.06,
+        'target_amount'        => isset($row['target_amount']) && $row['target_amount'] !== null
+                                    ? (float)$row['target_amount'] : null,
+    ];
 }

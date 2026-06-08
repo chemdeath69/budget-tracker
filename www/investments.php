@@ -8,7 +8,9 @@ require_login();
 
 $pdo   = db();
 $uid   = current_user_id();
-$holds = q_holdings($pdo, $uid);
+// Retirement accounts (manual 401(k)s + Plaid IRAs/401k by subtype/override) live
+// on the Retirement page instead — keep them off the Investments page.
+$holds = array_values(array_filter(q_holdings($pdo, $uid), fn($h) => !is_retirement_account($h)));
 
 /* ---- Portfolio totals ---------------------------------------------------- */
 $total    = 0.0;   // market value of every holding
