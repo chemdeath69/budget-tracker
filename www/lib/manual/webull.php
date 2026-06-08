@@ -515,6 +515,9 @@ function webull_ingest_statement(PDO $pdo, string $acctId, array $parsed, int $d
             ->execute([$acctId, $period]);
     }
 
+    // Persist this statement's buy/sell lots (qty + price) for cost-basis derivation.
+    webull_write_invtx($pdo, $acctId, $period, $st['trades']);
+
     // Holdings + balance: only the NEWEST statement defines current positions.
     $maxPeriod = $pdo->prepare("SELECT MAX(period_key) FROM manual_documents
                                 WHERE account_id = ? AND doc_type = 'statement'");
@@ -567,6 +570,9 @@ function webull_ingest_statement(PDO $pdo, string $acctId, array $parsed, int $d
             $pdo->prepare('DELETE FROM holdings WHERE account_id = ?')->execute([$acctId]);
         }
 
+        // Derive per-position cost basis (average cost) from all lots → holdings.cost_basis.
+        webull_derive_cost_basis($pdo, $acctId);
+
         // Account balance/value from the statement.
         $mask = $parsed['account_ref'] ? substr((string)$parsed['account_ref'], -4) : null;
         $official = trim('Webull ' . ((string)($st['account_type'] ?? '')) . ' ' . (string)($parsed['account_ref'] ?? ''));
@@ -588,6 +594,130 @@ function webull_ingest_statement(PDO $pdo, string $acctId, array $parsed, int $d
         'positions' => count($st['positions']), 'trades' => count($st['trades']),
         'activity' => count($st['activity']), 'applied_balance' => $isNewest,
     ];
+}
+
+/**
+ * Persist a statement's trades as buy/sell lots (qty + price + fees) in
+ * investment_transactions, scoped to the doc's monthly bucket so a re-uploaded
+ * statement replaces exactly its own rows (mirrors the transactions dedup).
+ * security_id = 'wb_' . cusip; trades without a cusip (legacy Apex layout) are
+ * skipped — those positions just keep "cost basis pending".
+ */
+function webull_write_invtx(PDO $pdo, string $acctId, string $period, array $trades): void
+{
+    $ins = $pdo->prepare(
+        'INSERT INTO investment_transactions
+            (inv_tx_id, account_id, security_id, side, quantity, price, fees, amount, trade_date, ext_source, ext_period)
+         VALUES (:id,:acct,:sec,:side,:qty,:price,:fees,:amt,:date,"webull",:period)
+         ON DUPLICATE KEY UPDATE
+            quantity=VALUES(quantity), price=VALUES(price), fees=VALUES(fees),
+            amount=VALUES(amount), trade_date=VALUES(trade_date), ext_period=VALUES(ext_period)'
+    );
+    $seen = [];
+    foreach ($trades as $ti => $t) {
+        if (($t['trade_date'] ?? '') === '' || empty($t['cusip'])) continue;
+        $fees = (float)($t['commission'] ?? 0) + (float)($t['fee'] ?? 0);
+        $id = 'wbi' . substr(sha1($acctId . '|' . $t['cusip'] . '|' . $t['trade_date'] . '|' . $t['side'] . '|' . $t['qty'] . '|' . $t['price'] . '|' . $ti), 0, 40);
+        $ins->execute([
+            ':id' => $id, ':acct' => $acctId, ':sec' => 'wb_' . $t['cusip'],
+            ':side' => ($t['side'] === 'B') ? 'buy' : 'sell',
+            ':qty' => (float)$t['qty'], ':price' => (float)$t['price'], ':fees' => $fees,
+            ':amt' => -1 * (float)$t['net'], ':date' => $t['trade_date'], ':period' => $period,
+        ]);
+        $seen[] = $id;
+    }
+    if ($seen) {
+        $ph = implode(',', array_fill(0, count($seen), '?'));
+        $pdo->prepare("DELETE FROM investment_transactions
+            WHERE account_id = ? AND ext_source = 'webull' AND ext_period = ?
+              AND inv_tx_id NOT IN ($ph)")->execute(array_merge([$acctId, $period], $seen));
+    } else {
+        $pdo->prepare("DELETE FROM investment_transactions
+            WHERE account_id = ? AND ext_source = 'webull' AND ext_period = ?")
+            ->execute([$acctId, $period]);
+    }
+}
+
+/**
+ * Derive per-position cost basis (average cost) from all stored lots and write it
+ * to holdings.cost_basis for the account's CURRENT positions. Buys add qty×price
+ * + fees; sells reduce the running cost at the current average; a held security
+ * with no lot history is left NULL ("cost basis pending"). The average is scaled
+ * to the shares actually held now, so missing statements degrade gracefully
+ * rather than producing a wildly wrong figure. Returns # holdings priced.
+ */
+function webull_derive_cost_basis(PDO $pdo, string $acctId): int
+{
+    $h = $pdo->prepare('SELECT security_id, quantity FROM holdings WHERE account_id = ?');
+    $h->execute([$acctId]);
+    $held = [];
+    foreach ($h->fetchAll() as $r) {
+        if ($r['quantity'] !== null) $held[$r['security_id']] = (float)$r['quantity'];
+    }
+    if (!$held) return 0;
+
+    $in = implode(',', array_fill(0, count($held), '?'));
+    $st = $pdo->prepare(
+        "SELECT security_id, side, quantity, price, fees FROM investment_transactions
+         WHERE account_id = ? AND security_id IN ($in)
+         ORDER BY trade_date ASC, inv_tx_id ASC"
+    );
+    $st->execute(array_merge([$acctId], array_keys($held)));
+
+    $shares = []; $cost = [];
+    foreach ($st->fetchAll() as $r) {
+        $sid = $r['security_id'];
+        $q = (float)$r['quantity']; $p = (float)$r['price']; $f = (float)$r['fees'];
+        $shares[$sid] = $shares[$sid] ?? 0.0; $cost[$sid] = $cost[$sid] ?? 0.0;
+        if ($r['side'] === 'buy') {
+            $shares[$sid] += $q; $cost[$sid] += $q * $p + $f;
+        } else {
+            $avg = $shares[$sid] > 0 ? $cost[$sid] / $shares[$sid] : 0.0;
+            $shares[$sid] -= $q; $cost[$sid] -= $avg * $q;
+            if ($shares[$sid] < 1e-9) { $shares[$sid] = 0.0; $cost[$sid] = 0.0; }
+        }
+    }
+
+    $upd = $pdo->prepare('UPDATE holdings SET cost_basis = :cb WHERE account_id = :a AND security_id = :s');
+    $n = 0;
+    foreach ($held as $sid => $curQty) {
+        if (($shares[$sid] ?? 0) <= 0) continue;          // no usable lot history
+        $avg = $cost[$sid] / $shares[$sid];
+        $upd->execute([':cb' => round($avg * $curQty, 4), ':a' => $acctId, ':s' => $sid]);
+        $n++;
+    }
+    return $n;
+}
+
+/**
+ * One-off backfill: rebuild investment_transactions for an account by re-parsing
+ * its stored statement PDFs, then derive cost basis. Idempotent (per-bucket
+ * upsert + dedup). Returns a report.
+ */
+function webull_backfill_account(PDO $pdo, string $acctId): array
+{
+    require_once __DIR__ . '/pdftext.php';
+    $docs = $pdo->prepare(
+        "SELECT period_key, stored_path FROM manual_documents
+         WHERE account_id = ? AND doc_type = 'statement' AND stored_path IS NOT NULL
+         ORDER BY period_key ASC"
+    );
+    $docs->execute([$acctId]);
+    $report = ['statements' => 0, 'lots' => 0, 'errors' => []];
+    foreach ($docs->fetchAll() as $doc) {
+        try {
+            if (!is_file($doc['stored_path'])) { $report['errors'][$doc['period_key']] = 'file missing'; continue; }
+            $parsed = webull_parse(pdf_extract_text($doc['stored_path']));
+            if (($parsed['doc_type'] ?? '') !== 'statement') continue;
+            $trades = $parsed['statement']['trades'] ?? [];
+            webull_write_invtx($pdo, $acctId, (string)$parsed['period_key'], $trades);
+            $report['statements']++; $report['lots'] += count($trades);
+        } catch (\Throwable $e) {
+            $report['errors'][$doc['period_key']] = $e->getMessage();
+        }
+    }
+    $report['holdings_priced'] = webull_derive_cost_basis($pdo, $acctId);
+    return $report;
 }
 
 function webull_ingest_tax(PDO $pdo, string $acctId, array $parsed, int $docId): array
