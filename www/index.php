@@ -9,11 +9,13 @@ require_login();
 $pdo  = db();
 $uid  = current_user_id();
 $accounts = q_accounts($pdo, $uid);
-$stats    = q_stats($accounts);
+$homeVal  = q_home_value($pdo);            // estimated house value (0 if none)
+$stats    = q_stats($accounts, $homeVal);  // net worth includes the home as an asset
 $snaps    = q_networth($pdo);
 $change   = q_networth_change($pdo, $stats['net_worth'], 30);
 $spend30  = q_spending_total($pdo, $uid, 30);
 $topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
+$home     = q_home_equity($pdo, $accounts);
 
 render_header('Dashboard', 'dashboard', ['chart' => true]);
 ?>
@@ -62,6 +64,32 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             </a>
         </div>
     </section>
+
+    <?php if ($home): ?>
+    <!-- Home value vs. mortgage → equity (RentCast AVM, refreshed ~monthly) -->
+    <section class="hero card">
+        <div class="hero-top">
+            <span class="hero-label"><?= $home['equity'] !== null ? 'Home equity' : 'Home value' ?></span>
+            <span class="delta-sub muted">est. <?= e($home['as_of']) ?></span>
+        </div>
+        <div class="hero-value"><?= e(usd($home['equity'] !== null ? $home['equity'] : $home['value'])) ?></div>
+        <div class="hero-split">
+            <div class="split-cell">
+                <span class="split-label">Home value<?php
+                    if ($home['value_low'] !== null && $home['value_high'] !== null)
+                        echo ' <span class="muted">(' . e(usd($home['value_low'])) . '–' . e(usd($home['value_high'])) . ')</span>';
+                ?></span>
+                <span class="split-value pos"><?= e(usd($home['value'])) ?></span>
+            </div>
+            <?php if ($home['mortgage_balance'] !== null): ?>
+            <div class="split-cell">
+                <span class="split-label"><?= e($home['mortgage_name']) ?></span>
+                <span class="split-value neg">-<?= e(usd($home['mortgage_balance'])) ?></span>
+            </div>
+            <?php endif; ?>
+        </div>
+    </section>
+    <?php endif; ?>
 
     <div class="cols">
     <!-- Accounts (the hero of an account-centric dashboard) -->

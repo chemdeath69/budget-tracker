@@ -59,7 +59,11 @@ function initDrawer() {
 function themeColors() {
   const cs = getComputedStyle(document.body);
   const v = n => cs.getPropertyValue(n).trim();
-  return { ink: v('--ink-2') || '#475569', muted: v('--muted') || '#8a94a6', line: v('--line') || '#e6e9ef', brand: v('--brand') || '#4f46e5' };
+  return {
+    ink: v('--ink-2') || '#475569', muted: v('--muted') || '#8a94a6',
+    line: v('--line') || '#e6e9ef', brand: v('--brand') || '#4f46e5',
+    pos: v('--pos') || '#16a34a', neg: v('--neg') || '#dc2626',
+  };
 }
 
 function readData(canvas) {
@@ -100,6 +104,62 @@ function initCharts() {
                 x: { grid: { display: false }, ticks: { maxTicksLimit: 5, maxRotation: 0 } },
                 y: { grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
               },
+        },
+      });
+    }
+
+    // Multi-series line: d = {labels, series:[{label, values, color?, dashed?,
+    // fill?, fillTo?(dataset index for a band), faint?, points?, legend?}]}.
+    // color is a token (brand|pos|neg|muted) or any CSS color.
+    if (type === 'multiline') {
+      const resolve = col => ({ brand: c.brand, pos: c.pos, neg: c.neg, muted: c.muted }[col] || col || c.brand);
+      const series = d.series || [];
+      const datasets = series.map((s, i) => {
+        const col = resolve(s.color) || sliceColor(i);
+        const fill = (typeof s.fillTo === 'number') ? s.fillTo : (s.fill ? 'origin' : false);
+        return {
+          label: s.label, data: s.values,
+          borderColor: s.faint ? hexA(col, .4) : col,
+          backgroundColor: hexA(col, s.faint ? .08 : (fill !== false ? .15 : 0)),
+          borderWidth: s.faint ? 1 : 2,
+          borderDash: s.dashed ? [5, 4] : [],
+          fill, tension: .25, spanGaps: true,
+          showLine: s.points ? false : true,
+          pointRadius: s.points ? 3 : 0, pointHoverRadius: s.faint ? 0 : 4,
+          _legend: s.legend !== false,
+        };
+      });
+      new Chart(canvas, {
+        type: 'line',
+        data: { labels: d.labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, filter: (it, data) => data.datasets[it.datasetIndex]._legend !== false } },
+            tooltip: { filter: it => it.dataset._legend !== false, callbacks: { label: i => `${i.dataset.label}: ${usd(i.parsed.y)}` } },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 8, maxRotation: 0 } },
+            y: { grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+          },
+        },
+      });
+    }
+
+    // Yearly bars: d = {labels, values, color?}.
+    if (type === 'bars') {
+      const col = ({ brand: c.brand, pos: c.pos, neg: c.neg, muted: c.muted }[d.color] || d.color || c.brand);
+      new Chart(canvas, {
+        type: 'bar',
+        data: { labels: d.labels, datasets: [{ data: d.values, backgroundColor: hexA(col, .72), borderRadius: 4, maxBarThickness: 46 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: i => usd(i.parsed.y) } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 10, maxRotation: 0 } },
+            y: { grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+          },
         },
       });
     }

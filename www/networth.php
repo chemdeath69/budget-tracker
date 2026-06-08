@@ -9,7 +9,8 @@ require_login();
 $pdo      = db();
 $uid      = current_user_id();
 $accounts = q_accounts($pdo, $uid);
-$stats    = q_stats($accounts);
+$homeVal  = q_home_value($pdo);            // estimated house value (0 if none)
+$stats    = q_stats($accounts, $homeVal);  // net worth includes the home as an asset
 $snaps    = q_networth($pdo);
 $change   = q_networth_change($pdo, $stats['net_worth'], 30);
 
@@ -64,7 +65,17 @@ function nw_account_rows(array $rows, bool $debt): void
 <section class="block">
     <div class="block-head"><h2>Assets</h2><span class="split-value pos"><?= e(usd($stats['assets'])) ?></span></div>
     <div class="rows">
-        <?php $assets ? nw_account_rows($assets, false) : print('<p class="muted" style="padding:1rem">No asset accounts.</p>'); ?>
+        <?php if ($homeVal > 0): ?>
+        <a class="row" href="/property.php">
+            <span class="row-main">
+                <span class="row-title">Home <span class="mini-tag">estimated</span></span>
+                <span class="row-sub">Market value (RentCast AVM)</span>
+            </span>
+            <span class="row-amt"><?= e(usd($homeVal)) ?></span>
+            <span class="chev" aria-hidden="true">›</span>
+        </a>
+        <?php endif; ?>
+        <?php $assets ? nw_account_rows($assets, false) : ($homeVal > 0 ? null : print('<p class="muted" style="padding:1rem">No asset accounts.</p>')); ?>
     </div>
 </section>
 

@@ -47,8 +47,12 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
     return $row ?: null;
 }
 
-/** Net-worth / assets / liabilities / count from an accounts array. */
-function q_stats(array $accounts): array
+/**
+ * Net-worth / assets / liabilities / count from an accounts array.
+ * $extraAssets folds in non-account assets (e.g. the estimated home value) so net
+ * worth nets the mortgage against the house instead of only subtracting the debt.
+ */
+function q_stats(array $accounts, float $extraAssets = 0.0): array
 {
     $assets = 0.0; $liabilities = 0.0;
     foreach ($accounts as $a) {
@@ -59,6 +63,7 @@ function q_stats(array $accounts): array
             $assets += $bal;
         }
     }
+    $assets += $extraAssets;
     return [
         'net_worth'   => round($assets - $liabilities, 2),
         'assets'      => round($assets, 2),
@@ -67,13 +72,64 @@ function q_stats(array $accounts): array
     ];
 }
 
-/** Household net-worth snapshots (oldest first). */
+/** Latest estimated home value for the configured address (0 if none). */
+function q_home_value(PDO $pdo): float
+{
+    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
+    if ($addr === '') return 0.0;
+    $st = $pdo->prepare("SELECT value FROM home_values WHERE address = :a ORDER BY as_of DESC, id DESC LIMIT 1");
+    $st->execute([':a' => $addr]);
+    return (float)($st->fetchColumn() ?: 0);
+}
+
+/**
+ * Home-value timeline for layering the house onto historical net-worth snapshots
+ * (which store financial accounts only). Returns the valuation rows plus the
+ * purchase price/date anchor (used for dates before the first valuation).
+ */
+function nw_home_timeline(PDO $pdo): array
+{
+    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
+    if ($addr === '') return ['vals' => [], 'pp' => null, 'pd' => null];
+    $st = $pdo->prepare("SELECT as_of, value FROM home_values WHERE address = :a ORDER BY as_of ASC");
+    $st->execute([':a' => $addr]);
+    $vals = $st->fetchAll();
+    $pf = $pdo->prepare("SELECT purchase_price, purchase_date FROM property_facts WHERE address = :a");
+    $pf->execute([':a' => $addr]);
+    $row = $pf->fetch() ?: [];
+    return ['vals' => $vals, 'pp' => $row['purchase_price'] ?? null, 'pd' => $row['purchase_date'] ?? null];
+}
+
+/** Home value applicable at $date (YYYY-MM-DD) from a preloaded timeline. */
+function nw_home_at(array $tl, string $date): float
+{
+    $h = 0.0;
+    // Baseline: purchase price once we owned it (covers dates before any valuation).
+    if ($tl['pp'] !== null && $tl['pd'] && (string)$tl['pd'] <= $date) $h = (float)$tl['pp'];
+    // Override with the most recent valuation on or before the date.
+    foreach ($tl['vals'] as $v) {
+        if ((string)$v['as_of'] <= $date) $h = (float)$v['value'];
+        else break;
+    }
+    return $h;
+}
+
+/**
+ * Household net-worth snapshots (oldest first), with the estimated home value
+ * layered on. balance_snapshots store financial accounts only (don't change that —
+ * baking the home in there too would double-count); the house is added here at read.
+ */
 function q_networth(PDO $pdo): array
 {
-    return $pdo->query(
+    $rows = $pdo->query(
         "SELECT snapshot_date, net_worth FROM balance_snapshots
          ORDER BY snapshot_date ASC LIMIT 730"
     )->fetchAll();
+    $tl = nw_home_timeline($pdo);
+    foreach ($rows as &$r) {
+        $r['net_worth'] = round((float)$r['net_worth'] + nw_home_at($tl, (string)$r['snapshot_date']), 2);
+    }
+    return $rows;
 }
 
 /**
@@ -83,23 +139,29 @@ function q_networth(PDO $pdo): array
 function q_networth_change(PDO $pdo, float $current, int $days = 30): array
 {
     $st = $pdo->prepare(
-        "SELECT net_worth FROM balance_snapshots
+        "SELECT snapshot_date, net_worth FROM balance_snapshots
          WHERE snapshot_date <= (CURDATE() - INTERVAL :d DAY)
          ORDER BY snapshot_date DESC LIMIT 1"
     );
     $st->bindValue(':d', $days, PDO::PARAM_INT);
     $st->execute();
-    $prev = $st->fetchColumn();
-    if ($prev === false) {
+    $row = $st->fetch();
+    if (!$row) {
         // Fall back to the earliest snapshot we have.
-        $prev = $pdo->query(
-            "SELECT net_worth FROM balance_snapshots ORDER BY snapshot_date ASC LIMIT 1"
-        )->fetchColumn();
+        $row = $pdo->query(
+            "SELECT snapshot_date, net_worth FROM balance_snapshots ORDER BY snapshot_date ASC LIMIT 1"
+        )->fetch();
     }
-    if ($prev === false || (float)$prev == 0.0) {
+    if (!$row) {
         return ['pct' => null, 'abs' => null, 'from' => null];
     }
-    $prev = (float)$prev;
+    // Layer the home value onto the comparison snapshot too (snapshots are
+    // accounts-only), so the change isn't a fake one-time spike from adding the house.
+    $tl = nw_home_timeline($pdo);
+    $prev = (float)$row['net_worth'] + nw_home_at($tl, (string)$row['snapshot_date']);
+    if ($prev == 0.0) {
+        return ['pct' => null, 'abs' => null, 'from' => null];
+    }
     return [
         'pct'  => round((($current - $prev) / abs($prev)) * 100, 1),
         'abs'  => round($current - $prev, 2),
@@ -534,5 +596,122 @@ function q_tax_summaries(PDO $pdo, string $accountId): array
          ORDER BY tax_year DESC'
     );
     $st->execute([$accountId]);
+    return $st->fetchAll();
+}
+
+/**
+ * Home value vs. mortgage → equity, for the dashboard card. Returns null when no
+ * home address is configured or no valuation has been stored yet.
+ *
+ * The home value is a shared fact about the property (home_values isn't tied to an
+ * item/account, so the VIS clause doesn't apply to it). The MORTGAGE side, however,
+ * is taken from $accounts — which the caller already fetched via q_accounts(), so it
+ * is visibility-scoped: a user who can't see the mortgage just gets equity=null.
+ * Mortgage = the first account with subtype 'mortgage', else the first type 'loan'.
+ */
+function q_home_equity(PDO $pdo, array $accounts): ?array
+{
+    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
+    if ($addr === '') return null;
+
+    $st = $pdo->prepare(
+        'SELECT value, value_low, value_high, as_of
+         FROM home_values WHERE address = :a ORDER BY as_of DESC, id DESC LIMIT 1'
+    );
+    $st->execute([':a' => $addr]);
+    $hv = $st->fetch();
+    if (!$hv) return null;
+
+    $mort = null;
+    foreach ($accounts as $a) { if (($a['subtype'] ?? '') === 'mortgage') { $mort = $a; break; } }
+    if (!$mort) { foreach ($accounts as $a) { if (($a['type'] ?? '') === 'loan') { $mort = $a; break; } } }
+    $bal = $mort ? (float)($mort['balance_current'] ?? 0) : null;
+
+    $value = (float)$hv['value'];
+    return [
+        'address'          => $addr,
+        'value'            => $value,
+        'value_low'        => $hv['value_low']  !== null ? (float)$hv['value_low']  : null,
+        'value_high'       => $hv['value_high'] !== null ? (float)$hv['value_high'] : null,
+        'as_of'            => (string)$hv['as_of'],
+        'mortgage_name'    => $mort ? ($mort['name'] ?: 'Mortgage') : null,
+        'mortgage_balance' => $bal,
+        'equity'           => $bal !== null ? round($value - $bal, 2) : null,
+    ];
+}
+
+/**
+ * The visible mortgage account + its Plaid liability detail, or null.
+ * Mortgage = first account with subtype 'mortgage', else first type 'loan'.
+ * Returns ['account'=>row, 'liab'=>row, 'raw'=>decoded Plaid mortgage, 'balance'=>current].
+ */
+function q_mortgage(PDO $pdo, int $uid): ?array
+{
+    $accts = q_accounts($pdo, $uid);
+    $m = null;
+    foreach ($accts as $a) { if (($a['subtype'] ?? '') === 'mortgage') { $m = $a; break; } }
+    if (!$m) { foreach ($accts as $a) { if (($a['type'] ?? '') === 'loan') { $m = $a; break; } } }
+    if (!$m) return null;
+
+    $st = $pdo->prepare(
+        "SELECT apr_percentage, outstanding_balance, origination_principal,
+                last_payment_amount, last_payment_date, next_payment_due_date,
+                minimum_payment_amount, raw
+         FROM liabilities WHERE account_id = :a AND liability_type = 'mortgage' LIMIT 1"
+    );
+    $st->execute([':a' => $m['account_id']]);
+    $liab = $st->fetch() ?: [];
+    $raw  = isset($liab['raw']) ? (json_decode((string)$liab['raw'], true) ?: []) : [];
+
+    return [
+        'account' => $m,
+        'liab'    => $liab,
+        'raw'     => $raw,
+        'balance' => abs((float)($m['balance_current'] ?? 0)),
+    ];
+}
+
+/** Latest RentCast property record for an address (raw decoded), or null. */
+function q_property_facts(PDO $pdo, string $address): ?array
+{
+    $st = $pdo->prepare("SELECT * FROM property_facts WHERE address = :a");
+    $st->execute([':a' => $address]);
+    $row = $st->fetch();
+    if (!$row) return null;
+    $row['raw'] = isset($row['raw_json']) ? (json_decode((string)$row['raw_json'], true) ?: []) : [];
+    return $row;
+}
+
+/** Latest market stats for a zip (raw decoded), or null. */
+function q_market_stats(PDO $pdo, string $zip): ?array
+{
+    if ($zip === '') return null;
+    $st = $pdo->prepare("SELECT * FROM market_stats WHERE zip = :z");
+    $st->execute([':z' => $zip]);
+    $row = $st->fetch();
+    if (!$row) return null;
+    $row['raw'] = isset($row['raw_json']) ? (json_decode((string)$row['raw_json'], true) ?: []) : [];
+    return $row;
+}
+
+/** Full value history for an address, oldest first. */
+function q_value_history(PDO $pdo, string $address): array
+{
+    $st = $pdo->prepare(
+        "SELECT as_of, value, value_low, value_high FROM home_values
+         WHERE address = :a ORDER BY as_of ASC, id ASC"
+    );
+    $st->execute([':a' => $address]);
+    return $st->fetchAll();
+}
+
+/** Balance history for one account, oldest first. */
+function q_account_balance_history(PDO $pdo, string $accountId): array
+{
+    $st = $pdo->prepare(
+        "SELECT snapshot_date, balance FROM account_balance_history
+         WHERE account_id = :a ORDER BY snapshot_date ASC"
+    );
+    $st->execute([':a' => $accountId]);
     return $st->fetchAll();
 }

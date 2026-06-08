@@ -315,7 +315,12 @@ function sync_recurring(PDO $pdo, string $itemId, string $token): void
     foreach ($res['outflow_streams'] ?? [] as $s) $store($s, 'outflow');
 }
 
-/** Compute household net worth across ALL accounts and upsert today's snapshot (Pacific date). */
+/**
+ * Compute household net worth across ALL accounts and upsert today's snapshot (Pacific date).
+ * NB: snapshots intentionally cover FINANCIAL ACCOUNTS ONLY — the estimated home value is
+ * layered on at read time (q_networth / q_stats / q_networth_change). Do NOT add the home here
+ * too, or it would be double-counted.
+ */
 function write_networth_snapshot(PDO $pdo): void
 {
     $rows = $pdo->query('SELECT type, balance_current FROM accounts')->fetchAll();

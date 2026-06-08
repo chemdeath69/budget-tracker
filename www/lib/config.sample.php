@@ -74,4 +74,20 @@ return [
     'twelvedata' => [
         'api_key' => '',   // paste your Twelve Data key here (empty = disabled)
     ],
+
+    // RentCast (free tier — 50 requests/month, with a PER-REQUEST OVERAGE FEE above
+    // that) — home-value (AVM) feed for the home-value-vs-mortgage card. The hard
+    // monthly cap is enforced in lib/home_value.php (the api_usage counter reserves
+    // a slot before every call and refuses past 50), so overage charges can't occur.
+    // Get a free key at https://app.rentcast.io/. LEAVE EMPTY to disable the feed.
+    'rentcast' => [
+        'api_key' => '',   // paste your RentCast key here (empty = disabled)
+    ],
+
+    // The property to value with RentCast (refreshed ~monthly by cron/sync.php) and
+    // show against the linked mortgage balance on the dashboard. Use the format
+    // "Street, City, State, Zip". LEAVE EMPTY to disable the home-value feature.
+    'home' => [
+        'address' => '',   // e.g. '123 Main St, Springfield, IL, 62704'
+    ],
 ];

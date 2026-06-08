@@ -204,6 +204,81 @@ CREATE TABLE security_prices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- api_usage — per-provider, per-month outbound-request meter. The home-value
+-- feed (lib/home_value.php) reserves a slot here before every RentCast call and
+-- refuses past the monthly cap, so we can't exceed the free quota / be billed an
+-- overage. See migration 004_home_values.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE api_usage (
+  provider      VARCHAR(32)  NOT NULL,
+  period        CHAR(7)      NOT NULL,            -- 'YYYY-MM'
+  request_count INT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (provider, period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- home_values — one row per AVM valuation run (RentCast), keyed by address, so
+-- the dashboard can show home value (+ low/high range) vs. the mortgage balance
+-- and a value-over-time history. See migration 004_home_values.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE home_values (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  account_id  VARCHAR(64)     NULL,               -- linked mortgage account, if mapped
+  address     VARCHAR(255)    NOT NULL,
+  value       DECIMAL(18,2)   NOT NULL,
+  value_low   DECIMAL(18,2)   NULL,
+  value_high  DECIMAL(18,2)   NULL,
+  as_of       DATE            NOT NULL,
+  source      VARCHAR(32)     NOT NULL DEFAULT 'rentcast',
+  raw_json    MEDIUMTEXT      NULL,
+  fetched_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_hv_addr_date (address, as_of),
+  KEY idx_hv_account (account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- property_facts / market_stats / account_balance_history — Property page data
+-- (RentCast property record + zip market stats; per-account daily balances for
+-- the mortgage-over-time chart). See migration 005_property_detail.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE property_facts (
+  address        VARCHAR(255)  NOT NULL,
+  property_type  VARCHAR(48)   NULL,
+  bedrooms       DECIMAL(5,1)  NULL,
+  bathrooms      DECIMAL(5,1)  NULL,
+  square_footage INT UNSIGNED  NULL,
+  lot_size       INT UNSIGNED  NULL,
+  year_built     SMALLINT      NULL,
+  hoa_fee        DECIMAL(12,2) NULL,
+  purchase_price DECIMAL(18,2) NULL,
+  purchase_date  DATE          NULL,
+  raw_json       MEDIUMTEXT    NULL,
+  fetched_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (address)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE market_stats (
+  zip                   VARCHAR(12)   NOT NULL,
+  median_sale_price     DECIMAL(18,2) NULL,
+  median_price_per_sqft DECIMAL(12,2) NULL,
+  median_days_on_market DECIMAL(8,1)  NULL,
+  raw_json              MEDIUMTEXT     NULL,
+  fetched_at            DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (zip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE account_balance_history (
+  account_id    VARCHAR(64)   NOT NULL,
+  snapshot_date DATE          NOT NULL,
+  balance       DECIMAL(18,2) NOT NULL,
+  created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_id, snapshot_date),
+  KEY idx_abh_date (snapshot_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- recurring_streams — /transactions/recurring/get (subscriptions view)
 -- ---------------------------------------------------------------------------
 CREATE TABLE recurring_streams (
