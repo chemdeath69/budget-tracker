@@ -48,6 +48,7 @@ foreach ($holds as $h) {
     }
 }
 $hasPerf = (bool)array_filter($pf, fn($x) => $x['has']);
+$history = q_portfolio_history($pdo, $holds); // [['date','value'],…] at current holdings
 
 /* ---- Group holdings by account (drill-down + freshness + gaps) ------------ */
 $byAccount = [];
@@ -146,6 +147,21 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
                 <?php else: ?><span class="muted">—</span><?php endif; ?>
             </div>
             <?php endforeach; ?>
+        </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if (count($history) > 1): ?>
+    <section class="block">
+        <div class="block-head"><h2>Value over time</h2><span class="muted">at current holdings</span></div>
+        <div class="card">
+            <div class="chart-wrap tall">
+                <canvas id="pv-chart" data-chart="line" data-src="pv-data"></canvas>
+                <script type="application/json" id="pv-data"><?= json_encode([
+                    'labels' => array_column($history, 'date'),
+                    'values' => array_map('floatval', array_column($history, 'value')),
+                ], JSON_UNESCAPED_SLASHES) ?></script>
+            </div>
         </div>
     </section>
     <?php endif; ?>

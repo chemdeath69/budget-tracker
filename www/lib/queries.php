@@ -327,6 +327,54 @@ function q_price_changes(PDO $pdo, array $securityIds): array
     return $out;
 }
 
+/**
+ * Portfolio value over time = Σ(current quantity × that-day's close) across the
+ * given holdings, one point per trading day in `security_prices`. Closes are
+ * carried forward per security so a day missing one security's bar still sums.
+ * NB: uses *current* share counts (we don't keep historical lot history yet), so
+ * it's "what today's holdings were worth then" — label it as such in the UI.
+ * Returns [['date'=>'YYYY-MM-DD','value'=>float], …] oldest first.
+ */
+function q_portfolio_history(PDO $pdo, array $holds): array
+{
+    $qty = [];
+    foreach ($holds as $h) {
+        if (($h['security_id'] ?? null) === null || $h['quantity'] === null) continue;
+        $qty[$h['security_id']] = ($qty[$h['security_id']] ?? 0.0) + (float)$h['quantity'];
+    }
+    if (!$qty) return [];
+    $ids = array_keys($qty);
+    $in  = implode(',', array_fill(0, count($ids), '?'));
+    $st  = $pdo->prepare(
+        "SELECT security_id, price_date, close FROM security_prices
+         WHERE security_id IN ($in) ORDER BY price_date ASC"
+    );
+    $st->execute($ids);
+
+    $map = []; $dates = [];
+    foreach ($st->fetchAll() as $r) {
+        $map[$r['security_id']][$r['price_date']] = (float)$r['close'];
+        $dates[$r['price_date']] = true;
+    }
+    if (!$dates) return [];
+    ksort($dates);
+
+    $need = count($qty);
+    $last = []; $out = [];
+    foreach (array_keys($dates) as $d) {
+        foreach ($qty as $sid => $q) {
+            if (isset($map[$sid][$d])) $last[$sid] = $map[$sid][$d];
+        }
+        // Don't plot until every security has a known price, else the line ramps
+        // up over the first few days as each security's first bar arrives.
+        if (count($last) < $need) continue;
+        $val = 0.0;
+        foreach ($qty as $sid => $q) $val += $last[$sid] * $q;
+        $out[] = ['date' => $d, 'value' => round($val, 2)];
+    }
+    return $out;
+}
+
 /** Active recurring streams. Optionally scoped to one account. */
 function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
 {
