@@ -60,7 +60,7 @@ CREATE TABLE accounts (
   balance_current       DECIMAL(15,2) NULL,
   balance_limit         DECIMAL(15,2) NULL,
   iso_currency_code     VARCHAR(8)  NULL DEFAULT 'USD',
-  visibility            ENUM('shared','private') NOT NULL DEFAULT 'shared',
+  visibility            ENUM('shared','private','hidden') NOT NULL DEFAULT 'shared',  -- hidden = registered nowhere but the owner's settings page (migration 008)
   last_updated_datetime DATETIME NULL,             -- Plaid balances.last_updated_datetime
   updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                           ON UPDATE CURRENT_TIMESTAMP,

@@ -17,7 +17,7 @@ $to   = $_GET['to'] ?? null;
 $q    = trim((string)($_GET['q'] ?? ''));
 $acct = trim((string)($_GET['account_id'] ?? ''));
 
-$where = ['(a.visibility = "shared" OR i.user_id = :uid)'];
+$where = ['(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))'];
 $params = [':uid' => $uid];
 if ($from) { $where[] = 't.date >= :from'; $params[':from'] = $from; }
 if ($to)   { $where[] = 't.date <= :to';   $params[':to']   = $to; }

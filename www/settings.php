@@ -8,8 +8,10 @@ require_login();
 
 $pdo  = db();
 $uid  = current_user_id();
-$accounts = q_accounts($pdo, $uid);
-$owned = array_filter($accounts, fn($a) => (int)$a['owner_id'] === $uid);
+// q_owned_accounts() (not q_accounts) so the owner can see + un-hide their HIDDEN
+// accounts here — settings is the only surface that shows them (they're invisible
+// everywhere else in the app, including their own account.php drill-down).
+$owned = q_owned_accounts($pdo, $uid);
 
 render_header('Settings', 'settings', ['narrow' => true]);
 ?>
@@ -61,13 +63,14 @@ render_header('Settings', 'settings', ['narrow' => true]);
             $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']); ?>
         <div class="row manage-row">
             <span class="row-main">
-                <span class="row-title"><?= e($a['name'] ?: 'Account') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?></span>
+                <span class="row-title"><?= e($a['name'] ?: 'Account') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?><?php if ($a['visibility'] === 'hidden'): ?> <span class="mini-tag">hidden</span><?php endif; ?></span>
                 <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $errored ? ' · <span class="mini-tag warn">needs attention</span>' : '' ?></span>
             </span>
             <span class="manage-controls">
                 <select class="select vis-select" data-account="<?= e($a['account_id']) ?>" aria-label="Visibility">
                     <option value="shared"<?= $a['visibility'] === 'shared' ? ' selected' : '' ?>>Shared</option>
                     <option value="private"<?= $a['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
+                    <option value="hidden"<?= $a['visibility'] === 'hidden' ? ' selected' : '' ?>>Hidden</option>
                 </select>
                 <?php if (($a['source'] ?? 'plaid') === 'manual'): ?>
                     <a class="btn-ghost sm" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Update</a>

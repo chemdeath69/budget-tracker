@@ -7,9 +7,15 @@ declare(strict_types=1);
  * Visibility rule (mostly-joint, some-private): a user sees an account when it
  * is shared OR they own the Item that holds it. Every query below applies this
  * via the VIS clause and a :uid bind.
+ *
+ * A third state, 'hidden' (migration 008), is excluded from EVERY read here for
+ * BOTH users — a hidden account is registered nowhere in the app except its owner's
+ * settings page (which uses q_owned_accounts(), the only read that ignores VIS).
+ * The `<> "hidden"` test comes first so an owner can't see their own hidden accounts
+ * via the `i.user_id = :uid` branch.
  */
 
-const VIS = '(a.visibility = "shared" OR i.user_id = :uid)';
+const VIS = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))';
 
 /**
  * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
@@ -77,6 +83,29 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
     $st->execute([':uid' => $uid, ':acct' => $accountId]);
     $row = $st->fetch();
     return $row ?: null;
+}
+
+/**
+ * Every account the user OWNS, regardless of visibility — including 'hidden' ones.
+ * This is the ONLY read that bypasses VIS, and it is scoped to the owner's own Items
+ * (i.user_id = :uid), so it never exposes another user's accounts. Used solely by the
+ * settings page so the owner can see and un-hide their hidden accounts (hidden accounts
+ * are invisible everywhere else, including their own account.php drill-down).
+ */
+function q_owned_accounts(PDO $pdo, int $uid): array
+{
+    $st = $pdo->prepare(
+        "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
+                a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
+                a.visibility, i.institution_name, i.institution_id,
+                i.user_id AS owner_id, i.item_id, i.status AS item_status,
+                i.error_code, i.source, i.manual_type
+         FROM accounts a JOIN items i ON a.item_id = i.item_id
+         WHERE i.user_id = :uid
+         ORDER BY i.institution_name, a.name"
+    );
+    $st->execute([':uid' => $uid]);
+    return $st->fetchAll();
 }
 
 /**
@@ -494,11 +523,16 @@ function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
 function q_budgets(PDO $pdo): array
 {
     $month = date('Y-m');
+    // Household-wide (no per-user VIS), but 'hidden' accounts must not feed budget
+    // spend — join accounts to drop them. (Private accounts still count: the budget
+    // is a shared household figure; only 'hidden' is registered nowhere.)
     $rows = $pdo->prepare(
         "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
                 SUM(t.amount) AS spent
          FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
          WHERE t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND a.visibility <> 'hidden'
            AND DATE_FORMAT(t.date, '%Y-%m') = :m
          GROUP BY category"
     );

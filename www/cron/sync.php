@@ -47,9 +47,12 @@ echo "[" . date('Y-m-d H:i:s T') . "] cron sync done; snapshot written.\n";
 
 // Per-account balance history (one row per account per day) — powers the
 // mortgage-balance-over-time chart (balance_snapshots only stores household totals).
+// 'hidden' accounts stop accruing recorded history while hidden (registered nowhere).
+// Existing rows are left in place — if un-hidden later the chart resumes with a gap.
 $abh = $pdo->prepare(
     "INSERT INTO account_balance_history (account_id, snapshot_date, balance)
      SELECT account_id, :d, COALESCE(balance_current, 0) FROM accounts
+     WHERE visibility <> 'hidden'
      ON DUPLICATE KEY UPDATE balance = VALUES(balance)"
 );
 $abh->execute([':d' => date('Y-m-d')]);

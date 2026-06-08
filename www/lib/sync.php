@@ -323,7 +323,9 @@ function sync_recurring(PDO $pdo, string $itemId, string $token): void
  */
 function write_networth_snapshot(PDO $pdo): void
 {
-    $rows = $pdo->query('SELECT type, balance_current FROM accounts')->fetchAll();
+    // 'hidden' accounts are registered nowhere — exclude them from the household total
+    // (private accounts still count: the snapshot is the joint household net worth).
+    $rows = $pdo->query("SELECT type, balance_current FROM accounts WHERE visibility <> 'hidden'")->fetchAll();
     $assets = 0.0; $liabilities = 0.0;
     foreach ($rows as $r) {
         $bal = (float)($r['balance_current'] ?? 0);

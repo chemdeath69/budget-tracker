@@ -17,7 +17,7 @@ $pdo = db();
  * Visibility rule (mostly-joint, some-private):
  * a user sees an account when it is shared OR they own the Item that holds it.
  */
-$vis = '(a.visibility = "shared" OR i.user_id = :uid)';
+$vis = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))';
 
 /* ---- Accounts (visible) ---- */
 $accts = $pdo->prepare(

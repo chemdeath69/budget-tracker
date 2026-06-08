@@ -22,7 +22,10 @@ $action = $in['action'] ?? '';
 
 if ($action === 'visibility') {
     $accountId  = (string)($in['account_id'] ?? '');
-    $visibility = ($in['visibility'] ?? '') === 'private' ? 'private' : 'shared';
+    // shared (default) · private (hidden from the other user, still counts) ·
+    // hidden (registered nowhere but the owner's settings page — migration 008).
+    $visibility = in_array($in['visibility'] ?? '', ['private', 'hidden'], true)
+        ? $in['visibility'] : 'shared';
 
     // Only the owner of the Item that holds this account may change visibility.
     $own = $pdo->prepare(
@@ -69,7 +72,8 @@ if ($action === 'recategorize') {
         'SELECT 1 FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
-         WHERE t.transaction_id = ? AND (a.visibility = "shared" OR i.user_id = ?)'
+         WHERE t.transaction_id = ?
+           AND (a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = ?))'
     );
     $vis->execute([$txId, $uid]);
     if (!$vis->fetchColumn()) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
