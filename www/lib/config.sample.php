@@ -66,4 +66,12 @@ return [
     ],
     // poppler's pdftotext, used to read uploaded PDFs (host has it at /usr/bin).
     'pdftotext' => '/usr/bin/pdftotext',
+
+    // Twelve Data (free tier) — daily security-price refresh + history backfill
+    // that power the Investments change-icons and price charts. Create a free key
+    // at https://twelvedata.com/account/api-keys. LEAVE EMPTY to disable the price
+    // feed entirely (holdings still render; change-icons/charts just stay blank).
+    'twelvedata' => [
+        'api_key' => '',   // paste your Twelve Data key here (empty = disabled)
+    ],
 ];

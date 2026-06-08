@@ -16,6 +16,7 @@ if (PHP_SAPI !== 'cli') {
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/sync.php';
+require __DIR__ . '/../lib/prices.php';
 
 $pdo = db();
 // Only Plaid items have a live feed to sync. Manual (source='manual') items are
@@ -38,3 +39,12 @@ foreach ($items as $item) {
 
 write_networth_snapshot($pdo);
 echo "[" . date('Y-m-d H:i:s T') . "] cron sync done; snapshot written.\n";
+
+// Refresh security prices (daily close per held ticker). No-op without a key.
+// Only here in the daily cron — NOT in lib/sync.php — so webhook-triggered syncs
+// don't burn Twelve Data credits on every fire.
+$pr = prices_refresh_latest($pdo);
+echo "[" . date('Y-m-d H:i:s T') . "] prices: "
+   . ($pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
+                . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
+                : "skipped ({$pr['error']})") . "\n";

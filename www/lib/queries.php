@@ -279,6 +279,54 @@ function q_statement_coverage(PDO $pdo, string $accountId): array
     return ['have' => $have, 'missing' => $missing, 'latest' => $last];
 }
 
+/**
+ * Per-security price change anchors from `security_prices`, keyed by security_id.
+ * For each id returns the latest close + the close as of ~1/7/30/365 days before
+ * it (closest trading day at-or-before the target), so the page can render
+ * day/week/month/year change icons as (current − anchor) × quantity.
+ *   [security_id => ['date'=>'YYYY-MM-DD','current'=>f,'d1'=>?f,'d7'=>?f,'d30'=>?f,'d365'=>?f]]
+ * The ids come from already-visibility-scoped holdings, so no VIS clause is needed
+ * (these rows are market prices, not user data).
+ */
+function q_price_changes(PDO $pdo, array $securityIds): array
+{
+    $securityIds = array_values(array_unique(array_filter($securityIds)));
+    if (!$securityIds) return [];
+    $in = implode(',', array_fill(0, count($securityIds), '?'));
+    $st = $pdo->prepare(
+        "SELECT security_id, price_date, close FROM security_prices
+         WHERE security_id IN ($in) ORDER BY security_id, price_date ASC"
+    );
+    $st->execute($securityIds);
+
+    $series = [];
+    foreach ($st->fetchAll() as $r) {
+        $series[$r['security_id']][] = [$r['price_date'], (float)$r['close']];
+    }
+
+    $out = [];
+    foreach ($series as $sid => $rows) {
+        $n = count($rows);
+        $latestDate = $rows[$n - 1][0];
+        // Latest close on/at-or-before $latestDate minus $days (rows are ASC).
+        $anchor = function (int $days) use ($rows, $latestDate): ?float {
+            $target = date('Y-m-d', strtotime($latestDate . " -{$days} day"));
+            $close = null;
+            foreach ($rows as [$d, $c]) { if ($d <= $target) $close = $c; else break; }
+            return $close;
+        };
+        $out[$sid] = [
+            'date'    => $latestDate,
+            'current' => $rows[$n - 1][1],
+            'd1'      => $n > 1 ? $rows[$n - 2][1] : null,   // prior trading day = "today's" move
+            'd7'      => $anchor(7),
+            'd30'     => $anchor(30),
+            'd365'    => $anchor(365),
+        ];
+    }
+    return $out;
+}
+
 /** Active recurring streams. Optionally scoped to one account. */
 function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
 {

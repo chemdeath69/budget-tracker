@@ -168,6 +168,22 @@ CREATE TABLE holdings (
 -- Optional: investment_transactions (buys/sells/dividends). Add later if needed.
 
 -- ---------------------------------------------------------------------------
+-- security_prices — daily close per security (history for charts + the
+-- Investments change-icons). Filled by lib/prices.php (Twelve Data). One row
+-- per (security_id, day); upserted. See migration 002_security_prices.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE security_prices (
+  security_id  VARCHAR(64)   NOT NULL,
+  price_date   DATE          NOT NULL,
+  close        DECIMAL(18,4) NOT NULL,
+  source       VARCHAR(16)   NOT NULL DEFAULT 'twelvedata',
+  updated_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (security_id, price_date),
+  KEY idx_sp_date (price_date),
+  CONSTRAINT fk_sp_security FOREIGN KEY (security_id) REFERENCES securities(security_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- recurring_streams — /transactions/recurring/get (subscriptions view)
 -- ---------------------------------------------------------------------------
 CREATE TABLE recurring_streams (

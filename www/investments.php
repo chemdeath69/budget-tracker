@@ -28,6 +28,27 @@ $gain     = $haveCost ? $valCost - $costSum : null;
 $gainPct  = ($haveCost && $costSum != 0.0) ? round(($gain / abs($costSum)) * 100, 1) : null;
 $partial  = $haveCost > 0 && $haveCost < count($holds); // some holdings lack a cost basis
 
+/* ---- Price-based change over time (day / week / month / year) ------------- */
+$HORIZONS = ['d1' => 'Today', 'd7' => '1 wk', 'd30' => '1 mo', 'd365' => '1 yr'];
+$changes  = q_price_changes($pdo, array_map(fn($h) => $h['security_id'] ?? null, $holds));
+$priceAsOf = null;
+$pf = [];
+foreach (array_keys($HORIZONS) as $k) $pf[$k] = ['abs' => 0.0, 'base' => 0.0, 'has' => false];
+foreach ($holds as $h) {
+    $c = $changes[$h['security_id']] ?? null;
+    if (!$c) continue;
+    if ($priceAsOf === null || $c['date'] > $priceAsOf) $priceAsOf = $c['date'];
+    if ($h['quantity'] === null || $c['current'] === null) continue;
+    $qty = (float)$h['quantity'];
+    foreach (array_keys($HORIZONS) as $k) {
+        if ($c[$k] === null) continue;
+        $pf[$k]['abs']  += ($c['current'] - $c[$k]) * $qty;
+        $pf[$k]['base'] += $c[$k] * $qty;
+        $pf[$k]['has']   = true;
+    }
+}
+$hasPerf = (bool)array_filter($pf, fn($x) => $x['has']);
+
 /* ---- Group holdings by account (drill-down + freshness + gaps) ------------ */
 $byAccount = [];
 foreach ($holds as $h) {
@@ -76,6 +97,15 @@ foreach ($byAccount as $aid => $g) {
 }
 
 render_header('Investments', 'investments', ['chart' => true]);
+
+/** A holding's value change over $key (e.g. 'd30') as [abs, pct] or null. */
+function hold_change(?array $c, ?float $qty, string $key): ?array
+{
+    if (!$c || $qty === null || $c['current'] === null || ($c[$key] ?? null) === null) return null;
+    $abs  = ($c['current'] - $c[$key]) * $qty;
+    $base = $c[$key] * $qty;
+    return [$abs, $base != 0.0 ? $abs / abs($base) * 100 : null];
+}
 ?>
 
 <?php if (!$holds): ?>
@@ -102,6 +132,23 @@ render_header('Investments', 'investments', ['chart' => true]);
             <div class="muted">Cost basis isn't available yet, so gain/loss can't be shown.</div>
         <?php endif; ?>
     </section>
+
+    <?php if ($hasPerf): ?>
+    <section class="block">
+        <div class="block-head"><h2>Performance</h2><?php if ($priceAsOf): ?><span class="muted">as of <?= e($priceAsOf) ?></span><?php endif; ?></div>
+        <div class="card perf-grid">
+            <?php foreach ($HORIZONS as $k => $lbl): $x = $pf[$k]; ?>
+            <div class="perf-cell">
+                <span class="perf-label"><?= e($lbl) ?></span>
+                <?php if ($x['has']): $up = $x['abs'] >= 0; $pct = $x['base'] != 0.0 ? ($x['abs'] / abs($x['base'])) * 100 : null; ?>
+                    <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= $pct !== null ? e(number_format(abs($pct), 1)) . '%' : '' ?></span>
+                    <span class="perf-sub muted"><?= ($x['abs'] >= 0 ? '+' : '−') . e(usd(abs($x['abs']))) ?></span>
+                <?php else: ?><span class="muted">—</span><?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </section>
+    <?php endif; ?>
 
     <div class="cols">
     <!-- Allocation -->
@@ -168,7 +215,9 @@ render_header('Investments', 'investments', ['chart' => true]);
                 $val   = $h['institution_value'] !== null ? (float)$h['institution_value'] : null;
                 $cb    = $h['cost_basis'] !== null ? (float)$h['cost_basis'] : null;
                 $hgain = ($val !== null && $cb !== null) ? $val - $cb : null;
-                $hpct  = ($hgain !== null && $cb != 0.0) ? round($hgain / abs($cb) * 100, 1) : null; ?>
+                $hpct  = ($hgain !== null && $cb != 0.0) ? round($hgain / abs($cb) * 100, 1) : null;
+                $c     = $changes[$h['security_id']] ?? null;
+                $qty   = $h['quantity'] !== null ? (float)$h['quantity'] : null; ?>
             <div class="row">
                 <span class="row-main">
                     <span class="row-title"><?= e($sec) ?></span>
@@ -176,6 +225,13 @@ render_header('Investments', 'investments', ['chart' => true]);
                         <?php if ($h['quantity'] !== null): ?><?= e(number_format((float)$h['quantity'], 4)) ?> @ <?= e(usd($h['institution_price'])) ?><?php endif; ?>
                         <?php if ($cb !== null): ?> · cost <?= e(usd($cb)) ?><?php endif; ?>
                     </span>
+                    <?php if ($c && $qty !== null && $c['current'] !== null): ?>
+                    <span class="chg-strip">
+                        <?php foreach ($HORIZONS as $k => $lbl): $d = hold_change($c, $qty, $k); if (!$d) continue; $up = $d[0] >= 0; ?>
+                        <span class="chg <?= $up ? 'up' : 'down' ?>"><span class="chg-l"><?= e($lbl) ?></span> <?= $up ? '▲' : '▼' ?><?= $d[1] !== null ? e(number_format(abs($d[1]), 1)) . '%' : '' ?></span>
+                        <?php endforeach; ?>
+                    </span>
+                    <?php endif; ?>
                 </span>
                 <span class="row-side">
                     <span class="row-amt"><?= $val !== null ? e(usd($val)) : '—' ?></span>
