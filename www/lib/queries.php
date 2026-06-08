@@ -203,8 +203,10 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
     $params = [':uid' => $uid];
     if ($accountId !== null) { $where[] = 'h.account_id = :acct'; $params[':acct'] = $accountId; }
     $st = $pdo->prepare(
-        "SELECT s.ticker_symbol, s.name AS security_name, h.quantity, h.institution_price,
-                h.institution_value, a.name AS account_name, a.mask, a.account_id
+        "SELECT s.ticker_symbol, s.name AS security_name, s.type AS security_type,
+                h.security_id, h.quantity, h.cost_basis, h.institution_price, h.institution_value,
+                a.name AS account_name, a.mask, a.account_id, a.last_updated_datetime,
+                i.institution_name, i.source
          FROM holdings h
          JOIN accounts a ON h.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -214,6 +216,67 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
     );
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * Brokerage cash activity matching one or more `pfc_primary` tags, scoped to
+ * manual investment feeds (ext_source IS NOT NULL — Plaid investment
+ * transactions aren't synced yet). Newest first. Used for dividend/interest and
+ * trade lists on the Investments page. Amounts keep the stored sign
+ * (+ = money out, − = money in); callers flip as needed for display.
+ */
+function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50): array
+{
+    if (!$tags) return [];
+    $in = [];
+    $params = [':uid' => $uid];
+    foreach (array_values($tags) as $k => $tag) { $ph = ":t$k"; $in[] = $ph; $params[$ph] = $tag; }
+    $st = $pdo->prepare(
+        "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pfc_primary,
+                a.name AS account_name, a.mask, a.account_id
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND t.ext_source IS NOT NULL
+           AND t.pfc_primary IN (" . implode(',', $in) . ")
+         ORDER BY t.date DESC, t.imported_at DESC
+         LIMIT " . (int)$limit
+    );
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
+/**
+ * Statement-coverage gaps for a manual account: which monthly statement buckets
+ * we hold vs. the full sequence between the earliest and latest one. Lets the UI
+ * warn that figures may be incomplete when a middle month is missing (e.g. Jan
+ * and Mar uploaded, Feb absent). Returns
+ *   ['have'=>['YYYY-MM',…], 'missing'=>['YYYY-MM',…], 'latest'=>?'YYYY-MM'].
+ */
+function q_statement_coverage(PDO $pdo, string $accountId): array
+{
+    $st = $pdo->prepare(
+        "SELECT period_key FROM manual_documents
+         WHERE account_id = ? AND doc_type = 'statement'
+           AND period_key REGEXP '^[0-9]{4}-[0-9]{2}$'
+         ORDER BY period_key"
+    );
+    $st->execute([$accountId]);
+    $have = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$have) return ['have' => [], 'missing' => [], 'latest' => null];
+
+    $first = $have[0];
+    $last  = $have[count($have) - 1];
+    $haveSet = array_fill_keys($have, true);
+
+    // Walk every month from $first to $last; flag any not present.
+    $missing = [];
+    [$y, $m] = array_map('intval', explode('-', $first));
+    while (($cur = sprintf('%04d-%02d', $y, $m)) <= $last) {
+        if (!isset($haveSet[$cur])) $missing[] = $cur;
+        if (++$m > 12) { $m = 1; $y++; }
+    }
+    return ['have' => $have, 'missing' => $missing, 'latest' => $last];
 }
 
 /** Active recurring streams. Optionally scoped to one account. */

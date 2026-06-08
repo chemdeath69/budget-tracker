@@ -124,13 +124,28 @@ render_header($acct['name'] ?: 'Account', '', [
         <p class="muted">No holdings reported for this account yet.</p>
     <?php else: ?>
         <div class="rows">
-        <?php foreach ($holds as $h): $sec = ($h['ticker_symbol'] ? $h['ticker_symbol'] . ' — ' : '') . ($h['security_name'] ?: '—'); ?>
+        <?php foreach ($holds as $h):
+            $sec   = ($h['ticker_symbol'] ? $h['ticker_symbol'] . ' — ' : '') . ($h['security_name'] ?: '—');
+            $val   = $h['institution_value'] !== null ? (float)$h['institution_value'] : null;
+            $cb    = $h['cost_basis'] !== null ? (float)$h['cost_basis'] : null;
+            $hgain = ($val !== null && $cb !== null) ? $val - $cb : null;
+            $hpct  = ($hgain !== null && $cb != 0.0) ? round($hgain / abs($cb) * 100, 1) : null; ?>
             <div class="row">
                 <span class="row-main">
                     <span class="row-title"><?= e($sec) ?></span>
-                    <span class="row-sub"><?= $h['quantity'] !== null ? e(number_format((float)$h['quantity'], 4)) . ' @ ' . e(usd($h['institution_price'])) : '' ?></span>
+                    <span class="row-sub">
+                        <?php if ($h['quantity'] !== null): ?><?= e(number_format((float)$h['quantity'], 4)) ?> @ <?= e(usd($h['institution_price'])) ?><?php endif; ?>
+                        <?php if ($cb !== null): ?> · cost <?= e(usd($cb)) ?><?php endif; ?>
+                    </span>
                 </span>
-                <span class="row-amt"><?= $h['institution_value'] !== null ? e(usd($h['institution_value'])) : '—' ?></span>
+                <span class="row-side">
+                    <span class="row-amt"><?= $val !== null ? e(usd($val)) : '—' ?></span>
+                    <?php if ($hgain !== null): ?>
+                        <span class="delta <?= $hgain >= 0 ? 'up' : 'down' ?>"><?= $hgain >= 0 ? '▲' : '▼' ?> <?= ($hgain >= 0 ? '+' : '−') . e(usd(abs($hgain))) ?><?php if ($hpct !== null): ?> (<?= e(number_format(abs($hpct), 1)) ?>%)<?php endif; ?></span>
+                    <?php elseif ($val !== null): ?>
+                        <span class="muted mini-tag">cost basis pending</span>
+                    <?php endif; ?>
+                </span>
             </div>
         <?php endforeach; ?>
         </div>

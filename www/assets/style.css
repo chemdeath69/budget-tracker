@@ -191,6 +191,9 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .row-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-sub { color: var(--muted); font-size: .82rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .row-amt { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
+.row-side .delta { font-size: .75rem; padding: 2px 7px; }
+.asof-line { font-size: .8rem; margin: 0 0 8px; }
 .chev { color: var(--muted); font-size: 1.4rem; line-height: 1; margin-left: -4px; }
 
 .mini-tag {
