@@ -114,10 +114,16 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
     <?php endif; ?>
 
     <div class="cols">
-    <!-- Accounts (the hero of an account-centric dashboard) -->
+    <!-- Accounts (the hero of an account-centric dashboard), grouped by category -->
     <?php
-    $byInst = [];
-    foreach ($accounts as $a) { $byInst[$a['institution_name'] ?: 'Other'][] = $a; }
+    // Bucket by category, then keep ACCOUNT_GROUPS' canonical order. Within a group,
+    // biggest balance first (debts compared by amount owed).
+    $byCat = [];
+    foreach ($accounts as $a) { $byCat[account_group($a)][] = $a; }
+    foreach ($byCat as &$grp) {
+        usort($grp, fn($x, $y) => abs((float)($y['balance_current'] ?? 0)) <=> abs((float)($x['balance_current'] ?? 0)));
+    }
+    unset($grp);
     ?>
     <section class="block">
         <div class="block-head">
@@ -125,21 +131,36 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <span class="count-pill"><?= count($accounts) ?></span>
         </div>
 
-        <?php foreach ($byInst as $inst => $rows): ?>
+        <?php foreach (ACCOUNT_GROUPS as $cat => $label):
+            if (empty($byCat[$cat])) continue;
+            $rows = $byCat[$cat];
+            // Group subtotal: assets add, debts subtract (so the figure reads as net for the group).
+            $subtotal = 0.0;
+            foreach ($rows as $a) {
+                $b = (float)($a['balance_current'] ?? 0);
+                $subtotal += is_liability($a) ? -abs($b) : $b;
+            }
+            $negTotal = $subtotal < 0;
+        ?>
             <div class="inst-group">
-                <div class="inst-name"><?= e($inst) ?></div>
+                <div class="inst-name">
+                    <span><?= e($label) ?></span>
+                    <span class="inst-total <?= $negTotal ? 'neg' : '' ?>"><?= e(($negTotal ? '-' : '') . usd(abs($subtotal))) ?></span>
+                </div>
                 <div class="acct-list">
                     <?php foreach ($rows as $a):
                         $debt    = is_liability($a);
                         $bal     = (float)($a['balance_current'] ?? 0);
                         $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
+                        // Bank name now lives on the card (the group header is the category).
+                        $sub = $a['institution_name'] ?: pretty_cat($a['subtype'] ?: $a['type']);
                     ?>
                     <a class="acct-card" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">
                         <span class="acct-icon <?= $debt ? 'is-debt' : '' ?>"><?= nav_icon($debt ? 'invest' : 'bank') ?></span>
                         <span class="acct-main">
                             <span class="acct-name"><?= e($a['name'] ?: ($a['official_name'] ?: 'Account')) ?></span>
                             <span class="acct-sub">
-                                <?= $a['mask'] ? '••' . e($a['mask']) . ' · ' : '' ?><?= e(pretty_cat($a['subtype'] ?: $a['type'])) ?>
+                                <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?>
                                 <?php if ($a['visibility'] === 'private'): ?><span class="mini-tag">private</span><?php endif; ?>
                                 <?php if ($errored): ?><span class="mini-tag warn">needs attention</span><?php endif; ?>
                             </span>

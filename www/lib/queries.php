@@ -631,6 +631,41 @@ function is_liability(array $a): bool
     return in_array($a['type'] ?? '', ['credit', 'loan'], true);
 }
 
+/**
+ * Dashboard account groups, in display order (assets first, then liabilities).
+ * key => friendly heading. The 'other' catch-all only shows if something fails to
+ * classify, so nothing ever silently disappears from the list.
+ */
+const ACCOUNT_GROUPS = [
+    'checking'    => 'Checking',
+    'savings'     => 'Savings',
+    'investments' => 'Investments',
+    'retirement'  => 'Retirement',
+    'credit'      => 'Credit cards',
+    'loans'       => 'Loans',
+    'other'       => 'Other',
+];
+
+/**
+ * Which ACCOUNT_GROUPS bucket an account belongs to. Retirement wins first (a 401(k)/IRA
+ * is an `investment` type, so it must be pulled out before the investment branch). Then we
+ * map by the reliable top-level `type`, splitting depository into checking vs everything-else-
+ * cash (savings/CD/money-market/cash-management/unknown deposit) by `subtype`.
+ */
+function account_group(array $a): string
+{
+    if (is_retirement_account($a)) return 'retirement';
+    $type = strtolower((string)($a['type'] ?? ''));
+    $sub  = strtolower(trim((string)($a['subtype'] ?? '')));
+    switch ($type) {
+        case 'depository': return $sub === 'checking' ? 'checking' : 'savings';
+        case 'credit':     return 'credit';
+        case 'loan':       return 'loans';
+        case 'investment': return 'investments';
+        default:           return 'other';
+    }
+}
+
 /** Is this a manual (document-updated, non-Plaid) account? */
 function is_manual(array $a): bool
 {

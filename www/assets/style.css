@@ -244,7 +244,9 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 /* ---- Account cards ------------------------------------------------------ */
 .inst-group { display: flex; flex-direction: column; gap: 6px; }
 .inst-group + .inst-group { margin-top: 6px; }
-.inst-name { color: var(--muted); font-size: .78rem; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; padding: 0 4px; }
+.inst-name { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--muted); font-size: .78rem; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; padding: 0 4px; }
+.inst-total { font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.inst-total.neg { color: var(--neg); }
 .acct-list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-1); overflow: hidden; }
 .acct-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; color: var(--ink); }
 .acct-card + .acct-card { border-top: 1px solid var(--line); }
