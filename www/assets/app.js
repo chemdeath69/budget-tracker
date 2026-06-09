@@ -194,6 +194,35 @@ function initCharts() {
       });
     }
 
+    // Stacked category bars over months: d = {labels, series:[{label, values}, …]}.
+    // Colours follow the doughnut palette (sliceColor by series index); a trailing
+    // "Other" series (last) is rendered muted so it reads as the remainder.
+    if (type === 'stackbars') {
+      const series = d.series || [];
+      const last = series.length - 1;
+      const datasets = series.map((s, i) => {
+        const isOther = i === last && /^other$/i.test(s.label || '');
+        const col = isOther ? c.muted : sliceColor(i);
+        return { label: s.label, data: s.values, backgroundColor: hexA(col, .82), borderRadius: 3, maxBarThickness: 46 };
+      });
+      new Chart(canvas, {
+        type: 'bar',
+        data: { labels: d.labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+            tooltip: { callbacks: { label: i => `${i.dataset.label}: ${usd(i.parsed.y)}` } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 12, maxRotation: 0 } },
+            y: { stacked: true, grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+          },
+        },
+      });
+    }
+
     if (type === 'doughnut') {
       new Chart(canvas, {
         type: 'doughnut',

@@ -340,6 +340,134 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
 }
 
 /**
+ * Spending by category across the last $months calendar months (oldest→newest),
+ * gap-filled, plus current-month-vs-history deltas — backs the Spending-trends page.
+ *
+ * Uses the SAME true-expense definition as q_cashflow (outflows only; excludes
+ * pending, ext_source, internal transfers and credit-card payments) so the trend
+ * reflects real spending and ties to the cash-flow expense bars. Categories beyond
+ * the top 7 (by total over the lookback) fold into an 'OTHER' bucket so the stacked
+ * chart stays legible. Always queries at least 13 months so the "same month last
+ * year" delta resolves even when the chart window ($months) is shorter.
+ *
+ * The chart's completed months use FULL monthly totals, but the current month is
+ * only partial — so the deltas compare like-for-like MONTH-TO-DATE: this month so
+ * far vs the prior months truncated to the same day-of-month (a conditional sum on
+ * DAY(t.date) <= today), otherwise a 9th-of-the-month total always reads as "down".
+ *
+ * Returns:
+ *   'months'    => [['ym','label','total','cats'=>[CAT=>amt,…]], …]  last $months, oldest→newest (full totals)
+ *   'cat_order' => [CAT, …, 'OTHER']   stack + colour order (top-7, then OTHER if any)
+ *   'deltas'    => [['category','this','avg3','lastyear'], …]  current month, 'this' desc (month-to-date)
+ *   'this_total','avg3_total','lastyear_total' => float  (hero figures, month-to-date)
+ *   'month_label' => 'M Y' label for the current (partial) month
+ */
+function q_spending_trend(PDO $pdo, int $uid, int $months = 12): array
+{
+    $months   = max(1, min(24, $months));
+    $lookback = max($months, 13);   // ensure same-month-last-year is always covered
+
+    // Contiguous month list (oldest→newest), anchored to the 1st of this month.
+    $first = new DateTimeImmutable('first day of this month');
+    $list  = [];
+    for ($i = $lookback - 1; $i >= 0; $i--) {
+        $list[] = $first->sub(new DateInterval('P' . $i . 'M'));
+    }
+    $start = $list[0]->format('Y-m-01');
+    $dom   = (int)(new DateTimeImmutable('today'))->format('j');   // today's day-of-month
+
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
+                COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
+                SUM(t.amount) AS total,
+                SUM(CASE WHEN DAY(t.date) <= :dom THEN t.amount ELSE 0 END) AS mtd
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start
+         GROUP BY ym, category"
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->bindValue(':dom', $dom, PDO::PARAM_INT);
+    $st->execute();
+
+    // matrix[ym][CAT] = full total (chart) ; mtd[ym][CAT] = same-day-of-month total
+    // (deltas) ; catTotals[CAT] = total over the whole lookback (for ranking).
+    $matrix = [];
+    $mtd = [];
+    $catTotals = [];
+    foreach ($st->fetchAll() as $r) {
+        $ym = $r['ym']; $cat = $r['category'];
+        $matrix[$ym][$cat] = ($matrix[$ym][$cat] ?? 0.0) + (float)$r['total'];
+        $mtd[$ym][$cat]    = ($mtd[$ym][$cat] ?? 0.0) + (float)$r['mtd'];
+        $catTotals[$cat]   = ($catTotals[$cat] ?? 0.0) + (float)$r['total'];
+    }
+    arsort($catTotals);
+    $topCats  = array_slice(array_keys($catTotals), 0, 7);
+    $catOrder = $topCats;
+    if (count($catTotals) > count($topCats)) $catOrder[] = 'OTHER';
+
+    // Amount for one category in one month from a given matrix, treating 'OTHER'
+    // as "everything not in the top-7".
+    $pick = function (array $src, string $ym, string $cat) use ($topCats): float {
+        $row = $src[$ym] ?? [];
+        if ($cat === 'OTHER') {
+            $o = 0.0;
+            foreach ($row as $c => $a) if (!in_array($c, $topCats, true)) $o += $a;
+            return $o;
+        }
+        return (float)($row[$cat] ?? 0.0);
+    };
+
+    // Chart window = the last $months entries of the lookback list, gap-filled (full totals).
+    $monthsOut = [];
+    foreach (array_slice($list, -$months) as $dt) {
+        $ym   = $dt->format('Y-m');
+        $cats = [];
+        foreach ($catOrder as $cat) $cats[$cat] = $pick($matrix, $ym, $cat);
+        $monthsOut[] = [
+            'ym'    => $ym,
+            'label' => $dt->format('M y'),
+            'total' => array_sum($cats),
+            'cats'  => $cats,
+        ];
+    }
+
+    // Deltas (month-to-date): current month vs mean of the prior 3 months vs same
+    // month last year — all capped to today's day-of-month via the `mtd` matrix.
+    $cur   = $first->format('Y-m');
+    $lastY = $first->sub(new DateInterval('P12M'))->format('Y-m');
+    $prev  = [];
+    for ($i = 1; $i <= 3; $i++) $prev[] = $first->sub(new DateInterval('P' . $i . 'M'))->format('Y-m');
+
+    $deltas = [];
+    foreach ($catOrder as $cat) {
+        $this_ = $pick($mtd, $cur, $cat);
+        $avg3  = 0.0;
+        foreach ($prev as $pm) $avg3 += $pick($mtd, $pm, $cat);
+        $avg3 /= 3;
+        $ly = $pick($mtd, $lastY, $cat);
+        if ($this_ <= 0 && $avg3 <= 0 && $ly <= 0) continue;   // drop all-empty rows
+        $deltas[] = ['category' => $cat, 'this' => $this_, 'avg3' => $avg3, 'lastyear' => $ly];
+    }
+    usort($deltas, fn($a, $b) => $b['this'] <=> $a['this']);
+
+    return [
+        'months'         => $monthsOut,
+        'cat_order'      => $catOrder,
+        'deltas'         => $deltas,
+        'this_total'     => array_sum(array_column($deltas, 'this')),
+        'avg3_total'     => array_sum(array_column($deltas, 'avg3')),
+        'lastyear_total' => array_sum(array_column($deltas, 'lastyear')),
+        'month_label'    => $first->format('M Y'),
+    ];
+}
+
+/**
  * Visible transactions. Options:
  *   account_id (string), q (search text), category (exact tag),
  *   from / to (YYYY-MM-DD date bounds, inclusive),
