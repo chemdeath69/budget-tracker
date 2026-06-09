@@ -24,6 +24,7 @@ $owner   = (int)$acct['owner_id'] === $uid;
 $debt    = is_liability($acct);
 $isInvest = ($acct['type'] ?? '') === 'investment';
 $manual  = is_manual($acct);
+$stmtStatus = $manual ? manual_account_status($pdo, $acct) : null; // overdue-statement check (null = not monitored)
 $bal     = (float)($acct['balance_current'] ?? 0);
 $catOptions = transaction_category_options($pdo, $uid);
 
@@ -76,6 +77,20 @@ render_header($acct['name'] ?: 'Account', '', [
     <div class="notice warn">
         This connection needs attention<?= $acct['error_code'] ? ' (' . e($acct['error_code']) . ')' : '' ?>.
         <?php if ($owner): ?><a href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link now ›</a><?php endif; ?>
+    </div>
+<?php endif; ?>
+
+<?php if ($stmtStatus && $stmtStatus['overdue']): ?>
+    <div class="notice warn">
+        This account needs a new statement — <?= e(statement_overdue_label($stmtStatus)) ?>
+        (expected <?= e(strtolower(statement_cadence_label($stmtStatus['cadence']))) ?>).
+        <?php if ($owner): ?>
+            <?php if (is_retirement($acct)): ?>
+                <a href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement ›</a>
+            <?php else: ?>
+                Upload the latest statement below.
+            <?php endif; ?>
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -255,6 +270,24 @@ render_header($acct['name'] ?: 'Account', '', [
             <option value="private"<?= $acct['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
         </select>
     </div>
+    <?php if ($manual):
+        $cadRaw = $acct['statement_cadence'] ?? null;
+        $cadVal = ($cadRaw === null || $cadRaw === '') ? 'auto' : (string)$cadRaw;
+        $cadAuto = is_retirement($acct) ? 'Quarterly' : 'Monthly'; ?>
+    <div class="control-row">
+        <div>
+            <strong>Statement cadence</strong>
+            <div class="muted">How often this account expects a new statement. We warn on the dashboard when one is overdue. Auto = <?= e(strtolower($cadAuto)) ?> for this account; Off disables the warning.</div>
+        </div>
+        <select class="select cadence-select" data-account="<?= e($acct['account_id']) ?>">
+            <option value="auto"<?= $cadVal === 'auto' ? ' selected' : '' ?>>Auto (<?= e($cadAuto) ?>)</option>
+            <option value="monthly"<?= $cadVal === 'monthly' ? ' selected' : '' ?>>Monthly</option>
+            <option value="quarterly"<?= $cadVal === 'quarterly' ? ' selected' : '' ?>>Quarterly</option>
+            <option value="annually"<?= $cadVal === 'annually' ? ' selected' : '' ?>>Annually</option>
+            <option value="off"<?= $cadVal === 'off' ? ' selected' : '' ?>>Off</option>
+        </select>
+    </div>
+    <?php endif; ?>
     <?php if ($isInvest && !is_retirement($acct)):
         $rf = $acct['retirement_flag'] ?? null;
         $rfVal = $rf === null ? 'auto' : ((int)$rf === 1 ? 'yes' : 'no'); ?>

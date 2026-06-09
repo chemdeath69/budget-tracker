@@ -57,6 +57,7 @@ CREATE TABLE accounts (
   type                  VARCHAR(32)  NULL,          -- depository|credit|loan|investment
   subtype               VARCHAR(48)  NULL,
   retirement_flag       TINYINT NULL,              -- NULL=auto-classify by subtype/manual_type; 1=force retirement; 0=force not. See migration 007 + is_retirement_account().
+  statement_cadence     ENUM('monthly','quarterly','annually','off') NULL,  -- manual accts: expected statement frequency for the dashboard overdue warning; NULL=auto (401k→quarterly, other manual→monthly). Migration 010 + statement_cadence_effective().
   balance_available     DECIMAL(15,2) NULL,
   balance_current       DECIMAL(15,2) NULL,
   balance_limit         DECIMAL(15,2) NULL,

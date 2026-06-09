@@ -62,6 +62,29 @@ if ($action === 'retirement') {
     exit;
 }
 
+if ($action === 'cadence') {
+    // Expected-statement cadence override for a manual account (migration 010).
+    // 'auto' = NULL = default by type (401k→quarterly, other manual→monthly);
+    // 'monthly'/'quarterly'/'annually' set it explicitly; 'off' = never warn.
+    // Drives the dashboard "statements overdue" warning.
+    $accountId = (string)($in['account_id'] ?? '');
+    $val = (string)($in['cadence'] ?? 'auto');
+    $store = in_array($val, ['monthly', 'quarterly', 'annually', 'off'], true) ? $val : null;
+
+    // Owner-only (same as visibility / retirement / rename).
+    $own = $pdo->prepare(
+        'SELECT i.user_id FROM accounts a JOIN items i ON a.item_id = i.item_id WHERE a.account_id = ?'
+    );
+    $own->execute([$accountId]);
+    $ownerId = $own->fetchColumn();
+    if ($ownerId === false) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
+    if ((int)$ownerId !== $uid) { http_response_code(403); echo json_encode(['error' => 'only the owner can change this']); exit; }
+
+    $pdo->prepare('UPDATE accounts SET statement_cadence = ? WHERE account_id = ?')->execute([$store, $accountId]);
+    echo json_encode(['ok' => true, 'cadence' => $store ?? 'auto']);
+    exit;
+}
+
 if ($action === 'rename') {
     // Owner-set display-name override (migration 009). Shown everywhere the account
     // appears; a blank value clears it back to the original Plaid/manual name. Stored

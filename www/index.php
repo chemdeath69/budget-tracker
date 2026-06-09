@@ -17,6 +17,8 @@ $spend30  = q_spending_total($pdo, $uid, 30);
 $topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
 $home     = q_home_equity($pdo, $accounts);
 $ret      = q_retirement_summary($pdo, $uid); // combined 401(k) total (0 accounts = hidden)
+$overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
+$overdueIds = array_column($overdue, 'account_id', 'account_id');
 
 render_header('Dashboard', 'dashboard', ['chart' => true]);
 ?>
@@ -29,6 +31,21 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
         <a class="btn" href="/link.php">Link a bank account</a>
     </div>
 <?php else: ?>
+
+    <?php if ($overdue): ?>
+    <!-- Manual accounts overdue for a new statement (cadence + grace; see q_manual_statement_status) -->
+    <section class="notice warn overdue-card">
+        <strong><?= count($overdue) === 1 ? 'An account needs' : count($overdue) . ' accounts need' ?> a new statement</strong>
+        <ul class="overdue-list">
+            <?php foreach ($overdue as $o): ?>
+            <li>
+                <a href="/account.php?account_id=<?= e(urlencode($o['account_id'])) ?>"><?= e($o['name'] ?: 'Account') ?></a>
+                <span class="overdue-meta"><?= e(strtolower(statement_cadence_label($o['cadence']))) ?> · <?= e(statement_overdue_label($o)) ?></span>
+            </li>
+            <?php endforeach; ?>
+        </ul>
+    </section>
+    <?php endif; ?>
 
     <!-- Net-worth hero -->
     <section class="hero card">
@@ -169,6 +186,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                                 <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?>
                                 <?php if ($a['visibility'] === 'private'): ?><span class="mini-tag">private</span><?php endif; ?>
                                 <?php if ($errored): ?><span class="mini-tag warn">needs attention</span><?php endif; ?>
+                                <?php if (isset($overdueIds[$a['account_id']])): ?><span class="mini-tag warn">needs update</span><?php endif; ?>
                             </span>
                         </span>
                         <span class="acct-bal <?= $debt ? 'neg' : '' ?>">

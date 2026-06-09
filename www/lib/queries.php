@@ -80,7 +80,7 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
     $st = $pdo->prepare(
         "SELECT a.account_id, " . ACCT_NAME . " AS name, a.name AS original_name, a.display_name,
                 a.official_name, a.mask, a.type, a.subtype,
-                a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
+                a.retirement_flag, a.statement_cadence, a.balance_available, a.balance_current, a.balance_limit,
                 a.iso_currency_code, a.visibility, a.last_updated_datetime,
                 i.institution_name, i.institution_id, i.user_id AS owner_id,
                 i.item_id, i.status AS item_status, i.error_code, i.last_synced_at,
@@ -788,6 +788,186 @@ function q_tax_summaries(PDO $pdo, string $accountId): array
     );
     $st->execute([$accountId]);
     return $st->fetchAll();
+}
+
+/* ---- Manual-statement cadence / overdue warning (migration 010) ----------- */
+
+/** Days of grace allowed after a period closes before its statement is "overdue". */
+const STATEMENT_GRACE_DAYS = ['monthly' => 10, 'quarterly' => 21, 'annually' => 42];
+
+/**
+ * The effective expected-statement cadence for an account: the owner's explicit
+ * `statement_cadence` when set (including 'off'), else an auto default by type —
+ * a manual 401(k) → 'quarterly', any other manual (uploaded-statement) account →
+ * 'monthly'. Non-manual (Plaid) accounts are never monitored → 'off'.
+ * The row must carry `statement_cadence`, `source`/`manual_type` (q_account does).
+ */
+function statement_cadence_effective(array $a): string
+{
+    $c = $a['statement_cadence'] ?? null;
+    if ($c !== null && $c !== '') return (string)$c;   // explicit override, incl. 'off'
+    if (!is_manual($a)) return 'off';
+    if (($a['manual_type'] ?? '') === 'retirement_401k') return 'quarterly';
+    return 'monthly';
+}
+
+/** Last day (Y-m-d) of the cadence-period that contains $date. */
+function statement_period_end(string $cadence, string $date): string
+{
+    $ts = strtotime($date);
+    $y  = (int)date('Y', $ts);
+    switch ($cadence) {
+        case 'annually':  return sprintf('%04d-12-31', $y);
+        case 'quarterly':
+            $endMonth = (int)ceil(((int)date('n', $ts)) / 3) * 3;   // 3, 6, 9 or 12
+            return date('Y-m-t', strtotime(sprintf('%04d-%02d-01', $y, $endMonth)));
+        case 'monthly':
+        default:          return date('Y-m-t', $ts);
+    }
+}
+
+/** Last day (Y-m-d) of the cadence-period immediately AFTER the one ending $periodEnd. */
+function statement_period_advance(string $cadence, string $periodEnd): string
+{
+    $nextStart = date('Y-m-d', strtotime($periodEnd . ' +1 day'));
+    return statement_period_end($cadence, $nextStart);
+}
+
+/**
+ * Overdue status for one monitored account given its cadence and the date its
+ * latest statement covers ($latestDate, Y-m-d, or null if none ever).
+ *
+ * A statement for a period is expected by (period end + grace). Measuring from the
+ * latest statement's covered period, the NEXT period's statement is due at
+ * (nextPeriodEnd + grace); we're overdue once today passes that. With no statement
+ * at all the account is overdue immediately. Returns:
+ *   ['cadence','monitored'(bool),'overdue'(bool),'latest'(?Y-m-d),
+ *    'due_date'(?Y-m-d),'days_overdue'(?int),'periods_behind'(?int)]
+ */
+function statement_status(string $cadence, ?string $latestDate, ?string $today = null): array
+{
+    $today = $today ?? date('Y-m-d');
+    $base  = ['cadence' => $cadence, 'monitored' => false, 'overdue' => false,
+              'latest' => $latestDate, 'due_date' => null, 'days_overdue' => null,
+              'periods_behind' => null];
+    if (!isset(STATEMENT_GRACE_DAYS[$cadence])) return $base;   // 'off' / unknown
+    $base['monitored'] = true;
+    $grace = STATEMENT_GRACE_DAYS[$cadence];
+
+    if ($latestDate === null) {                                 // never updated
+        $base['overdue'] = true;
+        return $base;
+    }
+
+    $nextEnd = statement_period_advance($cadence, statement_period_end($cadence, $latestDate));
+    $dueDate = date('Y-m-d', strtotime($nextEnd . ' +' . $grace . ' day'));
+    if ($today <= $dueDate) {                                   // up to date
+        $base['due_date'] = $dueDate;
+        return $base;
+    }
+
+    // Overdue. Count how many period statements are now past due (periods_behind).
+    $periods = 0; $cur = $nextEnd;
+    while (date('Y-m-d', strtotime($cur . ' +' . $grace . ' day')) <= $today) {
+        $periods++;
+        $cur = statement_period_advance($cadence, $cur);
+    }
+    $base['overdue']        = true;
+    $base['due_date']       = $dueDate;
+    $base['days_overdue']   = (int)floor((strtotime($today) - strtotime($dueDate)) / 86400);
+    $base['periods_behind'] = $periods;
+    return $base;
+}
+
+/** Friendly cadence name, e.g. 'quarterly' → 'Quarterly' ('annually' → 'Annual'). */
+function statement_cadence_label(string $cadence): string
+{
+    return ['monthly' => 'Monthly', 'quarterly' => 'Quarterly',
+            'annually' => 'Annual', 'off' => 'Off'][$cadence] ?? ucfirst($cadence);
+}
+
+/** Short human phrase for how overdue a status is (e.g. "3 statements behind"). */
+function statement_overdue_label(array $s): string
+{
+    if (($s['latest'] ?? null) === null) return 'no statement uploaded yet';
+    $pb = $s['periods_behind'] ?? 0;
+    if ($pb !== null && $pb > 1) return $pb . ' statements behind';
+    $d = (int)($s['days_overdue'] ?? 0);
+    return $d > 0 ? ($d . ' day' . ($d === 1 ? '' : 's') . ' overdue') : 'due now';
+}
+
+/**
+ * The latest statement-coverage date (Y-m-d) the app holds for a manual account:
+ * MAX(statement_date) for a hand-entered 401(k), else the latest monthly
+ * `manual_documents` statement bucket (period_key 'YYYY-MM' → first of that month).
+ * null when nothing has been uploaded/entered yet.
+ */
+function manual_latest_statement_date(PDO $pdo, array $acct): ?string
+{
+    if (is_retirement($acct)) {
+        $st = $pdo->prepare('SELECT MAX(statement_date) FROM retirement_statements WHERE account_id = ?');
+        $st->execute([$acct['account_id']]);
+        return $st->fetchColumn() ?: null;
+    }
+    $st = $pdo->prepare(
+        "SELECT MAX(period_key) FROM manual_documents
+         WHERE account_id = ? AND doc_type = 'statement'
+           AND period_key REGEXP '^[0-9]{4}-[0-9]{2}$'"
+    );
+    $st->execute([$acct['account_id']]);
+    $pk = $st->fetchColumn() ?: null;
+    return $pk ? $pk . '-01' : null;
+}
+
+/**
+ * Overdue status for a single manual account already fetched via q_account()
+ * (VIS-scoped). Returns null when the account isn't manual or its effective
+ * cadence is 'off' (not monitored); otherwise the statement_status() array with
+ * 'account_id'/'name' attached. Used on the account page.
+ */
+function manual_account_status(PDO $pdo, array $acct): ?array
+{
+    if (!is_manual($acct)) return null;
+    $cad = statement_cadence_effective($acct);
+    if ($cad === 'off') return null;
+    $s = statement_status($cad, manual_latest_statement_date($pdo, $acct));
+    $s['account_id'] = $acct['account_id'];
+    $s['name']       = $acct['name'];
+    return $s;
+}
+
+/**
+ * Statement-overdue status for every manual account the user OWNS (a non-hidden,
+ * source='manual' Item), with an effective cadence other than 'off'. Owner-scoped
+ * like q_owned_accounts() — only the owner can upload/enter statements, so the
+ * warning is theirs to act on. Pass $overdueOnly to keep only overdue accounts
+ * (the dashboard warning). Each row is a statement_status() array + account_id/name.
+ */
+function q_manual_statement_status(PDO $pdo, int $uid, bool $overdueOnly = false): array
+{
+    $accts = $pdo->prepare(
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.statement_cadence,
+                i.source, i.manual_type
+         FROM accounts a JOIN items i ON a.item_id = i.item_id
+         WHERE i.user_id = :uid AND i.source = 'manual' AND a.visibility <> 'hidden'
+         ORDER BY a.name"
+    );
+    $accts->execute([':uid' => $uid]);
+    $rows = $accts->fetchAll();
+    if (!$rows) return [];
+
+    $out = [];
+    foreach ($rows as $a) {
+        $cad = statement_cadence_effective($a);
+        if ($cad === 'off') continue;
+        $s = statement_status($cad, manual_latest_statement_date($pdo, $a));
+        if ($overdueOnly && !$s['overdue']) continue;
+        $s['account_id']  = $a['account_id'];
+        $s['name']        = $a['name'];
+        $s['manual_type'] = $a['manual_type'];
+        $out[] = $s;
+    }
+    return $out;
 }
 
 /**

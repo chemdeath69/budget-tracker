@@ -357,6 +357,18 @@ function initRename() {
   });
 }
 
+/* Manual-account statement cadence (Auto/Monthly/Quarterly/Annually/Off). Reloads
+   so the overdue warning/tag reflects the new cadence immediately. */
+function initStatementCadence() {
+  $$('.cadence-select[data-account]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      const out = await postJSON('/api/account.php', { action: 'cadence', account_id: sel.dataset.account, cadence: sel.value });
+      if (out && out.ok) location.reload(); else sel.disabled = false;
+    });
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -391,4 +403,5 @@ initRecategorize();
 initVisibility();
 initRetirement();
 initRename();
+initStatementCadence();
 initBudgets();

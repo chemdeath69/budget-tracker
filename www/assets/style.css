@@ -216,6 +216,12 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .notice.warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }
 .notice a { color: inherit; font-weight: 700; text-decoration: underline; }
 
+/* Dashboard "statements overdue" summary card (reuses .notice.warn colors). */
+.overdue-card { display: block; }
+.overdue-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.overdue-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.overdue-meta { font-size: .82rem; opacity: .85; }
+
 /* ---- Empty state -------------------------------------------------------- */
 .empty-state { text-align: center; padding: 36px 20px; }
 .empty-state h2 { margin-bottom: 6px; }
