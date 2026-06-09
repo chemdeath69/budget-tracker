@@ -240,6 +240,7 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .delta-sub { color: var(--muted); font-weight: 600; font-size: .72rem; }
 .sparkline { margin: 8px -4px 2px; height: 64px; }
 .hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.hero-split.tri { grid-template-columns: repeat(3, 1fr); }
 .split-cell {
   display: flex; flex-direction: column; gap: 2px; padding: 11px 13px;
   background: var(--surface-2); border-radius: var(--r); color: var(--ink);
@@ -272,6 +273,7 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .spend-amt { font-size: 1.6rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .spend-bars, .cat-list { display: flex; flex-direction: column; gap: 9px; }
 .spend-row { display: grid; grid-template-columns: minmax(0, 1fr) 1.2fr auto; align-items: center; gap: 10px; font-size: .88rem; }
+.cf-mini { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: .9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .spend-cat { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spend-track, .cat-track { height: 8px; background: var(--track); border-radius: var(--r-pill); overflow: hidden; }
 .spend-track > span, .cat-track > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }

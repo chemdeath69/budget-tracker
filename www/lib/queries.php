@@ -277,6 +277,69 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 }
 
 /**
+ * Monthly cash flow over the last $months calendar months (oldest→newest),
+ * gap-filled so every month renders even with no activity. Income = money in
+ * (Plaid amount < 0), expense = money out (amount > 0), net = income − expense.
+ *
+ * Excludes pending rows, manual brokerage feeds (ext_source), internal transfers
+ * (TRANSFER_IN/TRANSFER_OUT) and credit-card payments
+ * (pfc_detailed = LOAN_PAYMENTS_CREDIT_CARD_PAYMENT) so moving money between your
+ * own accounts doesn't inflate both sides, and a card payment doesn't double-count
+ * spending already recorded on the card. Real outflows (mortgage/car/student-loan
+ * payments, etc.) are kept. The month window is anchored in PHP and bound as a
+ * start date so the SQL window and the gap-fill list always agree.
+ *
+ * Returns ['months'=>[['ym','label','income','expense','net'],...] oldest→newest,
+ *          'income'=>float,'expense'=>float,'net'=>float] (period totals).
+ */
+function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
+{
+    $months = max(1, min(36, $months));
+
+    // Build the contiguous month list (oldest→newest), anchored to the 1st of
+    // the current month, then derive the SQL start date from its first entry.
+    $first = new DateTimeImmutable('first day of this month');
+    $list  = [];
+    for ($i = $months - 1; $i >= 0; $i--) {
+        $list[] = $first->sub(new DateInterval('P' . $i . 'M'));
+    }
+    $start = $list[0]->format('Y-m-01');
+
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
+                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END)  AS expense,
+                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS income
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND t.pending = 0 AND t.ext_source IS NULL
+           AND COALESCE(t.category_override, t.pfc_primary) NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start
+         GROUP BY ym"
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->execute();
+    $byYm = [];
+    foreach ($st->fetchAll() as $r) { $byYm[$r['ym']] = $r; }
+
+    $out = [];
+    $tot = ['income' => 0.0, 'expense' => 0.0, 'net' => 0.0];
+    foreach ($list as $dt) {
+        $ym  = $dt->format('Y-m');
+        $inc = isset($byYm[$ym]) ? (float)$byYm[$ym]['income']  : 0.0;
+        $exp = isset($byYm[$ym]) ? (float)$byYm[$ym]['expense'] : 0.0;
+        $net = $inc - $exp;
+        $out[] = ['ym' => $ym, 'label' => $dt->format('M y'), 'income' => $inc, 'expense' => $exp, 'net' => $net];
+        $tot['income']  += $inc;
+        $tot['expense'] += $exp;
+        $tot['net']     += $net;
+    }
+    return ['months' => $out] + $tot;
+}
+
+/**
  * Visible transactions. Options:
  *   account_id (string), q (search text), category (exact tag),
  *   from / to (YYYY-MM-DD date bounds, inclusive),

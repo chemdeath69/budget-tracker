@@ -17,6 +17,8 @@ $spend30  = q_spending_total($pdo, $uid, 30);
 $topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
 $home     = q_home_equity($pdo, $accounts);
 $ret      = q_retirement_summary($pdo, $uid); // combined 401(k) total (0 accounts = hidden)
+$cf6      = q_cashflow($pdo, $uid, 6);         // compact cash-flow teaser (last 6 months)
+$cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null; // savings rate
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 
@@ -127,6 +129,37 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                 <span class="split-value">View ›</span>
             </a>
         </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($cf6['income'] > 0 || $cf6['expense'] > 0): ?>
+    <!-- Cash-flow teaser (last 6 months) → full cashflow.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Cash flow</h2>
+            <a class="block-link" href="/cashflow.php">Last 6 months ›</a>
+        </div>
+        <a class="card spend-card" href="/cashflow.php">
+            <div class="spend-total">
+                <span class="spend-amt <?= $cf6['net'] < 0 ? 'neg' : '' ?>">
+                    <?= ($cf6['net'] < 0 ? '−' : '+') . e(usd(abs($cf6['net']))) ?>
+                </span>
+                <span class="muted">net over the last 6 months<?= $cfRate !== null ? ' · ' . number_format($cfRate, 0) . '% saved' : '' ?></span>
+            </div>
+            <?php if (count($cf6['months']) > 1): ?>
+            <div class="sparkline">
+                <canvas id="cf-spark" data-chart="spark" data-src="cf-spark-data" height="56"></canvas>
+            </div>
+            <script type="application/json" id="cf-spark-data"><?= json_encode([
+                'labels' => array_column($cf6['months'], 'label'),
+                'values' => array_map(fn($m) => round($m['net'], 2), $cf6['months']),
+            ], JSON_UNESCAPED_SLASHES) ?></script>
+            <?php endif; ?>
+            <div class="cf-mini">
+                <span class="pos">+<?= e(usd($cf6['income'])) ?> in</span>
+                <span class="neg"><?= e(usd($cf6['expense'])) ?> out</span>
+            </div>
+        </a>
     </section>
     <?php endif; ?>
 

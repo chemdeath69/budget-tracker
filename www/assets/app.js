@@ -166,6 +166,34 @@ function initCharts() {
       });
     }
 
+    // Cash flow: grouped income/expense bars + a net line on one axis.
+    // d = {labels, income:[...], expense:[...], net:[...]}.
+    if (type === 'cashflow') {
+      new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: d.labels,
+          datasets: [
+            { type: 'bar', label: 'Income', data: d.income, backgroundColor: hexA(c.pos, .72), borderRadius: 4, maxBarThickness: 26, order: 2 },
+            { type: 'bar', label: 'Expense', data: d.expense, backgroundColor: hexA(c.neg, .72), borderRadius: 4, maxBarThickness: 26, order: 2 },
+            { type: 'line', label: 'Net', data: d.net, borderColor: c.brand, backgroundColor: hexA(c.brand, .12), borderWidth: 2, tension: .3, pointRadius: 0, pointHoverRadius: 4, fill: false, order: 1 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+            tooltip: { callbacks: { label: i => `${i.dataset.label}: ${usd(i.parsed.y)}` } },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 12, maxRotation: 0 } },
+            y: { grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+          },
+        },
+      });
+    }
+
     if (type === 'doughnut') {
       new Chart(canvas, {
         type: 'doughnut',
