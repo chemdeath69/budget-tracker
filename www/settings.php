@@ -75,6 +75,7 @@ render_header('Settings', 'settings', ['narrow' => true]);
                 <?php if (($a['source'] ?? 'plaid') === 'manual'): ?>
                     <a class="btn-ghost sm" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Update</a>
                 <?php else: ?>
+                    <button type="button" class="btn-ghost sm" data-refresh data-item="<?= e($a['item_id']) ?>">Refresh</button>
                     <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
                 <?php endif; ?>
             </span>

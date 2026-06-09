@@ -127,3 +127,14 @@ function plaid_exchange_public_token(string $publicToken): array
 {
     return plaid_call('/item/public_token/exchange', ['public_token' => $publicToken]);
 }
+
+/**
+ * Force an immediate on-demand transactions check with the institution.
+ * Asynchronous: Plaid checks the bank and later fires SYNC_UPDATES_AVAILABLE when
+ * new data is ready (→ our webhook → sync). Returns {request_id} only — no
+ * transactions in the response. Pair with a /transactions/sync to pull what's there.
+ */
+function plaid_refresh_transactions(string $accessToken): array
+{
+    return plaid_call('/transactions/refresh', ['access_token' => $accessToken]);
+}

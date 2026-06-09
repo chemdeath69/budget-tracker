@@ -46,6 +46,23 @@ function usd($n): string
     return '$' . number_format((float)$n, 2);
 }
 
+/** Friendly relative time ("just now", "3 min ago", "2 hr ago", "yesterday",
+ *  else a short date). Returns '' for a null/blank/unparseable timestamp. */
+function time_ago(?string $ts): string
+{
+    if ($ts === null || trim($ts) === '') return '';
+    $t = strtotime($ts);
+    if ($t === false) return '';
+    $diff = time() - $t;
+    if ($diff < 0) $diff = 0;                       // clock skew — treat as now
+    if ($diff < 60)        return 'just now';
+    if ($diff < 3600)      return (int)floor($diff / 60) . ' min ago';
+    if ($diff < 86400)     { $h = (int)floor($diff / 3600); return $h . ' hr ago'; }
+    if ($diff < 172800)    return 'yesterday';
+    if ($diff < 604800)    return (int)floor($diff / 86400) . ' days ago';
+    return date('M j', $t);
+}
+
 /** Queue a one-shot flash message (consumed on the next page render). */
 function flash_set(string $type, string $msg): void
 {

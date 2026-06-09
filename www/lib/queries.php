@@ -57,6 +57,16 @@ function is_retirement_account(array $a): bool
     return false;
 }
 
+/** Most-recent successful sync time across all live household Plaid items (for the
+ *  dashboard "Updated X ago" label). Household-wide on purpose — it exposes only a
+ *  timestamp, no account data — so no VIS clause is needed. NULL if never synced. */
+function q_last_synced(PDO $pdo): ?string
+{
+    $v = $pdo->query("SELECT MAX(last_synced_at) FROM items
+                      WHERE source = 'plaid' AND status <> 'removed'")->fetchColumn();
+    return $v !== false && $v !== null ? (string)$v : null;
+}
+
 /** All accounts visible to $uid, ordered by institution then name. */
 function q_accounts(PDO $pdo, int $uid): array
 {

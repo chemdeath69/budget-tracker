@@ -177,6 +177,25 @@ body.menu-open .drawer { transform: translateX(0); }
 }
 .btn-ghost.sm { padding: 6px 11px; font-size: .8rem; }
 .btn-ghost:active { background: var(--line); }
+.btn-ghost:disabled { opacity: .55; cursor: default; }
+
+/* On-demand refresh control (dashboard global row + per-bank on settings) */
+.refresh-row { display: flex; align-items: center; gap: 10px; margin: 0 2px 14px; }
+.refresh-stamp { font-size: .8rem; }
+
+/* Transient toasts (bottom-center; used by the async refresh notification) */
+.toast-host {
+  position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 0 16px; z-index: 200; pointer-events: none;
+}
+.toast {
+  max-width: 460px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-1);
+  padding: 11px 15px; font-size: .88rem; line-height: 1.35;
+  opacity: 0; transform: translateY(10px); transition: opacity .25s ease, transform .25s ease;
+}
+.toast.show { opacity: 1; transform: none; }
 
 /* ---- Generic rows ------------------------------------------------------- */
 .rows { display: flex; flex-direction: column; }

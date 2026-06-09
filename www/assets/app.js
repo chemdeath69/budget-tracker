@@ -428,6 +428,45 @@ function initStatementCadence() {
   });
 }
 
+/* Transient toast notification (bottom-center, auto-dismiss). */
+function toast(msg, ms = 4500) {
+  let host = $('#toast-host');
+  if (!host) { host = document.createElement('div'); host.id = 'toast-host'; host.className = 'toast-host'; document.body.appendChild(host); }
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.setAttribute('role', 'status');
+  el.textContent = msg;
+  host.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
+}
+
+/* On-demand "Refresh now" (TODO #13). data-item → one bank; absent → all household
+   banks. The endpoint acks instantly and runs the Plaid refresh + sync in the
+   background (fastcgi_finish_request), so we DON'T reload — we toast that it's
+   happening. Fresh balances/snapshot show on the next load; brand-new charges arrive
+   via the webhook. */
+function initRefresh() {
+  $$('[data-refresh]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Refreshing…';
+      const body = btn.dataset.item ? { item_id: btn.dataset.item } : {};
+      const out = await postJSON('/api/refresh.php', body);
+      btn.textContent = label;
+      if (out && out.ok) {
+        toast(out.note || 'Refreshing in the background — new data will appear shortly.');
+        setTimeout(() => { btn.disabled = false; }, 3000);   // brief anti-spam pause
+      } else {
+        toast((out && out.error) || 'Could not refresh right now.');
+        setTimeout(() => { btn.disabled = false; }, 1000);   // anti-spam pause on error too
+      }
+    });
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -463,4 +502,5 @@ initVisibility();
 initRetirement();
 initRename();
 initStatementCadence();
+initRefresh();
 initBudgets();

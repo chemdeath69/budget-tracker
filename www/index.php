@@ -21,6 +21,9 @@ $cf6      = q_cashflow($pdo, $uid, 6);         // compact cash-flow teaser (last
 $cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null; // savings rate
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
+$lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
+$hasPlaid = false;                                           // any live Plaid bank to refresh?
+foreach ($accounts as $a) { if (($a['source'] ?? 'plaid') === 'plaid') { $hasPlaid = true; break; } }
 
 render_header('Dashboard', 'dashboard', ['chart' => true]);
 ?>
@@ -33,6 +36,16 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
         <a class="btn" href="/link.php">Link a bank account</a>
     </div>
 <?php else: ?>
+
+    <?php if ($hasPlaid): ?>
+    <!-- On-demand refresh (TODO #13): forces a Plaid check now + pulls fresh balances. -->
+    <div class="refresh-row">
+        <button type="button" class="btn-ghost sm" data-refresh>Refresh</button>
+        <?php if ($lastSync): ?>
+        <span class="muted refresh-stamp">Updated <?= e(time_ago($lastSync)) ?></span>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <?php if ($overdue): ?>
     <!-- Manual accounts overdue for a new statement (cadence + grace; see q_manual_statement_status) -->
