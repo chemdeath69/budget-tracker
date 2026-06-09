@@ -125,11 +125,16 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
     }
     unset($grp);
     ?>
-    <section class="block">
+    <section class="block" id="dash-accounts">
         <div class="block-head">
             <h2>Your accounts</h2>
             <span class="count-pill"><?= count($accounts) ?></span>
         </div>
+        <?php if (count($accounts) > 8): ?>
+        <div class="search-bar">
+            <input type="search" class="search-input" data-filter="#dash-accounts" placeholder="Filter by account or bank…">
+        </div>
+        <?php endif; ?>
 
         <?php foreach (ACCOUNT_GROUPS as $cat => $label):
             if (empty($byCat[$cat])) continue;
@@ -142,7 +147,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             }
             $negTotal = $subtotal < 0;
         ?>
-            <div class="inst-group">
+            <div class="inst-group" data-filter-group>
                 <div class="inst-name">
                     <span><?= e($label) ?></span>
                     <span class="inst-total <?= $negTotal ? 'neg' : '' ?>"><?= e(($negTotal ? '-' : '') . usd(abs($subtotal))) ?></span>
@@ -154,8 +159,9 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                         $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
                         // Bank name now lives on the card (the group header is the category).
                         $sub = $a['institution_name'] ?: pretty_cat($a['subtype'] ?: $a['type']);
+                        $hay = strtolower(($a['name'] ?: '') . ' ' . ($a['official_name'] ?: '') . ' ' . ($a['institution_name'] ?: '') . ' ' . $sub);
                     ?>
-                    <a class="acct-card" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">
+                    <a class="acct-card" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>" data-search="<?= e($hay) ?>">
                         <span class="acct-icon <?= $debt ? 'is-debt' : '' ?>"><?= nav_icon($debt ? 'invest' : 'bank') ?></span>
                         <span class="acct-main">
                             <span class="acct-name"><?= e($a['name'] ?: ($a['official_name'] ?: 'Account')) ?></span>

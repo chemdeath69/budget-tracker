@@ -86,10 +86,28 @@ foreach ($holds as $h) {
 arsort($alloc);
 
 /* ---- Brokerage income + trades (from manual feeds) ----------------------- */
-$income = q_investment_activity($pdo, $uid, ['INCOME_DIVIDENDS', 'INCOME_INTEREST'], 50);
-$trades = q_investment_activity($pdo, $uid, ['INVESTMENT'], 50);
-$incomeTotal = 0.0;
-foreach ($income as $r) $incomeTotal += -(float)$r['amount']; // stored − = money in
+// Optional account filter (governs both the dividend and trade lists), plus
+// independent pagination keys for each list.
+$invAcct = trim((string)($_GET['iacct'] ?? ''));
+$dPage   = page_num('dpage');
+$tPage   = page_num('tpage');
+
+// Accounts offered in the activity filter — the manual brokerage feeds present.
+$invAcctOpts = [];
+foreach ($byAccount as $aid => $g) {
+    if (($g['source'] ?? 'plaid') === 'manual') $invAcctOpts[(string)$aid] = $g['name'] ?: 'Account';
+}
+
+$incomeRaw     = q_investment_activity($pdo, $uid, ['INCOME_DIVIDENDS', 'INCOME_INTEREST'], PAGE_SIZE + 1, page_offset($dPage), $invAcct);
+$incomeHasNext = count($incomeRaw) > PAGE_SIZE;
+$income        = array_slice($incomeRaw, 0, PAGE_SIZE);
+
+$tradesRaw     = q_investment_activity($pdo, $uid, ['INVESTMENT'], PAGE_SIZE + 1, page_offset($tPage), $invAcct);
+$tradesHasNext = count($tradesRaw) > PAGE_SIZE;
+$trades        = array_slice($tradesRaw, 0, PAGE_SIZE);
+
+// True total across all rows (not just this page); stored − = money in.
+$incomeTotal = -q_investment_activity_total($pdo, $uid, ['INCOME_DIVIDENDS', 'INCOME_INTEREST'], $invAcct);
 
 /* Tax summaries for each manual investment account we're showing. */
 $taxByAccount = [];
@@ -110,6 +128,24 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
     $base = $c[$key] * $qty;
     return [$abs, $base != 0.0 ? $abs / abs($base) * 100 : null];
 }
+
+/**
+ * Account picker shared by the dividend + trade lists (GET ?iacct=). Changing it
+ * submits with no page keys, so both lists reset to their first page.
+ */
+function activity_account_filter(array $opts, string $current): void
+{ ?>
+    <form class="filter-bar" method="get" action="/investments.php">
+        <div class="filter-row">
+            <select name="iacct" class="select" data-autosubmit aria-label="Filter activity by account">
+                <option value="">All accounts</option>
+                <?php foreach ($opts as $aid => $nm): ?>
+                    <option value="<?= e($aid) ?>"<?= $current === (string)$aid ? ' selected' : '' ?>><?= e($nm) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+    </form>
+<?php }
 ?>
 
 <?php if (!$holds): ?>
@@ -197,9 +233,10 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
     <!-- Brokerage income -->
     <section class="block">
         <div class="block-head"><h2>Dividends &amp; interest</h2><?php if ($incomeTotal > 0): ?><span class="split-value pos"><?= e(usd($incomeTotal)) ?></span><?php endif; ?></div>
+        <?php if (count($invAcctOpts) > 1) activity_account_filter($invAcctOpts, $invAcct); ?>
         <div class="rows card">
             <?php if (!$income): ?>
-                <p class="muted" style="padding:1rem">No dividend or interest activity recorded yet. It appears here as brokerage statements are uploaded.</p>
+                <p class="muted" style="padding:1rem"><?= $invAcct !== '' || $dPage > 1 ? 'No dividend or interest activity for this filter.' : 'No dividend or interest activity recorded yet. It appears here as brokerage statements are uploaded.' ?></p>
             <?php else: foreach ($income as $r): $in = -(float)$r['amount']; ?>
             <div class="row">
                 <span class="row-main">
@@ -210,11 +247,12 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
             </div>
             <?php endforeach; endif; ?>
         </div>
+        <?php render_pager($dPage, $incomeHasNext, array_filter(['iacct' => $invAcct]) + ($tPage > 1 ? ['tpage' => $tPage] : []), 'dpage'); ?>
     </section>
     </div><!-- /.cols -->
 
     <!-- Holdings, grouped by account -->
-    <?php foreach ($byAccount as $aid => $g):
+    <?php $gi = 0; foreach ($byAccount as $aid => $g): $gi++;
         $cov = $coverage[$aid] ?? null;
         $asof = $cov['latest'] ?? ($g['asof'] ? substr((string)$g['asof'], 0, 7) : null); ?>
     <section class="block">
@@ -228,7 +266,12 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
         <?php if ($cov && $cov['missing']): ?>
             <div class="notice warn">Missing statement<?= count($cov['missing']) > 1 ? 's' : '' ?> for <?= e(implode(', ', $cov['missing'])) ?> — dividend, trade and tax figures for this account may be incomplete.</div>
         <?php endif; ?>
-        <div class="rows card">
+        <?php if (count($g['rows']) > 8): ?>
+        <div class="search-bar">
+            <input type="search" class="search-input" data-filter="#hold-<?= (int)$gi ?>" placeholder="Filter holdings…">
+        </div>
+        <?php endif; ?>
+        <div class="rows card" id="hold-<?= (int)$gi ?>">
             <?php foreach ($g['rows'] as $h):
                 $sec   = ($h['ticker_symbol'] ? $h['ticker_symbol'] . ' — ' : '') . ($h['security_name'] ?: '—');
                 $val   = $h['institution_value'] !== null ? (float)$h['institution_value'] : null;
@@ -237,7 +280,7 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
                 $hpct  = ($hgain !== null && $cb != 0.0) ? round($hgain / abs($cb) * 100, 1) : null;
                 $c     = $changes[$h['security_id']] ?? null;
                 $qty   = $h['quantity'] !== null ? (float)$h['quantity'] : null; ?>
-            <div class="row">
+            <div class="row" data-search="<?= e(strtolower($sec)) ?>">
                 <span class="row-main">
                     <span class="row-title"><?= e($sec) ?></span>
                     <span class="row-sub">
@@ -267,11 +310,14 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
     <?php endforeach; ?>
 
     <!-- Recent trades -->
-    <?php if ($trades): ?>
+    <?php if ($trades || $invAcct !== '' || $tPage > 1): ?>
     <section class="block">
-        <div class="block-head"><h2>Recent trades</h2><span class="count-pill"><?= count($trades) ?></span></div>
+        <div class="block-head"><h2>Recent trades</h2><?php if ($trades): ?><span class="count-pill"><?= count($trades) ?></span><?php endif; ?></div>
+        <?php if (count($invAcctOpts) > 1) activity_account_filter($invAcctOpts, $invAcct); ?>
         <div class="rows card">
-            <?php foreach ($trades as $t): $amt = (float)$t['amount']; ?>
+            <?php if (!$trades): ?>
+                <p class="muted" style="padding:1rem">No trades for this filter.</p>
+            <?php else: foreach ($trades as $t): $amt = (float)$t['amount']; ?>
             <div class="row">
                 <span class="row-main">
                     <span class="row-title"><?= e($t['name'] ?: ($t['merchant_name'] ?: 'Trade')) ?></span>
@@ -279,8 +325,9 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
                 </span>
                 <span class="row-amt <?= $amt < 0 ? 'pos' : '' ?>"><?= $amt < 0 ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>
             </div>
-            <?php endforeach; ?>
+            <?php endforeach; endif; ?>
         </div>
+        <?php render_pager($tPage, $tradesHasNext, array_filter(['iacct' => $invAcct]) + ($dPage > 1 ? ['dpage' => $dPage] : []), 'tpage'); ?>
     </section>
     <?php endif; ?>
 

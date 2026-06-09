@@ -86,6 +86,58 @@ function user_avatar_html(bool $large = false): string
          . 'aria-label="' . e($name) . '">' . e(user_initials($name)) . '</span>';
 }
 
+/* ---- Pagination --------------------------------------------------------- */
+
+/** Default rows shown per page in a paginated list. */
+const PAGE_SIZE = 50;
+
+/** Current 1-based page from ?$param= (min 1). A bad value falls back to 1. */
+function page_num(string $param = 'page'): int
+{
+    $n = (int)($_GET[$param] ?? 1);
+    return $n < 1 ? 1 : $n;
+}
+
+/** Zero-based SQL offset for $page at PAGE_SIZE rows each. */
+function page_offset(int $page): int
+{
+    return ($page - 1) * PAGE_SIZE;
+}
+
+/**
+ * Prev/Next pager for a list. Detect $hasNext by fetching PAGE_SIZE + 1 rows
+ * and testing `count($rows) > PAGE_SIZE` (then slice to PAGE_SIZE for display) —
+ * cheaper than a COUNT(*).
+ *  $page     current 1-based page
+ *  $hasNext  whether an older page exists
+ *  $params   active filters to carry through the links ([key=>value]); empties
+ *            are dropped. Do NOT include the page key — it's set per-link.
+ *  $param    the page query-string key (use distinct keys when one page hosts
+ *            two independent lists, e.g. 'txpage' / 'docpage').
+ * Emits nothing for a lone first page (page 1, no next).
+ */
+function render_pager(int $page, bool $hasNext, array $params = [], string $param = 'page'): void
+{
+    if ($page <= 1 && !$hasNext) return;
+    $keep = array_filter($params, fn($v) => $v !== '' && $v !== null);
+    $href = fn(int $p): string => '?' . http_build_query([$param => $p] + $keep);
+    ?>
+    <nav class="pager" aria-label="Pagination">
+        <?php if ($page > 1): ?>
+            <a class="pager-btn" rel="prev" href="<?= e($href($page - 1)) ?>">← Newer</a>
+        <?php else: ?>
+            <span class="pager-btn is-disabled" aria-disabled="true">← Newer</span>
+        <?php endif; ?>
+        <span class="pager-pos">Page <?= (int)$page ?></span>
+        <?php if ($hasNext): ?>
+            <a class="pager-btn" rel="next" href="<?= e($href($page + 1)) ?>">Older →</a>
+        <?php else: ?>
+            <span class="pager-btn is-disabled" aria-disabled="true">Older →</span>
+        <?php endif; ?>
+    </nav>
+    <?php
+}
+
 /**
  * Emit the document head + banner + drawer and open <main>.
  *  $active = nav key to highlight.

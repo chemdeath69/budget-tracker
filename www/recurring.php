@@ -20,8 +20,9 @@ function recurring_rows(array $rows): void
     foreach ($rows as $r):
         $amt = abs((float)$r['average_amount']);
         $inflow = $r['direction'] === 'inflow';
-        $acct = ($r['account_name'] ?: '') . ($r['mask'] ? ' ••' . $r['mask'] : ''); ?>
-        <div class="row">
+        $acct = ($r['account_name'] ?: '') . ($r['mask'] ? ' ••' . $r['mask'] : '');
+        $hay  = strtolower(($r['merchant_name'] ?: ($r['description'] ?: '')) . ' ' . pretty_cat($r['category_primary'] ?: '') . ' ' . $acct); ?>
+        <div class="row" data-search="<?= e($hay) ?>">
             <span class="row-main">
                 <span class="row-title"><?= e($r['merchant_name'] ?: ($r['description'] ?: '—')) ?></span>
                 <span class="row-sub">
@@ -43,16 +44,21 @@ function recurring_rows(array $rows): void
         <p class="muted">Plaid identifies subscriptions and recurring bills automatically once enough transaction history is synced.</p>
     </div>
 <?php else: ?>
-    <div class="cols">
+    <?php if (count($rows) > 8): ?>
+    <div class="search-bar">
+        <input type="search" class="search-input" data-filter="#recurring-lists" placeholder="Filter by name, category or account…">
+    </div>
+    <?php endif; ?>
+    <div class="cols" id="recurring-lists">
     <?php if ($out): ?>
-    <section class="block">
+    <section class="block" data-filter-group>
         <div class="block-head"><h2>Subscriptions &amp; bills</h2><span class="count-pill"><?= count($out) ?></span></div>
         <div class="rows card"><?php recurring_rows($out); ?></div>
     </section>
     <?php endif; ?>
 
     <?php if ($in): ?>
-    <section class="block">
+    <section class="block" data-filter-group>
         <div class="block-head"><h2>Recurring income</h2><span class="count-pill"><?= count($in) ?></span></div>
         <div class="rows card"><?php recurring_rows($in); ?></div>
     </section>

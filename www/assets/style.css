@@ -329,7 +329,25 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 }
 .row.is-hidden { display: none; }
 .tx-day.is-hidden { display: none; }
+.acct-card.is-hidden, .inst-group.is-hidden, .block.is-hidden { display: none; }
 .load-note { font-size: .8rem; text-align: center; padding: 6px 0; }
+
+/* ---- Filter bar (server-side filter forms) ------------------------------ */
+.filter-bar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.filter-search { display: flex; gap: 8px; align-items: center; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filter-row .select { flex: 1 1 8rem; min-width: 0; }
+.date-input { width: auto; flex: 1 1 7rem; min-width: 0; color-scheme: light dark; }
+
+/* ---- Pager (Prev / Next) ------------------------------------------------ */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 4px 4px; }
+.pager-btn {
+  font-size: .85rem; font-weight: 650; color: var(--brand);
+  padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface);
+}
+.pager-btn:active { filter: brightness(.96); }
+.pager-btn.is-disabled { color: var(--muted); opacity: .45; pointer-events: none; }
+.pager-pos { font-size: .82rem; font-weight: 600; color: var(--muted); }
 
 /* ---- Budgets ------------------------------------------------------------ */
 .budgets-list { display: flex; flex-direction: column; gap: 10px; }

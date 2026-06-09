@@ -25,17 +25,37 @@ $debt    = is_liability($acct);
 $isInvest = ($acct['type'] ?? '') === 'investment';
 $manual  = is_manual($acct);
 $bal     = (float)($acct['balance_current'] ?? 0);
-$txns    = q_transactions($pdo, $uid, ['account_id' => $accountId, 'limit' => 200]);
 $catOptions = transaction_category_options($pdo, $uid);
+
+// Transactions: server-side filters (scoped to this account) + pagination.
+$txPage = page_num('txpage');
+$txCat  = trim((string)($_GET['category'] ?? ''));
+$txFrom = trim((string)($_GET['from'] ?? ''));
+$txTo   = trim((string)($_GET['to'] ?? ''));
+$txQ    = trim((string)($_GET['q'] ?? ''));
+$txFilters = array_filter([
+    'category' => $txCat, 'from' => $txFrom, 'to' => $txTo, 'q' => $txQ,
+], fn($v) => $v !== '');
+$txHasFilters = (bool)$txFilters;
+$txRowsRaw = q_transactions($pdo, $uid, $txFilters + [
+    'account_id' => $accountId, 'limit' => PAGE_SIZE + 1, 'offset' => page_offset($txPage),
+]);
+$txHasNext = count($txRowsRaw) > PAGE_SIZE;
+$txns      = array_slice($txRowsRaw, 0, PAGE_SIZE);
+$txExport  = '/api/export.php?' . http_build_query(['account_id' => $accountId] + $txFilters);
+
 $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
 $holds   = $isInvest ? q_holdings($pdo, $uid, $accountId) : [];
 $errored = ($acct['item_status'] ?? '') === 'error' || !empty($acct['error_code']);
 
-$manualCfg = null; $mdocs = []; $taxes = [];
+$docPage = page_num('docpage');
+$manualCfg = null; $mdocs = []; $taxes = []; $docHasNext = false;
 if ($manual) {
     require_once __DIR__ . '/lib/manual/registry.php';
     $manualCfg = manual_type($acct['manual_type'] ?? '');
-    $mdocs = q_manual_documents($pdo, $accountId);
+    $mdocsRaw = q_manual_documents($pdo, $accountId, PAGE_SIZE + 1, page_offset($docPage));
+    $docHasNext = count($mdocsRaw) > PAGE_SIZE;
+    $mdocs = array_slice($mdocsRaw, 0, PAGE_SIZE);
     $taxes = q_tax_summaries($pdo, $accountId);
 }
 
@@ -134,14 +154,19 @@ render_header($acct['name'] ?: 'Account', '', [
     <?php if (!$holds): ?>
         <p class="muted">No holdings reported for this account yet.</p>
     <?php else: ?>
-        <div class="rows">
+        <?php if (count($holds) > 8): ?>
+        <div class="search-bar">
+            <input type="search" class="search-input" data-filter="#acct-holdings" placeholder="Filter holdings…">
+        </div>
+        <?php endif; ?>
+        <div class="rows" id="acct-holdings">
         <?php foreach ($holds as $h):
             $sec   = ($h['ticker_symbol'] ? $h['ticker_symbol'] . ' — ' : '') . ($h['security_name'] ?: '—');
             $val   = $h['institution_value'] !== null ? (float)$h['institution_value'] : null;
             $cb    = $h['cost_basis'] !== null ? (float)$h['cost_basis'] : null;
             $hgain = ($val !== null && $cb !== null) ? $val - $cb : null;
             $hpct  = ($hgain !== null && $cb != 0.0) ? round($hgain / abs($cb) * 100, 1) : null; ?>
-            <div class="row">
+            <div class="row" data-search="<?= e(strtolower($sec)) ?>">
                 <span class="row-main">
                     <span class="row-title"><?= e($sec) ?></span>
                     <span class="row-sub">
@@ -200,6 +225,7 @@ render_header($acct['name'] ?: 'Account', '', [
         </div>
         <?php endforeach; ?>
     </div>
+    <?php render_pager($docPage, $docHasNext, ['account_id' => $accountId] + ($txPage > 1 ? ['txpage' => $txPage] : []) + $txFilters, 'docpage'); ?>
 </section>
 <?php endif; ?>
 
@@ -250,19 +276,33 @@ render_header($acct['name'] ?: 'Account', '', [
 <section class="block">
     <div class="block-head">
         <h2>Transactions</h2>
-        <a class="block-link" href="/api/export.php?account_id=<?= e(urlencode($accountId)) ?>">Export CSV ›</a>
+        <a class="block-link" href="<?= e($txExport) ?>">Export CSV ›</a>
     </div>
-    <div class="search-bar">
-        <input type="search" class="search-input" data-filter="#acct-tx" placeholder="Search merchant or category…">
-    </div>
-    <div class="rows tx-list" id="acct-tx">
+    <form class="filter-bar" method="get" action="/account.php">
+        <input type="hidden" name="account_id" value="<?= e($accountId) ?>">
+        <div class="filter-search">
+            <input type="search" name="q" class="search-input" value="<?= e($txQ) ?>" placeholder="Search merchant or category…">
+        </div>
+        <div class="filter-row">
+            <select name="category" class="select" data-autosubmit aria-label="Filter by category">
+                <option value="">All categories</option>
+                <?php foreach ($catOptions as $o): ?>
+                    <option value="<?= e($o['value']) ?>"<?= $txCat === $o['value'] ? ' selected' : '' ?>><?= e($o['label']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <input type="date" name="from" class="input date-input" value="<?= e($txFrom) ?>" data-autosubmit aria-label="From date">
+            <input type="date" name="to" class="input date-input" value="<?= e($txTo) ?>" data-autosubmit aria-label="To date">
+            <button class="btn-ghost" type="submit">Filter</button>
+            <?php if ($txHasFilters): ?><a class="btn-ghost" href="/account.php?account_id=<?= e(urlencode($accountId)) ?>">Clear</a><?php endif; ?>
+        </div>
+    </form>
+    <div class="rows tx-list">
         <?php if (!$txns): ?>
-            <p class="muted" style="padding:1rem">No transactions yet.</p>
+            <p class="muted" style="padding:1rem"><?= $txHasFilters ? 'No transactions match these filters.' : 'No transactions yet.' ?></p>
         <?php else: foreach ($txns as $t):
             $merchant = $t['merchant_name'] ?: ($t['name'] ?: '—');
-            $amt = (float)$t['amount'];
-            $hay = strtolower($merchant . ' ' . pretty_cat($t['category'])); ?>
-        <div class="row tx-row" data-search="<?= e($hay) ?>">
+            $amt = (float)$t['amount']; ?>
+        <div class="row tx-row">
             <span class="row-main">
                 <span class="row-title"><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                 <span class="row-sub">
@@ -274,6 +314,7 @@ render_header($acct['name'] ?: 'Account', '', [
         </div>
         <?php endforeach; endif; ?>
     </div>
+    <?php render_pager($txPage, $txHasNext, ['account_id' => $accountId] + $txFilters + ($docPage > 1 ? ['docpage' => $docPage] : []), 'txpage'); ?>
 </section>
 
 </div><!-- /.col transactions -->

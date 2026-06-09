@@ -194,7 +194,14 @@ function hexA(color, alpha) {
   return color;
 }
 
-/* ---- Search / filter ----------------------------------------------------- */
+/* ---- Search / filter (client-side, for bounded already-rendered lists) --- */
+// A `.search-input[data-filter="#id"]` instantly hides any `[data-search]`
+// descendant of #id that doesn't contain the query. Two optional refinements:
+//  · `[data-daygroup]` headers (transactions) collapse when their rows all hide;
+//  · `[data-filter-group]` wrappers (account category groups, list columns)
+//    collapse when none of their rows match.
+// Growing time-series lists use server-side filters + pagination instead — this
+// only refines what's already on the page.
 function initFilters() {
   $$('.search-input[data-filter]').forEach(input => {
     const container = $(input.dataset.filter);
@@ -206,7 +213,7 @@ function initFilters() {
 
     input.addEventListener('input', () => {
       const q = input.value.trim().toLowerCase();
-      $$('.row[data-search]', container).forEach(row => {
+      $$('[data-search]', container).forEach(row => {
         row.classList.toggle('is-hidden', q !== '' && !row.dataset.search.includes(q));
       });
       // collapse day-group headers that now have no visible rows
@@ -217,6 +224,11 @@ function initFilters() {
         else if (ch.classList.contains('row') && !ch.classList.contains('is-hidden')) { count++; }
       });
       finalize();
+      // collapse marked group wrappers with no matching rows
+      $$('[data-filter-group]', container).forEach(g => {
+        const hit = $$('[data-search]', g).some(r => !r.classList.contains('is-hidden'));
+        g.classList.toggle('is-hidden', q !== '' && !hit);
+      });
       // keep CSV export link in sync
       if (exportEl) {
         const parts = [];
@@ -224,6 +236,19 @@ function initFilters() {
         if (q) parts.push('q=' + encodeURIComponent(input.value.trim()));
         exportEl.href = exportBase + (parts.length ? '?' + parts.join('&') : '');
       }
+    });
+  });
+}
+
+/* ---- Auto-submit filter forms -------------------------------------------- */
+// A `[data-autosubmit]` control (select / date input) submits its GET filter
+// form on change, so picking an account/category/date reloads server-side
+// without a separate "Filter" click. The text search still submits on Enter.
+function initAutoSubmit() {
+  $$('[data-autosubmit]').forEach(el => {
+    el.addEventListener('change', () => {
+      const form = el.closest('form');
+      if (form) form.submit();
     });
   });
 }
@@ -343,6 +368,7 @@ function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().
 initDrawer();
 initCharts();
 initFilters();
+initAutoSubmit();
 initRecategorize();
 initVisibility();
 initRetirement();

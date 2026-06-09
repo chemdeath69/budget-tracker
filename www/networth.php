@@ -23,8 +23,9 @@ render_header('Net worth', 'networth', ['chart' => true]);
 function nw_account_rows(array $rows, bool $debt): void
 {
     foreach ($rows as $a):
-        $bal = (float)($a['balance_current'] ?? 0); ?>
-        <a class="row" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">
+        $bal = (float)($a['balance_current'] ?? 0);
+        $hay = strtolower(($a['name'] ?: 'Account') . ' ' . ($a['institution_name'] ?: '')); ?>
+        <a class="row" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>" data-search="<?= e($hay) ?>">
             <span class="row-main">
                 <span class="row-title"><?= e($a['name'] ?: 'Account') ?></span>
                 <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?></span>
@@ -61,12 +62,17 @@ function nw_account_rows(array $rows, bool $debt): void
     <?php endif; ?>
 </section>
 
-<div class="cols">
-<section class="block">
+<?php if (count($accounts) > 8): ?>
+<div class="search-bar">
+    <input type="search" class="search-input" data-filter="#nw-lists" placeholder="Filter by account or bank…">
+</div>
+<?php endif; ?>
+<div class="cols" id="nw-lists">
+<section class="block" data-filter-group>
     <div class="block-head"><h2>Assets</h2><span class="split-value pos"><?= e(usd($stats['assets'])) ?></span></div>
     <div class="rows">
         <?php if ($homeVal > 0): ?>
-        <a class="row" href="/property.php">
+        <a class="row" href="/property.php" data-search="home market value rentcast estimated">
             <span class="row-main">
                 <span class="row-title">Home <span class="mini-tag">estimated</span></span>
                 <span class="row-sub">Market value (RentCast AVM)</span>
@@ -79,7 +85,7 @@ function nw_account_rows(array $rows, bool $debt): void
     </div>
 </section>
 
-<section class="block">
+<section class="block" data-filter-group>
     <div class="block-head"><h2>Liabilities</h2><span class="split-value neg"><?= e(usd($stats['liabilities'])) ?></span></div>
     <div class="rows">
         <?php $debts ? nw_account_rows($debts, true) : print('<p class="muted" style="padding:1rem">No debts. 🎉</p>'); ?>

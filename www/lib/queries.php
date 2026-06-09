@@ -269,7 +269,11 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 
 /**
  * Visible transactions. Options:
- *   account_id (string), q (search text), limit (int, default 100).
+ *   account_id (string), q (search text), category (exact tag),
+ *   from / to (YYYY-MM-DD date bounds, inclusive),
+ *   limit (int, default 100), offset (int, default 0).
+ * For pagination, request limit = PAGE_SIZE + 1 and treat an extra row as
+ * "there's a next page" (see render_pager()).
  */
 function q_transactions(PDO $pdo, int $uid, array $opts = []): array
 {
@@ -279,12 +283,19 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         $where[] = 't.account_id = :acct';
         $params[':acct'] = (string)$opts['account_id'];
     }
+    if (!empty($opts['category'])) {
+        $where[] = 'COALESCE(t.category_override, t.pfc_primary) = :cat';
+        $params[':cat'] = (string)$opts['category'];
+    }
+    if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
+    if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
     if (!empty($opts['q'])) {
         $where[] = '(t.merchant_name LIKE :q OR t.name LIKE :q
                      OR COALESCE(t.category_override, t.pfc_primary) LIKE :q)';
         $params[':q'] = '%' . $opts['q'] . '%';
     }
-    $limit = (int)($opts['limit'] ?? 100);
+    $limit  = max(1, (int)($opts['limit'] ?? 100));
+    $offset = max(0, (int)($opts['offset'] ?? 0));
     $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending,
                    COALESCE(t.category_override, t.pfc_primary) AS category,
                    a.name AS account_name, a.mask, a.account_id, i.user_id AS owner_id
@@ -293,7 +304,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
             JOIN items i ON a.item_id = i.item_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY t.date DESC, t.imported_at DESC
-            LIMIT " . $limit;
+            LIMIT " . $limit . " OFFSET " . $offset;
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
@@ -348,13 +359,20 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
  * transactions aren't synced yet). Newest first. Used for dividend/interest and
  * trade lists on the Investments page. Amounts keep the stored sign
  * (+ = money out, − = money in); callers flip as needed for display.
+ * Pass $offset (and request $limit = PAGE_SIZE + 1) to paginate; $accountId
+ * scopes to one brokerage account.
  */
-function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50): array
+function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50, int $offset = 0, ?string $accountId = null): array
 {
     if (!$tags) return [];
     $in = [];
     $params = [':uid' => $uid];
     foreach (array_values($tags) as $k => $tag) { $ph = ":t$k"; $in[] = $ph; $params[$ph] = $tag; }
+    $acctClause = '';
+    if ($accountId !== null && $accountId !== '') {
+        $acctClause = ' AND t.account_id = :acct';
+        $params[':acct'] = $accountId;
+    }
     $st = $pdo->prepare(
         "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pfc_primary,
                 a.name AS account_name, a.mask, a.account_id
@@ -362,12 +380,40 @@ function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50)
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
          WHERE " . VIS . " AND t.ext_source IS NOT NULL
-           AND t.pfc_primary IN (" . implode(',', $in) . ")
+           AND t.pfc_primary IN (" . implode(',', $in) . ")" . $acctClause . "
          ORDER BY t.date DESC, t.imported_at DESC
-         LIMIT " . (int)$limit
+         LIMIT " . max(1, (int)$limit) . " OFFSET " . max(0, (int)$offset)
     );
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * Total of investment-activity amounts (all rows, not one page) for the given
+ * tags — so the Dividends & interest header stays accurate while the list below
+ * is paginated. Keeps the stored sign (+ = money out, − = money in).
+ */
+function q_investment_activity_total(PDO $pdo, int $uid, array $tags, ?string $accountId = null): float
+{
+    if (!$tags) return 0.0;
+    $in = [];
+    $params = [':uid' => $uid];
+    foreach (array_values($tags) as $k => $tag) { $ph = ":t$k"; $in[] = $ph; $params[$ph] = $tag; }
+    $acctClause = '';
+    if ($accountId !== null && $accountId !== '') {
+        $acctClause = ' AND t.account_id = :acct';
+        $params[':acct'] = $accountId;
+    }
+    $st = $pdo->prepare(
+        "SELECT COALESCE(SUM(t.amount), 0)
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND t.ext_source IS NOT NULL
+           AND t.pfc_primary IN (" . implode(',', $in) . ")" . $acctClause
+    );
+    $st->execute($params);
+    return (float)$st->fetchColumn();
 }
 
 /**
@@ -707,14 +753,16 @@ function is_manual(array $a): bool
 /**
  * Ingested documents for a manual account (newest first). The caller must have
  * already fetched the account via q_account() (which enforces visibility).
+ * Pass $limit > 0 (and request PAGE_SIZE + 1) with $offset to paginate;
+ * $limit = 0 (default) returns every document.
  */
-function q_manual_documents(PDO $pdo, string $accountId): array
+function q_manual_documents(PDO $pdo, string $accountId, int $limit = 0, int $offset = 0): array
 {
-    $st = $pdo->prepare(
-        'SELECT id, doc_type, period_key, original_name, byte_size, summary, uploaded_at
-         FROM manual_documents WHERE account_id = ?
-         ORDER BY uploaded_at DESC'
-    );
+    $sql = 'SELECT id, doc_type, period_key, original_name, byte_size, summary, uploaded_at
+            FROM manual_documents WHERE account_id = ?
+            ORDER BY uploaded_at DESC';
+    if ($limit > 0) $sql .= ' LIMIT ' . (int)$limit . ' OFFSET ' . max(0, (int)$offset);
+    $st = $pdo->prepare($sql);
     $st->execute([$accountId]);
     return $st->fetchAll();
 }
