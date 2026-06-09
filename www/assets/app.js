@@ -339,6 +339,24 @@ function initRetirement() {
   });
 }
 
+/* Account display-name override. Owner edits the name and saves; we POST
+   action=rename and reload so the new name shows everywhere it appears (header,
+   dashboard, transactions, …). A blank value reverts to the bank/manual name. */
+function initRename() {
+  $$('.name-form[data-account]').forEach(form => {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const input = form.querySelector('.name-input');
+      const btn = form.querySelector('.name-save');
+      if (input) input.disabled = true;
+      if (btn) btn.disabled = true;
+      const out = await postJSON('/api/account.php', { action: 'rename', account_id: form.dataset.account, name: input ? input.value : '' });
+      if (out && out.ok) location.reload();
+      else { if (input) input.disabled = false; if (btn) btn.disabled = false; }
+    });
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -372,4 +390,5 @@ initAutoSubmit();
 initRecategorize();
 initVisibility();
 initRetirement();
+initRename();
 initBudgets();

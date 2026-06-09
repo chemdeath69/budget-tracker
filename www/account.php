@@ -234,6 +234,19 @@ render_header($acct['name'] ?: 'Account', '', [
 <section class="card">
     <div class="control-row">
         <div>
+            <strong>Display name</strong>
+            <div class="muted">Rename how this account shows throughout the app. Leave blank to use the <?= $manual ? 'name you entered' : 'name from your bank' ?>: <?= e($acct['original_name'] ?: 'Account') ?>.</div>
+        </div>
+        <form class="name-form" data-account="<?= e($acct['account_id']) ?>">
+            <input type="text" class="input name-input" maxlength="255"
+                   value="<?= e($acct['display_name'] ?? '') ?>"
+                   placeholder="<?= e($acct['original_name'] ?: 'Account') ?>"
+                   aria-label="Account display name">
+            <button type="submit" class="btn-ghost name-save">Save</button>
+        </form>
+    </div>
+    <div class="control-row">
+        <div>
             <strong>Visibility</strong>
             <div class="muted">Shared accounts are visible to both household members.</div>
         </div>

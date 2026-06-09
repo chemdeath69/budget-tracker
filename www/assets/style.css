@@ -295,15 +295,28 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .kv-grid span.muted { font-size: .8rem; }
 
 /* ---- Control rows (account/settings) ----------------------------------- */
-.control-row, .manage-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* Account-page owner controls live in the narrow summary column, so they STACK
+   (label/hint on top, full-width control below) — a side-by-side layout crushed
+   the rename input to ~26px and wrapped the Re-link button. */
+.control-row { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
+.manage-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .control-row + .control-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .control-row .muted { font-size: .82rem; }
+/* The control itself sits below the label and takes the row width. Direct-child
+   selectors so the Save button NESTED in .name-form keeps its natural width. */
+.control-row > .select,
+.control-row > .name-form,
+.control-row > .btn-ghost { width: 100%; }
+.control-row > .btn-ghost { text-align: center; white-space: nowrap; }
 .select {
   font: inherit; font-size: .9rem; padding: 9px 12px; border: 1px solid var(--line);
   border-radius: var(--r-sm); background: var(--surface); color: var(--ink); cursor: pointer;
 }
 .manage-controls { display: flex; align-items: center; gap: 8px; flex: none; }
 .manage-controls .select { font-size: .82rem; padding: 7px 9px; }
+.name-form { display: flex; align-items: center; gap: 8px; }
+.name-form .input { flex: 1; min-width: 0; font-size: .9rem; padding: 10px 12px; }
+.name-form .name-save { flex: none; width: auto; white-space: nowrap; }
 
 /* ---- Search bar --------------------------------------------------------- */
 .search-bar { display: flex; gap: 8px; align-items: center; }

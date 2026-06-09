@@ -62,6 +62,29 @@ if ($action === 'retirement') {
     exit;
 }
 
+if ($action === 'rename') {
+    // Owner-set display-name override (migration 009). Shown everywhere the account
+    // appears; a blank value clears it back to the original Plaid/manual name. Stored
+    // in its own column so a Plaid sync never clobbers it (see lib/sync.php).
+    $accountId = (string)($in['account_id'] ?? '');
+    $name = trim((string)($in['name'] ?? ''));
+    if (function_exists('mb_substr')) { $name = mb_substr($name, 0, 255); } else { $name = substr($name, 0, 255); }
+    $display = $name === '' ? null : $name;   // blank → NULL → revert to original name
+
+    // Owner-only (same as visibility / retirement).
+    $own = $pdo->prepare(
+        'SELECT i.user_id FROM accounts a JOIN items i ON a.item_id = i.item_id WHERE a.account_id = ?'
+    );
+    $own->execute([$accountId]);
+    $ownerId = $own->fetchColumn();
+    if ($ownerId === false) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
+    if ((int)$ownerId !== $uid) { http_response_code(403); echo json_encode(['error' => 'only the owner can rename this']); exit; }
+
+    $pdo->prepare('UPDATE accounts SET display_name = ? WHERE account_id = ?')->execute([$display, $accountId]);
+    echo json_encode(['ok' => true, 'display_name' => $display]);
+    exit;
+}
+
 if ($action === 'recategorize') {
     $txId = (string)($in['transaction_id'] ?? '');
     $cat  = trim((string)($in['category'] ?? ''));

@@ -18,6 +18,14 @@ declare(strict_types=1);
 const VIS = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))';
 
 /**
+ * Effective account name SQL fragment: the owner's display-name override when set,
+ * else the original Plaid/manual name (migration 009). SELECT it as `name` /
+ * `account_name` so every page renders the rename transparently without touching
+ * each call site. Requires the `accounts` table aliased `a`.
+ */
+const ACCT_NAME = "COALESCE(NULLIF(a.display_name, ''), a.name)";
+
+/**
  * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
  * Used by is_retirement_account() + q_retirement_accounts() so Plaid-linked IRAs /
  * 401(k)s / pensions land on the Retirement page (not the Investments page) without
@@ -53,7 +61,7 @@ function is_retirement_account(array $a): bool
 function q_accounts(PDO $pdo, int $uid): array
 {
     $st = $pdo->prepare(
-        "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.official_name, a.mask, a.type, a.subtype,
                 a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
                 a.visibility, i.institution_name, i.institution_id,
                 i.user_id AS owner_id, i.item_id, i.status AS item_status,
@@ -70,7 +78,8 @@ function q_accounts(PDO $pdo, int $uid): array
 function q_account(PDO $pdo, int $uid, string $accountId): ?array
 {
     $st = $pdo->prepare(
-        "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.name AS original_name, a.display_name,
+                a.official_name, a.mask, a.type, a.subtype,
                 a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
                 a.iso_currency_code, a.visibility, a.last_updated_datetime,
                 i.institution_name, i.institution_id, i.user_id AS owner_id,
@@ -95,7 +104,7 @@ function q_account(PDO $pdo, int $uid, string $accountId): ?array
 function q_owned_accounts(PDO $pdo, int $uid): array
 {
     $st = $pdo->prepare(
-        "SELECT a.account_id, a.name, a.official_name, a.mask, a.type, a.subtype,
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.official_name, a.mask, a.type, a.subtype,
                 a.retirement_flag, a.balance_available, a.balance_current, a.balance_limit,
                 a.visibility, i.institution_name, i.institution_id,
                 i.user_id AS owner_id, i.item_id, i.status AS item_status,
@@ -298,7 +307,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     $offset = max(0, (int)($opts['offset'] ?? 0));
     $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending,
                    COALESCE(t.category_override, t.pfc_primary) AS category,
-                   a.name AS account_name, a.mask, a.account_id, i.user_id AS owner_id
+                   " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
             FROM transactions t
             JOIN accounts a ON t.account_id = a.account_id
             JOIN items i ON a.item_id = i.item_id
@@ -319,7 +328,7 @@ function q_liabilities(PDO $pdo, int $uid, ?string $accountId = null): array
     $st = $pdo->prepare(
         "SELECT l.liability_type, l.apr_percentage, l.outstanding_balance, l.last_payment_amount,
                 l.last_payment_date, l.next_payment_due_date, l.minimum_payment_amount,
-                a.name AS account_name, a.mask, a.balance_current, a.account_id
+                " . ACCT_NAME . " AS account_name, a.mask, a.balance_current, a.account_id
          FROM liabilities l
          JOIN accounts a ON l.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -339,7 +348,7 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
     $st = $pdo->prepare(
         "SELECT s.ticker_symbol, s.name AS security_name, s.type AS security_type,
                 h.security_id, h.quantity, h.cost_basis, h.institution_price, h.institution_value,
-                a.name AS account_name, a.mask, a.account_id, a.last_updated_datetime,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id, a.last_updated_datetime,
                 a.type, a.subtype, a.retirement_flag,
                 i.institution_name, i.source, i.manual_type, i.user_id AS owner_id
          FROM holdings h
@@ -375,7 +384,7 @@ function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50,
     }
     $st = $pdo->prepare(
         "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pfc_primary,
-                a.name AS account_name, a.mask, a.account_id
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -554,7 +563,7 @@ function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
     $st = $pdo->prepare(
         "SELECT r.stream_id, r.direction, r.description, r.merchant_name, r.frequency,
                 r.average_amount, r.last_amount, r.last_date, r.is_active, r.category_primary,
-                a.name AS account_name, a.mask, a.account_id, i.user_id AS owner_id
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
          FROM recurring_streams r
          JOIN accounts a ON r.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -918,7 +927,7 @@ function q_retirement_accounts(PDO $pdo, int $uid): array
     foreach (array_values(RETIREMENT_SUBTYPES) as $k => $s) { $subs[] = ":s$k"; $params[":s$k"] = $s; }
     $in = implode(',', $subs);
     $st = $pdo->prepare(
-        "SELECT a.account_id, a.name, a.mask, a.type, a.subtype, a.retirement_flag,
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.mask, a.type, a.subtype, a.retirement_flag,
                 a.balance_current, a.visibility, a.last_updated_datetime, i.institution_name,
                 i.user_id AS owner_id, i.item_id, i.source, i.manual_type
          FROM accounts a JOIN items i ON a.item_id = i.item_id
@@ -948,7 +957,7 @@ function q_retirement_statements(PDO $pdo, int $uid, ?string $accountId = null):
     $st = $pdo->prepare(
         "SELECT rs.id, rs.account_id, rs.period_key, rs.statement_date, rs.balance,
                 rs.employee_contrib, rs.employer_contrib, rs.employee_ytd, rs.employer_ytd,
-                rs.note, a.name AS account_name
+                rs.note, " . ACCT_NAME . " AS account_name
          FROM retirement_statements rs
          JOIN accounts a ON rs.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id

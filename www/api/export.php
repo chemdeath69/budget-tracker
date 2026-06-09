@@ -28,7 +28,7 @@ if ($q !== '') {
 }
 $sql = 'SELECT t.date, t.merchant_name, t.name, t.amount, t.iso_currency_code,
                COALESCE(t.category_override, t.pfc_primary) AS category, t.pending,
-               a.name AS account_name, a.mask, i.institution_name
+               COALESCE(NULLIF(a.display_name, \'\'), a.name) AS account_name, a.mask, i.institution_name
         FROM transactions t
         JOIN accounts a ON t.account_id = a.account_id
         JOIN items i ON a.item_id = i.item_id

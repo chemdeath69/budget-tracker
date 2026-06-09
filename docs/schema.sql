@@ -51,6 +51,7 @@ CREATE TABLE accounts (
   account_id            VARCHAR(64) NOT NULL,       -- Plaid account_id
   item_id               VARCHAR(64) NOT NULL,
   name                  VARCHAR(255) NULL,
+  display_name          VARCHAR(255) NULL,          -- owner-set rename override; shown everywhere when set, never touched by Plaid sync (migration 009)
   official_name         VARCHAR(255) NULL,
   mask                  VARCHAR(16)  NULL,
   type                  VARCHAR(32)  NULL,          -- depository|credit|loan|investment

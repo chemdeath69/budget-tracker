@@ -90,7 +90,9 @@ function sync_balances(PDO $pdo, string $itemId, string $token): void
              balance_available=VALUES(balance_available), balance_current=VALUES(balance_current),
              balance_limit=VALUES(balance_limit), iso_currency_code=VALUES(iso_currency_code),
              last_updated_datetime=VALUES(last_updated_datetime)'
-        // NB: visibility intentionally not updated (preserve user choice).
+        // NB: visibility, display_name and retirement_flag are intentionally NOT in
+        // the UPDATE list (preserve the owner's choices). The Plaid `name` keeps
+        // refreshing underneath the display_name override (migration 009).
     );
     foreach ($res['accounts'] ?? [] as $a) {
         $b = $a['balances'] ?? [];
