@@ -17,11 +17,13 @@ const usdCompact = n => {
 };
 const sliceColor = i => `hsl(${(i * 67) % 360},65%,55%)`;
 
+const csrfToken = () => (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+
 async function postJSON(url, body, method = 'POST') {
   try {
     const res = await fetch(url, {
       method, credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
       body: JSON.stringify(body),
     });
     return await res.json();

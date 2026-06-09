@@ -14,6 +14,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['error' => 'method not allowed']);
     exit;
 }
+if (!csrf_check_request()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'invalid csrf token']);
+    exit;
+}
 
 $pdo = db();
 $uid = current_user_id();

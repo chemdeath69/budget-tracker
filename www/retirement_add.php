@@ -18,6 +18,11 @@ $pdo = db();
 $uid = current_user_id();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_check_request()) {
+        flash_set('error', 'Your session expired — please try again.');
+        header('Location: /retirement_add.php');
+        exit;
+    }
     $provider   = trim((string)($_POST['provider'] ?? ''));
     $nickname   = trim((string)($_POST['nickname'] ?? ''));
     $visibility = ($_POST['visibility'] ?? 'shared') === 'private' ? 'private' : 'shared';
@@ -67,6 +72,7 @@ render_header('Add a 401(k)', 'retirement', ['back' => '/retirement.php', 'narro
         combined retirement projection. It counts toward your net worth.</p>
 
     <form method="post" class="stack-form">
+        <?= csrf_field() ?>
         <label class="field">
             <span class="field-label">Plan provider</span>
             <input class="input" type="text" name="provider" maxlength="120" required

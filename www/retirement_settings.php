@@ -26,6 +26,11 @@ function rs_num($v): ?float
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_check_request()) {
+        flash_set('error', 'Your session expired — please try again.');
+        header('Location: /retirement_settings.php');
+        exit;
+    }
     $yearRaw = trim((string)($_POST['retirement_year'] ?? ''));
     $year = $yearRaw === '' ? null : (int)$yearRaw;
     if ($year !== null && ($year < 1990 || $year > 2100)) $year = null;
@@ -78,6 +83,7 @@ render_header('Projection assumptions', 'retirement', ['back' => '/retirement.ph
         default below is used until there's enough history to derive one.</p>
 
     <form method="post" class="stack-form">
+        <?= csrf_field() ?>
         <label class="field">
             <span class="field-label">Target retirement year</span>
             <input class="input" type="number" name="retirement_year" min="1990" max="2100" step="1"

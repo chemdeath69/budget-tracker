@@ -35,6 +35,18 @@ echo json_encode(['received' => true]); // ack fast
 
 if (!$itemId) exit;
 
+// Actually send the 200 to Plaid NOW, before the (potentially multi-second) sync
+// runs — otherwise the body isn't flushed until the script ends and a slow sync
+// can exceed Plaid's webhook timeout, triggering retries. Under PHP-FPM
+// fastcgi_finish_request closes the request immediately; else flush the buffers.
+ignore_user_abort(true);
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+} else {
+    while (ob_get_level() > 0) ob_end_flush();
+    flush();
+}
+
 $triggers = ['SYNC_UPDATES_AVAILABLE', 'DEFAULT_UPDATE', 'INITIAL_UPDATE', 'HISTORICAL_UPDATE', 'TRANSACTIONS_REMOVED'];
 if ($type === 'TRANSACTIONS' && in_array($code, $triggers, true)) {
     $item = $pdo->prepare('SELECT item_id, user_id, access_token_enc, transactions_cursor FROM items WHERE item_id = ?');

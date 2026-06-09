@@ -12,6 +12,11 @@ $uid   = current_user_id();
 $types = manual_types();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_check_request()) {
+        flash_set('error', 'Your session expired — please try again.');
+        header('Location: /manual_add.php');
+        exit;
+    }
     $type = (string)($_POST['manual_type'] ?? '');
     $name = trim((string)($_POST['nickname'] ?? ''));
     $cfg  = manual_type($type);
@@ -58,6 +63,7 @@ render_header('Add manual account', 'settings', ['back' => '/settings.php', 'nar
         holdings, and transactions.</p>
 
     <form method="post" class="stack-form">
+        <?= csrf_field() ?>
         <label class="field">
             <span class="field-label">Type</span>
             <select class="select" name="manual_type" required>

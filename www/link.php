@@ -9,6 +9,7 @@ require_login();
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Link a bank · Budget Tracker</title>
     <link rel="stylesheet" href="/assets/style.css?v=<?= @filemtime(__DIR__ . '/assets/style.css') ?: time() ?>">
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
@@ -38,10 +39,11 @@ require_login();
                 token: j.link_token,
                 onSuccess: async (public_token, metadata) => {
                     statusEl.textContent = 'Saving connection…';
+                    const csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
                     const res = await fetch('/api/exchange.php', {
                         method: 'POST',
                         credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
                         body: JSON.stringify({ public_token, institution: metadata.institution })
                     });
                     const out = await res.json();

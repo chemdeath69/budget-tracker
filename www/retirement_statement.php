@@ -28,13 +28,22 @@ function ret_num($v): ?float
     return is_numeric($v) ? (float)$v : null;
 }
 
-// Only the owner of a 401(k) may record its statements.
+// Only the owner of a *manual* 401(k) may record its statements. Statement entry
+// overwrites balance_current + account_balance_history, which must never touch a
+// Plaid-synced retirement account (q_retirement_accounts() also returns those) —
+// is_retirement() narrows the list to hand-tracked 401(k)s, so the <select> can't
+// offer a Plaid account and a forged POST for one fails the $valid check below.
 $owned = array_values(array_filter(
     q_retirement_accounts($pdo, $uid),
-    fn($a) => (int)$a['owner_id'] === $uid
+    fn($a) => (int)$a['owner_id'] === $uid && is_retirement($a)
 ));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_check_request()) {
+        flash_set('error', 'Your session expired — please try again.');
+        header('Location: /retirement_statement.php');
+        exit;
+    }
     $acctId = (string)($_POST['account_id'] ?? '');
     $valid  = null;
     foreach ($owned as $a) { if ($a['account_id'] === $acctId) { $valid = $a; break; } }
@@ -141,6 +150,7 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
         growth from deposits and derive your return. Re-entering the same quarter replaces it.</p>
 
     <form method="post" class="stack-form">
+        <?= csrf_field() ?>
         <label class="field">
             <span class="field-label">Account</span>
             <select class="select" name="account_id" required>

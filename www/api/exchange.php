@@ -12,6 +12,11 @@ if (!is_logged_in()) {
     echo json_encode(['error' => 'not authenticated']);
     exit;
 }
+if (!csrf_check_request()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'invalid csrf token']);
+    exit;
+}
 
 $in = json_decode(file_get_contents('php://input'), true) ?: [];
 $publicToken = $in['public_token'] ?? '';

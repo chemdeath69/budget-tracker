@@ -163,6 +163,7 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0b0f17" media="(prefers-color-scheme: dark)">
+    <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title><?= e($title) ?> · Budget Tracker</title>
     <link rel="stylesheet" href="/assets/style.css?v=<?= $cssV ?>">
     <?php if ($needChart): ?>

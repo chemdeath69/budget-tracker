@@ -63,10 +63,18 @@ function prices_tracked_securities(PDO $pdo): array
     $rows = $pdo->query(
         "SELECT DISTINCT s.security_id, s.ticker_symbol
          FROM holdings h JOIN securities s ON h.security_id = s.security_id
-         WHERE s.ticker_symbol IS NOT NULL AND s.ticker_symbol <> ''"
+         WHERE s.ticker_symbol IS NOT NULL AND s.ticker_symbol <> ''
+           AND s.ticker_symbol NOT LIKE 'CUR:%'"
     )->fetchAll();
     $out = [];
-    foreach ($rows as $r) $out[$r['security_id']] = strtoupper(trim((string)$r['ticker_symbol']));
+    foreach ($rows as $r) {
+        $sym = strtoupper(trim((string)$r['ticker_symbol']));
+        // Skip currency/cash placeholders (e.g. 'CUR:USD') — Twelve Data can't
+        // price them; they only burn a rate-limited credit and log an error.
+        // Real US tickers are bare, so any ':' marks a non-priceable symbol.
+        if ($sym === '' || strpos($sym, ':') !== false) continue;
+        $out[$r['security_id']] = $sym;
+    }
     return $out;
 }
 

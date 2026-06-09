@@ -134,6 +134,7 @@ render_header($acct['name'] ?: 'Account', '', [
     <p class="muted">Upload a document to refresh balances, holdings and transactions. Re-uploading
         the same period replaces it — no duplicates. The document type is detected automatically.</p>
     <form method="post" action="/api/manual_upload.php" enctype="multipart/form-data" class="upload-form">
+        <?= csrf_field() ?>
         <input type="hidden" name="account_id" value="<?= e($accountId) ?>">
         <input class="input file-input" type="file" name="document" accept="application/pdf,.pdf" required>
         <button class="btn" type="submit">Upload &amp; update</button>

@@ -27,6 +27,9 @@ function upload_done(string $type, string $msg, string $back): void
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     upload_done('error', 'Invalid request.', '/settings.php');
 }
+if (!csrf_check_request()) {
+    upload_done('error', 'Your session expired — please try again.', $back);
+}
 
 $acct = $accountId !== '' ? q_account($pdo, $uid, $accountId) : null;
 if (!$acct || !is_manual($acct)) {

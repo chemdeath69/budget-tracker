@@ -299,9 +299,13 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
     if (!empty($opts['q'])) {
-        $where[] = '(t.merchant_name LIKE :q OR t.name LIKE :q
-                     OR COALESCE(t.category_override, t.pfc_primary) LIKE :q)';
-        $params[':q'] = '%' . $opts['q'] . '%';
+        // Escape the user's own LIKE metacharacters (% _ \) so a literal '_' (common
+        // in PFC tags like FOOD_AND_DRINK) or '%' isn't treated as a wildcard.
+        $term = addcslashes((string)$opts['q'], '\\%_');
+        $where[] = "(t.merchant_name LIKE :q ESCAPE '\\\\'
+                     OR t.name LIKE :q ESCAPE '\\\\'
+                     OR COALESCE(t.category_override, t.pfc_primary) LIKE :q ESCAPE '\\\\')";
+        $params[':q'] = '%' . $term . '%';
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));

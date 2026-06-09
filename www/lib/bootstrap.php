@@ -59,3 +59,42 @@ function flash_take(): array
     unset($_SESSION['flash']);
     return is_array($f) ? $f : [];
 }
+
+/* --- CSRF -------------------------------------------------------------------
+ * Per-session token. Defence-in-depth on top of the SameSite=Lax session
+ * cookie: every state-changing request must present it. fetch/JSON callers send
+ * it as the X-CSRF-Token header (see assets/app.js); plain <form> POSTs carry it
+ * as a hidden `csrf` field (csrf_field()). Verified with csrf_check_request().
+ */
+
+/** Current session CSRF token (minted lazily on first use). */
+function csrf_token(): string
+{
+    if (empty($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf'];
+}
+
+/** Hidden form field carrying the CSRF token, for non-JS <form> POSTs. */
+function csrf_field(): string
+{
+    return '<input type="hidden" name="csrf" value="' . e(csrf_token()) . '">';
+}
+
+/** Constant-time comparison of a presented token against the session token. */
+function csrf_verify(?string $token): bool
+{
+    return !empty($_SESSION['csrf']) && is_string($token) && hash_equals($_SESSION['csrf'], $token);
+}
+
+/**
+ * Validate the CSRF token on a state-changing request. Accepts either the
+ * X-CSRF-Token header (fetch/JSON callers) or the `csrf` POST field (plain
+ * form submits). Returns true if either matches the session token.
+ */
+function csrf_check_request(): bool
+{
+    return csrf_verify($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null)
+        || csrf_verify($_POST['csrf'] ?? null);
+}
