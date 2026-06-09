@@ -313,7 +313,7 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
          WHERE " . VIS . " AND t.pending = 0 AND t.ext_source IS NULL
-           AND COALESCE(t.category_override, t.pfc_primary) NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
          GROUP BY ym"
@@ -356,7 +356,9 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         $params[':acct'] = (string)$opts['account_id'];
     }
     if (!empty($opts['category'])) {
-        $where[] = 'COALESCE(t.category_override, t.pfc_primary) = :cat';
+        // Third fallback to 'UNCATEGORIZED' mirrors q_spending/q_budgets so a
+        // category click-through on rows with no PFC at all still matches.
+        $where[] = "COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') = :cat";
         $params[':cat'] = (string)$opts['category'];
     }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }

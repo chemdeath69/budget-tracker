@@ -14,26 +14,11 @@ $pdo = db();
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    // Budgets (shared household) + current-month spend per category (household-wide).
-    $month = date('Y-m');
-    $spendRows = $pdo->prepare(
-        "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(t.amount) AS spent
-         FROM transactions t
-         WHERE t.pending = 0 AND t.amount > 0
-           AND DATE_FORMAT(t.date, '%Y-%m') = :m
-         GROUP BY category"
-    );
-    $spendRows->execute([':m' => $month]);
-    $spent = [];
-    foreach ($spendRows->fetchAll() as $r) $spent[$r['category']] = (float)$r['spent'];
-
-    $budgets = $pdo->query('SELECT id, category, monthly_limit FROM budgets ORDER BY category')->fetchAll();
-    foreach ($budgets as &$b) {
-        $b['monthly_limit'] = (float)$b['monthly_limit'];
-        $b['spent'] = round($spent[$b['category']] ?? 0, 2);
-    }
-    echo json_encode(['month' => $month, 'budgets' => $budgets], JSON_UNESCAPED_SLASHES);
+    // Reuse the canonical q_budgets() so this read can't drift from the
+    // server-rendered spending.php page (it JOINs accounts/items and excludes
+    // hidden accounts + manual ext_source feeds — which an inline query here did not).
+    require_once __DIR__ . '/../lib/queries.php';
+    echo json_encode(q_budgets($pdo), JSON_UNESCAPED_SLASHES);
     exit;
 }
 

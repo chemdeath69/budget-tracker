@@ -34,15 +34,25 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
             ], JSON_UNESCAPED_SLASHES) ?></script>
         </div>
         <div class="cat-list">
-            <?php $max = (float)$spend[0]['total']; foreach ($spend as $i => $c):
-                $pct = $total > 0 ? ($c['total'] / $total) * 100 : 0;
-                $w   = $max > 0 ? max(3, ($c['total'] / $max) * 100) : 0; ?>
-            <div class="cat-row">
+            <?php $max = (float)$spend[0]['total'];
+            // Carry q_spending's rolling 30-day window into the link. NOTE: the
+            // transactions page is the full ledger (it also shows pending, refunds and
+            // ext_source rows q_spending excludes), so the linked list is a superset —
+            // only the date window matches, it won't sum to this outflow-only figure.
+            $spendFrom = date('Y-m-d', strtotime('-30 days'));
+            foreach ($spend as $i => $c):
+                $pct  = $total > 0 ? ($c['total'] / $total) * 100 : 0;
+                $w    = $max > 0 ? max(3, ($c['total'] / $max) * 100) : 0;
+                $href = '/transactions.php?' . http_build_query([
+                    'category' => $c['category'],
+                    'from'     => $spendFrom,
+                ]); ?>
+            <a class="cat-row" href="<?= e($href) ?>">
                 <span class="cat-swatch" style="--i:<?= $i ?>"></span>
                 <span class="cat-name"><?= e(pretty_cat($c['category'])) ?></span>
                 <span class="cat-track"><span style="width:<?= round($w) ?>%"></span></span>
                 <span class="cat-amt"><?= e(usd($c['total'])) ?><span class="cat-pct"><?= round($pct) ?>%</span></span>
-            </div>
+            </a>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
@@ -75,12 +85,23 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
     <div id="budgets-list" class="budgets-list">
         <?php if (!$bud['budgets']): ?>
             <p class="muted" id="budgets-empty">No budgets yet. Add one to track spending against a monthly limit.</p>
-        <?php else: foreach ($bud['budgets'] as $b):
+        <?php else:
+            // Carry q_budgets' calendar-month window into the link. (Same caveat as the
+            // spending links above: the destination is the full ledger, a superset of the
+            // outflow-only 'spent' figure — only the window matches.)
+            $budFrom = $bud['month'] . '-01';
+            $budTo   = date('Y-m-t', strtotime($budFrom));
+            foreach ($bud['budgets'] as $b):
             $pct  = $b['monthly_limit'] > 0 ? min(100, ($b['spent'] / $b['monthly_limit']) * 100) : 0;
-            $over = $b['spent'] > $b['monthly_limit']; ?>
+            $over = $b['spent'] > $b['monthly_limit'];
+            $bHref = '/transactions.php?' . http_build_query([
+                'category' => $b['category'],
+                'from'     => $budFrom,
+                'to'       => $budTo,
+            ]); ?>
         <div class="budget-row card" data-id="<?= (int)$b['id'] ?>">
             <div class="b-head">
-                <span><?= e(pretty_cat($b['category'])) ?> <?= $over ? '⚠️' : '' ?></span>
+                <span><a class="cat-link" href="<?= e($bHref) ?>"><?= e(pretty_cat($b['category'])) ?></a> <?= $over ? '⚠️' : '' ?></span>
                 <span class="muted"><?= e(usd($b['spent'])) ?> / <?= e(usd($b['monthly_limit'])) ?>
                     <button class="budget-del" data-id="<?= (int)$b['id'] ?>" aria-label="Delete budget">✕</button></span>
             </div>

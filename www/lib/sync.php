@@ -55,6 +55,13 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
         }
         log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
         return ['ok' => false, 'error' => $ex->getMessage()];
+    } catch (Throwable $ex) {
+        // Non-Plaid failure (e.g. a transient PDOException — deadlock, FK race,
+        // "server has gone away"). Don't mark the Item broken (that status is for
+        // re-link prompts); just log and bail THIS item so the cron loop and its
+        // post-loop snapshot/price/home-value steps still run for everything else.
+        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
+        return ['ok' => false, 'error' => $ex->getMessage()];
     }
     } finally {
         $pdo->query('SELECT RELEASE_LOCK(' . $pdo->quote($lockName) . ')');

@@ -34,7 +34,14 @@ $ts = date('Y-m-d H:i:s T');
 echo "[$ts] cron sync start — " . count($items) . " item(s)\n";
 
 foreach ($items as $item) {
-    $r = sync_item($pdo, $item, 'cron');
+    // Belt-and-suspenders: sync_item() already catches its own Throwables, but
+    // guard here too so no single item can ever abort the loop and skip the
+    // post-loop snapshot / balance-history / price / home-value steps below.
+    try {
+        $r = sync_item($pdo, $item, 'cron');
+    } catch (Throwable $e) {
+        $r = ['ok' => false, 'error' => $e->getMessage()];
+    }
     if (!empty($r['ok'])) {
         echo "  item {$item['item_id']}: +{$r['added']} ~{$r['modified']} -{$r['removed']}\n";
     } else {
