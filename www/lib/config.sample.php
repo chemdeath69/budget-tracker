@@ -48,10 +48,14 @@ return [
     // Random long string. Generate: php -r "echo bin2hex(random_bytes(32));"
     'session_secret' => 'CHANGE_ME_random_64_hex_chars',
 
-    // Email alerts.
+    // Email alerts. NB (TODO #14): the live on/off flags + large-tx threshold now
+    // live in the `alert_settings` DB table (one household-shared row, edited on
+    // settings.php). The values below are TRANSPORT + FALLBACK only — `recipients`
+    // and `from` are used as-is by send_alert(); `large_tx_threshold` is the default
+    // used when alert_settings.large_tx_threshold is NULL.
     'alerts' => [
         'recipients'        => ['you@example.com'],
-        'large_tx_threshold' => 200.0,    // USD; outflow above this triggers an email
+        'large_tx_threshold' => 200.0,    // USD fallback; live value is in alert_settings
         'from'              => 'budget@example.com',
     ],
 

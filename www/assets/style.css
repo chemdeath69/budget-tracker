@@ -359,6 +359,28 @@ a.cat-row:hover { background: var(--surface-2); }
 .name-form .input { flex: 1; min-width: 0; font-size: .9rem; padding: 10px 12px; }
 .name-form .name-save { flex: none; width: auto; white-space: nowrap; }
 
+/* ---- Alert settings (TODO #14) ------------------------------------------ */
+.alert-card { padding: 4px 14px; }
+.alert-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; cursor: pointer; }
+.alert-card > .alert-row + .alert-row { border-top: 1px solid var(--line); }
+.alert-row.sub { padding-top: 10px; padding-left: 14px; cursor: default; }
+.alert-label { display: flex; flex-direction: column; gap: 2px; font-weight: 600; min-width: 0; }
+.alert-sub { font-weight: 500; font-size: .8rem; }
+.alert-num { flex: none; width: 6.5rem; text-align: right; padding: 8px 10px; }
+/* Toggle switch built from a checkbox — theme-aware via the CSS vars. */
+.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0;
+  width: 44px; height: 25px; border-radius: var(--r-pill); background: var(--track);
+  border: 1px solid var(--line); cursor: pointer; transition: background .15s ease;
+}
+.switch:checked { background: var(--brand); border-color: var(--brand); }
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px;
+  border-radius: 50%; background: var(--surface); transition: transform .15s ease;
+}
+.switch:checked::after { transform: translateX(19px); }
+.switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
 /* ---- Search bar --------------------------------------------------------- */
 .search-bar { display: flex; gap: 8px; align-items: center; }
 .sticky-search { position: sticky; top: calc(var(--banner-h) + env(safe-area-inset-top)); z-index: 20; background: var(--bg); padding: 4px 0; }

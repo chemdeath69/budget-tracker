@@ -465,3 +465,29 @@ CREATE TABLE retirement_settings (
   updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- alert_settings — single global (household-shared) row of notification prefs.
+-- Moves alert config out of config.php (migration 011). id is always 1.
+-- Defaults reproduce the pre-#14 behaviour: large-tx + connection alerts ON,
+-- everything new OFF. Read via alert_settings() (lib/mailer.php) / the thin
+-- q_alert_settings() wrapper (lib/queries.php). large_tx_threshold NULL falls
+-- back to config['alerts']['large_tx_threshold']. The digest / budget / unusual-
+-- spend / bill-reminder flags are stored now and consumed by TODO #15/#16/#4.
+-- ---------------------------------------------------------------------------
+CREATE TABLE alert_settings (
+  id                       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  email_enabled            TINYINT(1)    NOT NULL DEFAULT 1,   -- master kill-switch for ALL alert email
+  large_tx_enabled         TINYINT(1)    NOT NULL DEFAULT 1,
+  large_tx_threshold       DECIMAL(15,2) NULL,                 -- NULL = use config fallback
+  connection_alert_enabled TINYINT(1)    NOT NULL DEFAULT 1,   -- existing bank-connection-broken alert
+  budget_alert_enabled     TINYINT(1)    NOT NULL DEFAULT 0,   -- #16 (stored, not yet consumed)
+  budget_alert_pct         TINYINT UNSIGNED NOT NULL DEFAULT 90,
+  unusual_spend_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #16
+  bill_reminder_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #4/#16
+  bill_reminder_days       TINYINT UNSIGNED NOT NULL DEFAULT 5,
+  digest_enabled           TINYINT(1)    NOT NULL DEFAULT 0,   -- #15 weekly digest
+  updated_by               INT UNSIGNED  NULL,
+  updated_at               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

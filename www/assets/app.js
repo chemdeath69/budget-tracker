@@ -490,6 +490,26 @@ function initBudgets() {
   });
 }
 
+/* ---- Alert settings (TODO #14) ------------------------------------------- */
+/* Household-shared notification prefs on settings.php. Any [data-alert] control
+   change gathers the whole panel and POSTs it to api/alerts.php; toasts on save.
+   No reload (the page doesn't depend on these for first paint). Number inputs fire
+   `change` on blur/Enter, which is the debounce we want. */
+function initAlertSettings() {
+  const panel = $('#alert-settings');
+  if (!panel) return;
+  const controls = $$('[data-alert]', panel);
+  const save = async () => {
+    const body = {};
+    controls.forEach(el => {
+      body[el.dataset.alert] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    const out = await postJSON('/api/alerts.php', body);
+    toast(out && out.ok ? 'Alert settings saved' : ((out && out.error) || 'Could not save settings'));
+  };
+  controls.forEach(el => el.addEventListener('change', save));
+}
+
 function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
 
 /* ---- Boot ---------------------------------------------------------------- */
@@ -504,3 +524,4 @@ initRename();
 initStatementCadence();
 initRefresh();
 initBudgets();
+initAlertSettings();

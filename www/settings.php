@@ -11,7 +11,8 @@ $uid  = current_user_id();
 // q_owned_accounts() (not q_accounts) so the owner can see + un-hide their HIDDEN
 // accounts here — settings is the only surface that shows them (they're invisible
 // everywhere else in the app, including their own account.php drill-down).
-$owned = q_owned_accounts($pdo, $uid);
+$owned  = q_owned_accounts($pdo, $uid);
+$alerts = q_alert_settings($pdo);   // household-shared notification prefs (TODO #14)
 
 render_header('Settings', 'settings', ['narrow' => true]);
 ?>
@@ -84,6 +85,78 @@ render_header('Settings', 'settings', ['narrow' => true]);
     </div>
 </section>
 <?php endif; ?>
+
+<!-- Alerts & notifications (TODO #14 — household-shared; either user may change) -->
+<?php
+// NB: number_format's default thousands separator (',') would produce e.g. "1,500",
+// which is invalid in <input type=number> (the browser blanks it per the HTML spec) →
+// the field would render empty and a save would write NULL. Pass '' for no separator.
+$thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.', ''), '0'), '.');
+?>
+<section class="block">
+    <div class="block-head"><h2>Alerts &amp; notifications</h2><span class="muted">Shared by both of you</span></div>
+    <div class="card alert-card" id="alert-settings">
+        <label class="alert-row">
+            <span class="alert-label">Email alerts
+                <span class="muted alert-sub">Master switch — turn off to silence every alert email</span></span>
+            <input type="checkbox" class="switch" data-alert="email_enabled"<?= $alerts['email_enabled'] ? ' checked' : '' ?>>
+        </label>
+
+        <label class="alert-row">
+            <span class="alert-label">Large transactions
+                <span class="muted alert-sub">Email when a charge exceeds the threshold below</span></span>
+            <input type="checkbox" class="switch" data-alert="large_tx_enabled"<?= $alerts['large_tx_enabled'] ? ' checked' : '' ?>>
+        </label>
+        <div class="alert-row sub">
+            <span class="alert-label">Threshold ($)</span>
+            <input type="number" inputmode="decimal" class="input alert-num" data-alert="large_tx_threshold"
+                   aria-label="Large-transaction alert threshold in dollars"
+                   value="<?= e($thrVal) ?>" min="0" step="10" placeholder="200">
+        </div>
+
+        <label class="alert-row">
+            <span class="alert-label">Bank connection problems
+                <span class="muted alert-sub">Email when a bank needs re-authentication</span></span>
+            <input type="checkbox" class="switch" data-alert="connection_alert_enabled"<?= $alerts['connection_alert_enabled'] ? ' checked' : '' ?>>
+        </label>
+
+        <label class="alert-row">
+            <span class="alert-label">Weekly digest
+                <span class="muted alert-sub">Sunday summary · takes effect when the digest ships</span></span>
+            <input type="checkbox" class="switch" data-alert="digest_enabled"<?= $alerts['digest_enabled'] ? ' checked' : '' ?>>
+        </label>
+
+        <label class="alert-row">
+            <span class="alert-label">Budget exceeded
+                <span class="muted alert-sub">When a category nears its budget · takes effect when budget alerts ship</span></span>
+            <input type="checkbox" class="switch" data-alert="budget_alert_enabled"<?= $alerts['budget_alert_enabled'] ? ' checked' : '' ?>>
+        </label>
+        <div class="alert-row sub">
+            <span class="alert-label">Alert at (% of budget)</span>
+            <input type="number" inputmode="numeric" class="input alert-num" data-alert="budget_alert_pct"
+                   aria-label="Budget-exceeded alert at percent of budget"
+                   value="<?= e((string)$alerts['budget_alert_pct']) ?>" min="1" max="100" step="5">
+        </div>
+
+        <label class="alert-row">
+            <span class="alert-label">Unusual spending
+                <span class="muted alert-sub">When a category is 2× its 3-month average · takes effect when budget alerts ship</span></span>
+            <input type="checkbox" class="switch" data-alert="unusual_spend_enabled"<?= $alerts['unusual_spend_enabled'] ? ' checked' : '' ?>>
+        </label>
+
+        <label class="alert-row">
+            <span class="alert-label">Bill reminders
+                <span class="muted alert-sub">Upcoming bills · takes effect when reminders ship</span></span>
+            <input type="checkbox" class="switch" data-alert="bill_reminder_enabled"<?= $alerts['bill_reminder_enabled'] ? ' checked' : '' ?>>
+        </label>
+        <div class="alert-row sub">
+            <span class="alert-label">Days ahead</span>
+            <input type="number" inputmode="numeric" class="input alert-num" data-alert="bill_reminder_days"
+                   aria-label="Bill reminder days ahead"
+                   value="<?= e((string)$alerts['bill_reminder_days']) ?>" min="1" max="60" step="1">
+        </div>
+    </div>
+</section>
 
 <section class="block">
     <a class="card action-card danger" href="/logout.php">

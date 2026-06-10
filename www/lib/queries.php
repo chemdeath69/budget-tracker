@@ -1406,3 +1406,15 @@ function q_retirement_settings(PDO $pdo): array
                                     ? (float)$row['target_amount'] : null,
     ];
 }
+
+/**
+ * Household alert preferences (TODO #14). Thin wrapper so pages read via the q_*()
+ * convention; the real implementation is alert_settings() in mailer.php (the alerts
+ * module, also used by sync.php which doesn't load queries.php). NOT VIS-scoped —
+ * there's no per-account data, just one global row shared by both household users.
+ */
+function q_alert_settings(PDO $pdo): array
+{
+    require_once __DIR__ . '/mailer.php';
+    return alert_settings($pdo);
+}

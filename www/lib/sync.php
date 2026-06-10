@@ -30,11 +30,15 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
         return ['ok' => false, 'error' => 'decrypt failed'];
     }
 
+    // Household alert prefs (TODO #14) — read once; used for the large-tx threshold
+    // (passed into sync_transactions) and to gate the connection-broken alert below.
+    $alertCfg = alert_settings($pdo);
+
     $counts = ['added' => 0, 'modified' => 0, 'removed' => 0];
     try {
         // Balances first — upserts accounts rows (transactions FK needs them).
         sync_balances($pdo, $item['item_id'], $token);
-        $counts = sync_transactions($pdo, $item, $token);
+        $counts = sync_transactions($pdo, $item, $token, $alertCfg);
         // Best-effort extras.
         try { sync_liabilities($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('liab: ' . $e->getMessage()); }
         try { sync_investments($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest: ' . $e->getMessage()); }
@@ -48,7 +52,8 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
         $code = $ex->plaidCode ?? '';
         $pdo->prepare('UPDATE items SET status="error", error_code=? WHERE item_id=?')
             ->execute([$code, $item['item_id']]);
-        if (in_array($code, ['ITEM_LOGIN_REQUIRED', 'PENDING_EXPIRATION'], true)) {
+        if (in_array($code, ['ITEM_LOGIN_REQUIRED', 'PENDING_EXPIRATION'], true)
+            && $alertCfg['email_enabled'] && $alertCfg['connection_alert_enabled']) {
             send_alert('Bank connection needs attention',
                 "An institution connection requires re-authentication (error: $code).\n" .
                 "Item: {$item['item_id']}\nPlease re-link it in Budget Tracker.");
@@ -116,9 +121,10 @@ function sync_balances(PDO $pdo, string $itemId, string $token): void
 }
 
 /** /transactions/sync cursor loop -> apply added/modified/removed. */
-function sync_transactions(PDO $pdo, array $item, string $token): array
+function sync_transactions(PDO $pdo, array $item, string $token, ?array $alertCfg = null): array
 {
     global $CONFIG;
+    $alertCfg = $alertCfg ?? alert_settings($pdo);
     $cursor = $item['transactions_cursor'] ?: null;
     $firstInit = ($cursor === null);
     $added = 0; $modified = 0; $removed = 0;
@@ -141,7 +147,11 @@ function sync_transactions(PDO $pdo, array $item, string $token): array
     );
     $del = $pdo->prepare('DELETE FROM transactions WHERE transaction_id = ?');
 
-    $threshold = (float)($CONFIG['alerts']['large_tx_threshold'] ?? 0);
+    // Large-tx threshold from household alert prefs (TODO #14). 0 disables the alert
+    // (the loop below only collects when $threshold > 0), so a flipped-off master or
+    // large-tx switch silences it without any other code change.
+    $threshold = ($alertCfg['email_enabled'] && $alertCfg['large_tx_enabled'])
+        ? (float)$alertCfg['large_tx_threshold'] : 0.0;
     $largeAlerts = [];
 
     do {
