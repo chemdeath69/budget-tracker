@@ -482,14 +482,31 @@ CREATE TABLE alert_settings (
   large_tx_enabled         TINYINT(1)    NOT NULL DEFAULT 1,
   large_tx_threshold       DECIMAL(15,2) NULL,                 -- NULL = use config fallback
   connection_alert_enabled TINYINT(1)    NOT NULL DEFAULT 1,   -- existing bank-connection-broken alert
-  budget_alert_enabled     TINYINT(1)    NOT NULL DEFAULT 0,   -- #16 (stored, not yet consumed)
+  budget_alert_enabled     TINYINT(1)    NOT NULL DEFAULT 0,   -- #16 budget-exceeded alert
   budget_alert_pct         TINYINT UNSIGNED NOT NULL DEFAULT 90,
-  unusual_spend_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #16
-  bill_reminder_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #4/#16
+  unusual_spend_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #16 unusual-spend alert (2× 3-mo avg)
+  bill_reminder_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #16 bill-due reminder
   bill_reminder_days       TINYINT UNSIGNED NOT NULL DEFAULT 5,
   digest_enabled           TINYINT(1)    NOT NULL DEFAULT 0,   -- #15 weekly digest
   digest_sent_on           DATE          NULL,                 -- #15 last digest emailed on (PHP app-TZ date; double-send guard)
   updated_by               INT UNSIGNED  NULL,
   updated_at               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Spending-alert dedup ledger (#16, migration 013): one row per fired alert so the
+-- daily cron emails each crossing AT MOST ONCE per occurrence. Written by
+-- lib/spend_alerts.php via INSERT IGNORE on the UNIQUE key. `period` is a PHP app-TZ
+-- string: 'YYYY-MM' for budget/unusual (once per category per month), 'YYYY-MM-DD'
+-- (the due date) for bill reminders (re-arms each cycle). `alert_key` = category tag,
+-- or account_id for bills.
+CREATE TABLE alert_log (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  alert_type  VARCHAR(24)  NOT NULL,                 -- 'budget' | 'unusual' | 'bill'
+  alert_key   VARCHAR(96)  NOT NULL,                 -- category tag, or account_id for bills
+  period      VARCHAR(10)  NOT NULL,                 -- 'YYYY-MM' or 'YYYY-MM-DD' (PHP app-TZ)
+  sent_on     DATE         NOT NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_alert (alert_type, alert_key, period)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

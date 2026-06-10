@@ -327,25 +327,101 @@ function q_digest_spending(PDO $pdo, int $days = 7): array
  * hidden. A lightweight read-only derive for the digest; the full bills / payment
  * calendar is the separate TODO #4.
  *
- * Returns [['account_name','mask','liability_type','minimum_payment_amount',
- *           'next_payment_due_date'], …] ordered by due date.
+ * Returns [['account_id','account_name','mask','liability_type',
+ *           'minimum_payment_amount','next_payment_due_date'], …] ordered by due date.
+ * (account_id added Session 28 for the bill-reminder dedup key in lib/spend_alerts.php;
+ * the digest renderer simply ignores the extra column.)
  */
 function q_digest_upcoming_bills(PDO $pdo, int $days = 14): array
 {
+    // ⚠️ Bound the window with PHP app-TZ dates, NOT MySQL CURDATE() (the S24 TZ
+    // trap): the daily cron fires ~22:13 PDT = ~01:13 EDT, so the server clock is
+    // already a day ahead — CURDATE() would drop a bill due *today* (app TZ) and
+    // alert tomorrow's a day early. The bill-reminder dedup key (lib/spend_alerts.php)
+    // is this same app-TZ due-date, so both sides share one clock. (Session 28.)
+    $from = date('Y-m-d');
+    $to   = date('Y-m-d', strtotime('+' . max(0, $days) . ' days'));
     $st = $pdo->prepare(
-        "SELECT " . ACCT_NAME . " AS account_name, a.mask, l.liability_type,
+        "SELECT a.account_id, " . ACCT_NAME . " AS account_name, a.mask, l.liability_type,
                 l.minimum_payment_amount, l.next_payment_due_date
          FROM liabilities l
          JOIN accounts a ON l.account_id = a.account_id
          WHERE a.visibility <> 'hidden'
            AND l.next_payment_due_date IS NOT NULL
-           AND l.next_payment_due_date >= CURDATE()
-           AND l.next_payment_due_date <= (CURDATE() + INTERVAL :d DAY)
+           AND l.next_payment_due_date >= :from
+           AND l.next_payment_due_date <= :to
          ORDER BY l.next_payment_due_date ASC"
     );
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->bindValue(':from', $from);
+    $st->bindValue(':to', $to);
     $st->execute();
     return $st->fetchAll();
+}
+
+/**
+ * Household per-category spending this month vs. its 3-prior-month average (TODO #16
+ * unusual-spend alert). Both sides are **month-to-date** — capped to today's
+ * day-of-month via a `SUM(CASE WHEN DAY(t.date) <= :dom …)` aggregate, the same
+ * technique as q_spending_trend's deltas — so a partial current month compares
+ * like-for-like against full prior months (else it always looks low early in the month).
+ *
+ * HOUSEHOLD-WIDE (no VIS / :uid, excludes only `hidden`, like q_digest_spending) and
+ * reuses q_cashflow's true-expense filters (outflows only; excludes pending, ext_source,
+ * internal transfers and credit-card payments) so the figures tie to Cash-flow / Trends.
+ * The 4-month window (current + 3 prior) is anchored in PHP and bound as a start date.
+ *
+ * Returns [['category'=>CAT,'this'=>float,'avg3'=>float], …] for every category with
+ * any spend in the window (desc by `this`); the caller (lib/spend_alerts.php) applies
+ * the 2× multiplier + minimum-dollar floor.
+ */
+function q_spend_anomalies(PDO $pdo): array
+{
+    $first = new DateTimeImmutable('first day of this month');
+    $start = $first->sub(new DateInterval('P3M'))->format('Y-m-01');   // 3 prior months + current
+    $dom   = (int)(new DateTimeImmutable('today'))->format('j');       // today's day-of-month
+
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
+                COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
+                SUM(CASE WHEN DAY(t.date) <= :dom THEN t.amount ELSE 0 END) AS mtd
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         WHERE a.visibility <> 'hidden'
+           AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start
+         GROUP BY ym, category"
+    );
+    $st->bindValue(':start', $start);
+    $st->bindValue(':dom', $dom, PDO::PARAM_INT);
+    $st->execute();
+
+    // mtd[ym][CAT] = same-day-of-month total for that month.
+    $mtd = [];
+    foreach ($st->fetchAll() as $r) {
+        $mtd[$r['ym']][$r['category']] = (float)$r['mtd'];
+    }
+
+    $cur  = $first->format('Y-m');
+    $prev = [];
+    for ($i = 1; $i <= 3; $i++) $prev[] = $first->sub(new DateInterval('P' . $i . 'M'))->format('Y-m');
+
+    // Union of every category seen in the window.
+    $cats = [];
+    foreach ($mtd as $row) foreach ($row as $c => $_) $cats[$c] = true;
+
+    $out = [];
+    foreach (array_keys($cats) as $cat) {
+        $this_ = (float)($mtd[$cur][$cat] ?? 0.0);
+        $avg3  = 0.0;
+        foreach ($prev as $pm) $avg3 += (float)($mtd[$pm][$cat] ?? 0.0);
+        $avg3 /= 3;
+        if ($this_ <= 0) continue;   // nothing spent this month → not a candidate
+        $out[] = ['category' => $cat, 'this' => round($this_, 2), 'avg3' => round($avg3, 2)];
+    }
+    usort($out, fn($a, $b) => $b['this'] <=> $a['this']);
+    return $out;
 }
 
 /**
@@ -858,6 +934,14 @@ function q_budgets(PDO $pdo): array
          JOIN accounts a ON t.account_id = a.account_id
          WHERE t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND a.visibility <> 'hidden'
+           -- Same true-expense exclusions as q_cashflow / q_spending_trend /
+           -- q_digest_spending / q_spend_anomalies: internal transfers and
+           -- credit-card payments must not inflate a category's budget spend
+           -- (Session 28 — else a budget on a transfer/CC-payment category would
+           -- over-count and fire a false budget-exceeded alert). 3-arg COALESCE so
+           -- a NULL category isn't dropped by `NULL NOT IN (...)`.
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND DATE_FORMAT(t.date, '%Y-%m') = :m
          GROUP BY category"
     );

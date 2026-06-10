@@ -128,7 +128,7 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
 
         <label class="alert-row">
             <span class="alert-label">Budget exceeded
-                <span class="muted alert-sub">When a category nears its budget · takes effect when budget alerts ship</span></span>
+                <span class="muted alert-sub">Email when a budgeted category passes the % below this month (once per category)</span></span>
             <input type="checkbox" class="switch" data-alert="budget_alert_enabled"<?= $alerts['budget_alert_enabled'] ? ' checked' : '' ?>>
         </label>
         <div class="alert-row sub">
@@ -140,13 +140,13 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
 
         <label class="alert-row">
             <span class="alert-label">Unusual spending
-                <span class="muted alert-sub">When a category is 2× its 3-month average · takes effect when budget alerts ship</span></span>
+                <span class="muted alert-sub">Email when a category's spend so far this month is 2× its 3-month average</span></span>
             <input type="checkbox" class="switch" data-alert="unusual_spend_enabled"<?= $alerts['unusual_spend_enabled'] ? ' checked' : '' ?>>
         </label>
 
         <label class="alert-row">
             <span class="alert-label">Bill reminders
-                <span class="muted alert-sub">Upcoming bills · takes effect when reminders ship</span></span>
+                <span class="muted alert-sub">Email when a bill is due within the days below (once per due date)</span></span>
             <input type="checkbox" class="switch" data-alert="bill_reminder_enabled"<?= $alerts['bill_reminder_enabled'] ? ' checked' : '' ?>>
         </label>
         <div class="alert-row sub">

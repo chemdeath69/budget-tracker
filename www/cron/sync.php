@@ -23,6 +23,7 @@ require __DIR__ . '/../lib/sync.php';
 require __DIR__ . '/../lib/prices.php';
 require __DIR__ . '/../lib/home_value.php';
 require __DIR__ . '/../lib/digest.php';
+require __DIR__ . '/../lib/spend_alerts.php';
 
 $pdo = db();
 // Only Plaid items have a live feed to sync. Manual (source='manual') items are
@@ -110,4 +111,15 @@ try {
     maybe_send_weekly_digest($pdo);
 } catch (Throwable $e) {
     echo '[' . date('Y-m-d H:i:s T') . '] digest: FAILED — ' . $e->getMessage() . "\n";
+}
+
+// Spending alerts (TODO #16) — budget-exceeded / unusual-spend / bill reminders.
+// Runs daily (the alert_log table dedups so a crossing emails at most once per
+// occurrence), gated on alert_settings. Runs last like the digest, summarising the
+// data this run just refreshed. All day/period logic is PHP app-TZ (see
+// lib/spend_alerts.php). Wrapped in try/catch per the Session 22 resilience contract.
+try {
+    maybe_send_spend_alerts($pdo);
+} catch (Throwable $e) {
+    echo '[' . date('Y-m-d H:i:s T') . '] spend-alerts: FAILED — ' . $e->getMessage() . "\n";
 }
