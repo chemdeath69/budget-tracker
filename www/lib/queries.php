@@ -597,7 +597,8 @@ function q_liabilities(PDO $pdo, int $uid, ?string $accountId = null): array
     $st = $pdo->prepare(
         "SELECT l.liability_type, l.apr_percentage, l.outstanding_balance, l.last_payment_amount,
                 l.last_payment_date, l.next_payment_due_date, l.minimum_payment_amount,
-                " . ACCT_NAME . " AS account_name, a.mask, a.balance_current, a.account_id
+                " . ACCT_NAME . " AS account_name, a.mask, a.balance_current, a.account_id,
+                i.user_id AS owner_id
          FROM liabilities l
          JOIN accounts a ON l.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id

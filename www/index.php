@@ -19,6 +19,12 @@ $home     = q_home_equity($pdo, $accounts);
 $ret      = q_retirement_summary($pdo, $uid); // combined 401(k) total (0 accounts = hidden)
 $cf6      = q_cashflow($pdo, $uid, 6);         // compact cash-flow teaser (last 6 months)
 $cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null; // savings rate
+// Upcoming bills teaser (next 14 days) — liabilities + projected recurring (TODO #4).
+require_once __DIR__ . '/lib/bills.php';
+$billsSoon  = bill_occurrences(q_liabilities($pdo, $uid), q_recurring($pdo, $uid),
+                               new DateTimeImmutable('today'), (new DateTimeImmutable('today'))->add(new DateInterval('P14D')));
+$billsTotal = 0.0;
+foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 $lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
@@ -173,6 +179,39 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                 <span class="neg"><?= e(usd($cf6['expense'])) ?> out</span>
             </div>
         </a>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($billsSoon): ?>
+    <!-- Upcoming bills teaser (next 14 days) → full bills.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Upcoming bills</h2>
+            <a class="block-link" href="/bills.php">Next 14 days ›</a>
+        </div>
+        <div class="card">
+            <div class="spend-total">
+                <span class="spend-amt"><?= e(usd($billsTotal)) ?></span>
+                <span class="muted">due · <?= count($billsSoon) ?> bill<?= count($billsSoon) === 1 ? '' : 's' ?> in 14 days</span>
+            </div>
+            <div class="rows">
+                <?php foreach (array_slice($billsSoon, 0, 4) as $b): ?>
+                <a class="row bill-row" href="/account.php?account_id=<?= e($b['account_id']) ?>">
+                    <span class="row-main">
+                        <span class="row-title"><?= e($b['label']) ?><?= owner_suffix($b['owner_id']) ?></span>
+                        <span class="row-sub">
+                            <span class="bill-kind bill-kind-<?= $b['source'] ?>"><?= e($b['kind']) ?></span>
+                            <?= e((new DateTimeImmutable($b['date']))->format('D, M j')) ?>
+                        </span>
+                    </span>
+                    <span class="row-amt"><?= $b['amount'] === null ? '—' : e(usd($b['amount'])) ?></span>
+                </a>
+                <?php endforeach; ?>
+            </div>
+            <?php if (count($billsSoon) > 4): ?>
+            <a class="block-link bills-more" href="/bills.php">+<?= count($billsSoon) - 4 ?> more ›</a>
+            <?php endif; ?>
+        </div>
     </section>
     <?php endif; ?>
 

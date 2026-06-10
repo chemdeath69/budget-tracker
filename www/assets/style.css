@@ -546,3 +546,34 @@ a.cat-row:hover { background: var(--surface-2); }
     align-items: start;
   }
 }
+
+/* ── Upcoming bills / payment calendar (TODO #4) ─────────────────────────── */
+.cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-nav h2 { margin: 0; text-align: center; }
+.cal-nav .btn-ghost { min-width: 40px; font-size: 1.3rem; line-height: 1; }
+.cal-today-link { margin: 4px 0 0; text-align: center; font-size: .85rem; }
+
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 12px; }
+.cal-head { text-align: center; color: var(--muted); font-size: .7rem; font-weight: 650;
+            text-transform: uppercase; letter-spacing: .03em; padding-bottom: 2px; }
+.cal-cell { position: relative; min-height: 52px; border: 1px solid var(--line); border-radius: var(--r-sm);
+            background: var(--surface-2); padding: 4px 5px; display: flex; flex-direction: column; gap: 4px; }
+.cal-blank { background: transparent; border-color: transparent; min-height: 0; }
+.cal-day { font-size: .78rem; font-weight: 600; color: var(--ink-2); }
+.cal-past { opacity: .5; }
+.cal-today { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.cal-today .cal-day { color: var(--brand); font-weight: 750; }
+.cal-dots { display: flex; flex-wrap: wrap; gap: 3px; margin-top: auto; }
+.cal-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.cal-dot-liability { background: var(--brand); }
+.cal-dot-recurring { background: var(--warn-ink); }
+.cal-legend { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: .8rem; }
+.cal-legend .cal-dot { vertical-align: middle; }
+
+.bill-day-group { margin-bottom: 14px; }
+.bill-day-head { font-size: .8rem; font-weight: 650; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: .04em; margin: 0 4px 6px; }
+.bill-kind { font-size: .72rem; font-weight: 650; padding: 1px 7px; border-radius: var(--r-pill); }
+.bill-kind-liability { color: var(--brand); background: var(--brand-weak); }
+.bill-kind-recurring { color: var(--warn-ink); background: var(--warn-bg); }
+.bills-more { display: inline-block; margin-top: 8px; }
