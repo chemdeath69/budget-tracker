@@ -350,6 +350,65 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
     return $st->fetchAll();
 }
 
+/**
+ * Top merchants by true spend over the last $days days (#5 leaderboard). VIS-scoped per
+ * viewing user (mirrors q_spending). Reuses the EXACT true-expense filter set + split
+ * consts every spend aggregation uses (so a transfer/CC-payment/split-to-transfer can't
+ * inflate a merchant): SUM(EFF_AMT) over the SPLIT_JOIN explosion. Groups by the explicit
+ * merchant display expression (NOT a bare alias — the S30 group-by-alias trap), using the
+ * raw `name` when Plaid gave no enriched merchant_name so no spend is lost. Returns
+ * [{merchant,total,n,logo_url}] (n = distinct txns; logo_url = MAX, ~constant per payee).
+ * Binds :uid (in VIS) once + :d once (RULE_CAT subquery has no binds) → HY093-safe.
+ */
+function q_top_merchants(PDO $pdo, int $uid, int $days = 90, int $limit = 20): array
+{
+    $limit = max(1, min(100, $limit));
+    $st = $pdo->prepare(
+        "SELECT COALESCE(NULLIF(t.merchant_name, ''), t.name) AS merchant,
+                SUM(" . EFF_AMT . ") AS total,
+                COUNT(DISTINCT t.transaction_id) AS n,
+                MAX(t.logo_url) AS logo_url
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND COALESCE(NULLIF(t.merchant_name, ''), t.name) IS NOT NULL
+           AND COALESCE(NULLIF(t.merchant_name, ''), t.name) <> ''
+         GROUP BY COALESCE(NULLIF(t.merchant_name, ''), t.name)
+         ORDER BY total DESC
+         LIMIT " . $limit
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->execute();
+    return $st->fetchAll();
+}
+
+/**
+ * Best-effort merchant_name → logo_url lookup, keyed by LOWERCASED merchant_name (#5).
+ * recurring_streams has no logo_url column, so the Recurring page reuses the logos Plaid
+ * stored on transactions. NOT VIS-scoped — a logo URL is non-sensitive (like all_tags()).
+ */
+function merchant_logo_map(PDO $pdo): array
+{
+    $rows = $pdo->query(
+        "SELECT merchant_name, MAX(logo_url) AS logo_url
+         FROM transactions
+         WHERE logo_url IS NOT NULL AND logo_url <> ''
+           AND merchant_name IS NOT NULL AND merchant_name <> ''
+         GROUP BY merchant_name"
+    )->fetchAll();
+    $map = [];
+    foreach ($rows as $r) {
+        $map[strtolower($r['merchant_name'])] = $r['logo_url'];
+    }
+    return $map;
+}
+
 /** Total outflow over the last $days days (for headline figures). */
 function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 {
@@ -739,6 +798,14 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
                             WHERE tt.transaction_id = t.transaction_id AND tg.name = :tag)";
         $params[':tag'] = normalize_tag((string)$opts['tag']);
     }
+    if (!empty($opts['merchant'])) {
+        // Exact merchant match — the #5 "Top merchants" leaderboard click-through. Match
+        // the SAME display expression the leaderboard groups by (merchant_name, else the
+        // raw name) so the drill-through resolves a payee that has no enriched
+        // merchant_name. Single placeholder → HY093-safe.
+        $where[] = "COALESCE(NULLIF(t.merchant_name, ''), t.name) = :merch";
+        $params[':merch'] = (string)$opts['merchant'];
+    }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
     if (!empty($opts['q'])) {
@@ -754,7 +821,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
-    $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending, t.note,
+    $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.logo_url, t.amount, t.pending, t.note,
                    COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary) AS category,
                    " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
             FROM transactions t

@@ -353,7 +353,7 @@ render_header($acct['name'] ?: 'Account', '', [
             $amt = (float)$t['amount']; ?>
         <div class="row tx-row">
             <span class="row-main">
-                <span class="row-title"><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
+                <span class="row-title"><?php if (!empty($t['logo_url'])): ?><img class="merchant-logo" src="<?= e($t['logo_url']) ?>" alt="" loading="lazy"><?php endif; ?><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                 <span class="row-sub">
                     <span class="tx-date"><?= e($t['date']) ?></span>
                     <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>

@@ -18,13 +18,15 @@ $page  = page_num();
 $fAcct = trim((string)($_GET['account_id'] ?? ''));
 $fCat  = trim((string)($_GET['category'] ?? ''));
 $fTag  = trim((string)($_GET['tag'] ?? ''));
-$fFrom = trim((string)($_GET['from'] ?? ''));
-$fTo   = trim((string)($_GET['to'] ?? ''));
-$fQ    = trim((string)($_GET['q'] ?? ''));
+$fFrom  = trim((string)($_GET['from'] ?? ''));
+$fTo    = trim((string)($_GET['to'] ?? ''));
+$fQ     = trim((string)($_GET['q'] ?? ''));
+$fMerch = trim((string)($_GET['merchant'] ?? ''));   // exact-merchant filter (#5 leaderboard click-through)
 $filters = array_filter([
     'account_id' => $fAcct,
     'category'   => $fCat,
     'tag'        => $fTag,
+    'merchant'   => $fMerch,
     'from'       => $fFrom,
     'to'         => $fTo,
     'q'          => $fQ,
@@ -76,6 +78,17 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
     </div>
 </form>
 
+<?php if ($fMerch !== ''):
+    // Merchant filter has no <select> in the bar (too many payees) — surface it as a removable
+    // pill. The "remove" link keeps every OTHER active filter, dropping only `merchant`.
+    $without = $filters; unset($without['merchant']);
+    $clearHref = '/transactions.php' . ($without ? '?' . http_build_query($without) : ''); ?>
+    <div class="active-filters">
+        <span class="filter-pill">Merchant: <strong><?= e($fMerch) ?></strong>
+            <a href="<?= e($clearHref) ?>" aria-label="Remove merchant filter">✕</a></span>
+    </div>
+<?php endif; ?>
+
 <?php if (!$txns): ?>
     <?php if ($hasFilters): ?>
         <div class="empty-state card">
@@ -105,7 +118,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
             <?php endif; ?>
             <div class="row tx-row">
                 <span class="row-main">
-                    <span class="row-title"><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
+                    <span class="row-title"><?php if (!empty($t['logo_url'])): ?><img class="merchant-logo" src="<?= e($t['logo_url']) ?>" alt="" loading="lazy"><?php endif; ?><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                     <span class="row-sub">
                         <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
                         <span class="muted">· <?= e($acctLabel) ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>

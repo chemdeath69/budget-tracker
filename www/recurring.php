@@ -9,22 +9,26 @@ require_login();
 $pdo = db();
 $uid = current_user_id();
 $rows = q_recurring($pdo, $uid);
+// recurring_streams has no logo_url — reuse the logos Plaid stored on transactions, matched
+// best-effort by merchant name (#5). Keyed lowercase by merchant_logo_map().
+$logos = merchant_logo_map($pdo);
 
 $out = array_filter($rows, fn($r) => $r['direction'] !== 'inflow');
 $in  = array_filter($rows, fn($r) => $r['direction'] === 'inflow');
 
 render_header('Recurring', 'recurring');
 
-function recurring_rows(array $rows): void
+function recurring_rows(array $rows, array $logos): void
 {
     foreach ($rows as $r):
         $amt = abs((float)$r['average_amount']);
         $inflow = $r['direction'] === 'inflow';
         $acct = ($r['account_name'] ?: '') . ($r['mask'] ? ' ••' . $r['mask'] : '');
-        $hay  = strtolower(($r['merchant_name'] ?: ($r['description'] ?: '')) . ' ' . pretty_cat($r['category_primary'] ?: '') . ' ' . $acct); ?>
+        $hay  = strtolower(($r['merchant_name'] ?: ($r['description'] ?: '')) . ' ' . pretty_cat($r['category_primary'] ?: '') . ' ' . $acct);
+        $logo = $r['merchant_name'] ? ($logos[strtolower($r['merchant_name'])] ?? '') : ''; ?>
         <div class="row" data-search="<?= e($hay) ?>">
             <span class="row-main">
-                <span class="row-title"><?= e($r['merchant_name'] ?: ($r['description'] ?: '—')) ?></span>
+                <span class="row-title"><?php if ($logo): ?><img class="merchant-logo" src="<?= e($logo) ?>" alt="" loading="lazy"><?php endif; ?><?= e($r['merchant_name'] ?: ($r['description'] ?: '—')) ?></span>
                 <span class="row-sub">
                     <?= e(pretty_cat($r['frequency'] ?: '')) ?>
                     <?php if ($r['category_primary']): ?>· <?= e(pretty_cat($r['category_primary'])) ?><?php endif; ?>
@@ -53,14 +57,14 @@ function recurring_rows(array $rows): void
     <?php if ($out): ?>
     <section class="block" data-filter-group>
         <div class="block-head"><h2>Subscriptions &amp; bills</h2><span class="count-pill"><?= count($out) ?></span></div>
-        <div class="rows card"><?php recurring_rows($out); ?></div>
+        <div class="rows card"><?php recurring_rows($out, $logos); ?></div>
     </section>
     <?php endif; ?>
 
     <?php if ($in): ?>
     <section class="block" data-filter-group>
         <div class="block-head"><h2>Recurring income</h2><span class="count-pill"><?= count($in) ?></span></div>
-        <div class="rows card"><?php recurring_rows($in); ?></div>
+        <div class="rows card"><?php recurring_rows($in, $logos); ?></div>
     </section>
     <?php endif; ?>
     </div><!-- /.cols -->

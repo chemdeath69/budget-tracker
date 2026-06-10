@@ -21,12 +21,19 @@ $q    = trim((string)($_GET['q'] ?? ''));
 $acct = trim((string)($_GET['account_id'] ?? ''));
 $cat  = trim((string)($_GET['category'] ?? ''));
 $tag  = trim((string)($_GET['tag'] ?? ''));
+$merch = trim((string)($_GET['merchant'] ?? ''));
 
 $where = ['(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))'];
 $params = [':uid' => $uid];
 if ($from) { $where[] = 't.date >= :from'; $params[':from'] = $from; }
 if ($to)   { $where[] = 't.date <= :to';   $params[':to']   = $to; }
 if ($acct !== '') { $where[] = 't.account_id = :acct'; $params[':acct'] = $acct; }
+if ($merch !== '') {
+    // Exact merchant match (#5) — same display expression q_transactions' `merchant` opt uses,
+    // so a CSV from a merchant-filtered view (the leaderboard click-through) matches the page.
+    $where[] = "COALESCE(NULLIF(t.merchant_name, ''), t.name) = :merch";
+    $params[':merch'] = $merch;
+}
 if ($cat !== '') {
     // 3-arg COALESCE mirrors q_transactions so an UNCATEGORIZED click-through matches;
     // RULE_CAT (#10) keeps a rule-driven category filterable; also match a SPLIT
