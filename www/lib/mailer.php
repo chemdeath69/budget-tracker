@@ -1,6 +1,18 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Build the `[Budget Tracker] …` mail Subject: CR/LF-stripped (header-injection
+ * hardening) and RFC 2047 encoded so any non-ASCII (the digest's em/en-dashes, a
+ * future merchant/account name in an alert) reaches the inbox as a proper
+ * encoded-word instead of raw 8-bit mojibake. mbstring is present on this host.
+ */
+function mail_subject(string $subject): string
+{
+    $subject = '[Budget Tracker] ' . str_replace(["\r", "\n"], '', $subject);
+    return mb_encode_mimeheader($subject, 'UTF-8', 'B', "\r\n");
+}
+
 /** Send a plain-text alert email to the configured recipients. Best-effort. */
 function send_alert(string $subject, string $body): void
 {
@@ -10,8 +22,43 @@ function send_alert(string $subject, string $body): void
     $from = $CONFIG['alerts']['from'] ?? 'budget@example.com';
 
     $headers = "From: Budget Tracker <$from>\r\n"
-             . "Content-Type: text/plain; charset=UTF-8\r\n";
-    @mail($to, '[Budget Tracker] ' . $subject, $body, $headers);
+             . "MIME-Version: 1.0\r\n"
+             . "Content-Type: text/plain; charset=UTF-8\r\n"
+             . "Content-Transfer-Encoding: 8bit\r\n";   // bodies may carry UTF-8 (names, symbols)
+    @mail($to, mail_subject($subject), $body, $headers);
+}
+
+/**
+ * Send a multipart (plain-text + HTML) email to the configured alert recipients.
+ * Best-effort. Used by the weekly digest (TODO #15) — event alerts keep using the
+ * plain-text send_alert() above. Same recipients/from transport from config['alerts'].
+ * Subject is CR/LF-stripped + RFC 2047 encoded via mail_subject(); each MIME part
+ * declares Content-Transfer-Encoding: 8bit since the bodies carry raw UTF-8.
+ */
+function send_html_alert(string $subject, string $html, string $text): void
+{
+    global $CONFIG;
+    $to = implode(', ', $CONFIG['alerts']['recipients'] ?? []);
+    if ($to === '') return;
+    $from = $CONFIG['alerts']['from'] ?? 'budget@example.com';
+
+    $boundary = 'bt_' . bin2hex(random_bytes(8));
+
+    $headers = "From: Budget Tracker <$from>\r\n"
+             . "MIME-Version: 1.0\r\n"
+             . "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
+
+    $body = "--$boundary\r\n"
+          . "Content-Type: text/plain; charset=UTF-8\r\n"
+          . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+          . $text . "\r\n\r\n"
+          . "--$boundary\r\n"
+          . "Content-Type: text/html; charset=UTF-8\r\n"
+          . "Content-Transfer-Encoding: 8bit\r\n\r\n"
+          . $html . "\r\n\r\n"
+          . "--$boundary--\r\n";
+
+    @mail($to, mail_subject($subject), $body, $headers);
 }
 
 /**

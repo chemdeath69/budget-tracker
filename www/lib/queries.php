@@ -287,6 +287,68 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 }
 
 /**
+ * Household weekly-digest spending (TODO #15) — total true outflow + by-category,
+ * over the last $days days. Deliberately HOUSEHOLD-WIDE: no VIS / :uid (the digest
+ * is the joint household summary, like write_networth_snapshot()), so it aggregates
+ * BOTH users' shared + private accounts; only `hidden` accounts are excluded
+ * (registered nowhere). Uses q_cashflow's true-expense filters (outflows only;
+ * excludes pending, ext_source, internal transfers and credit-card payments) so the
+ * headline ties to the Cash-flow / Spending-trends figures, not the raw outflow sum.
+ * No `items` join needed (no :uid) — `accounts.visibility` carries the only filter.
+ *
+ * Returns ['total'=>float, 'cats'=>[['category'=>CAT,'total'=>float],…] desc by total].
+ */
+function q_digest_spending(PDO $pdo, int $days = 7): array
+{
+    $st = $pdo->prepare(
+        "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
+                SUM(t.amount) AS total
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         WHERE a.visibility <> 'hidden'
+           AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+         GROUP BY category
+         ORDER BY total DESC"
+    );
+    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->execute();
+    $cats  = $st->fetchAll();
+    $total = 0.0;
+    foreach ($cats as $c) { $total += (float)$c['total']; }
+    return ['total' => round($total, 2), 'cats' => $cats];
+}
+
+/**
+ * Household upcoming bills (TODO #15 digest) — liabilities whose next payment is
+ * due within the next $days days, soonest first. HOUSEHOLD-WIDE (no VIS), excludes
+ * hidden. A lightweight read-only derive for the digest; the full bills / payment
+ * calendar is the separate TODO #4.
+ *
+ * Returns [['account_name','mask','liability_type','minimum_payment_amount',
+ *           'next_payment_due_date'], …] ordered by due date.
+ */
+function q_digest_upcoming_bills(PDO $pdo, int $days = 14): array
+{
+    $st = $pdo->prepare(
+        "SELECT " . ACCT_NAME . " AS account_name, a.mask, l.liability_type,
+                l.minimum_payment_amount, l.next_payment_due_date
+         FROM liabilities l
+         JOIN accounts a ON l.account_id = a.account_id
+         WHERE a.visibility <> 'hidden'
+           AND l.next_payment_due_date IS NOT NULL
+           AND l.next_payment_due_date >= CURDATE()
+           AND l.next_payment_due_date <= (CURDATE() + INTERVAL :d DAY)
+         ORDER BY l.next_payment_due_date ASC"
+    );
+    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->execute();
+    return $st->fetchAll();
+}
+
+/**
  * Monthly cash flow over the last $months calendar months (oldest→newest),
  * gap-filled so every month renders even with no activity. Income = money in
  * (Plaid amount < 0), expense = money out (amount > 0), net = income − expense.

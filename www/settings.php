@@ -122,7 +122,7 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
 
         <label class="alert-row">
             <span class="alert-label">Weekly digest
-                <span class="muted alert-sub">Sunday summary · takes effect when the digest ships</span></span>
+                <span class="muted alert-sub">Sunday-night summary email — net worth, spending &amp; upcoming bills</span></span>
             <input type="checkbox" class="switch" data-alert="digest_enabled"<?= $alerts['digest_enabled'] ? ' checked' : '' ?>>
         </label>
 

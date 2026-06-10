@@ -487,6 +487,7 @@ CREATE TABLE alert_settings (
   bill_reminder_enabled    TINYINT(1)    NOT NULL DEFAULT 0,   -- #4/#16
   bill_reminder_days       TINYINT UNSIGNED NOT NULL DEFAULT 5,
   digest_enabled           TINYINT(1)    NOT NULL DEFAULT 0,   -- #15 weekly digest
+  digest_sent_on           DATE          NULL,                 -- #15 last digest emailed on (PHP app-TZ date; double-send guard)
   updated_by               INT UNSIGNED  NULL,
   updated_at               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)

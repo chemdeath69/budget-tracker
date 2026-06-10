@@ -22,6 +22,7 @@ require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/sync.php';
 require __DIR__ . '/../lib/prices.php';
 require __DIR__ . '/../lib/home_value.php';
+require __DIR__ . '/../lib/digest.php';
 
 $pdo = db();
 // Only Plaid items have a live feed to sync. Manual (source='manual') items are
@@ -97,4 +98,16 @@ if ($homeAddr !== '') {
     echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): "
        . ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
        . " — quota {$u['used']}/{$u['cap']} this month\n";
+}
+
+// Weekly email digest (TODO #15) — only actually sends on Sunday (app TZ) or as a
+// catch-up after a missed Sunday, and only when alert_settings.digest_enabled is on.
+// Runs last, so it summarises the data this run just refreshed. All day/idempotency
+// logic is in PHP app-TZ (NOT MySQL CURDATE()) — see lib/digest.php. Wrapped in
+// try/catch to match the cron's per-step resilience contract (Session 22) so a
+// transient DB error here logs one line instead of dumping a stack trace.
+try {
+    maybe_send_weekly_digest($pdo);
+} catch (Throwable $e) {
+    echo '[' . date('Y-m-d H:i:s T') . '] digest: FAILED — ' . $e->getMessage() . "\n";
 }
