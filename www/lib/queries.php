@@ -329,6 +329,114 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
     ];
 }
 
+/**
+ * Net-worth COMPOSITION over time (#6) — how the asset/debt MIX shifted, not just the
+ * single net-worth line. Derived at READ time from account_balance_history (one row per
+ * account per day, written by the nightly cron for every non-hidden account), bucketed by
+ * account_group() into 5 bands, with the estimated home value layered on per date.
+ *
+ * Deliberately HOUSEHOLD-WIDE (NOT VIS-scoped), excluding only 'hidden' — it decomposes the
+ * household net-worth LINE (q_networth / balance_snapshots), which is itself household-wide,
+ * so the bands sum (per date) to that line. Both ABH and balance_snapshots are written in the
+ * SAME cron step from the same accounts.balance_current with the same `visibility <> 'hidden'`
+ * filter, so they reconcile to the penny. Single :from bind → HY093-safe; the window is a PHP
+ * app-TZ date, never MySQL CURDATE() (the S24 PDT-vs-EDT trap).
+ *
+ * ⚠️ RECONCILE GATE: a date is emitted ONLY if it has a balance_snapshots row AND its financial-
+ * account net matches that snapshot within $1. Early ABH history is incomplete — manual 401(k)
+ * statement-entry rows carry historical snapshot_dates with no peer accounts (no balance_snapshots
+ * row), and the days before the cron began recording every account undercount net worth. The gate
+ * drops exactly those, guaranteeing the composition's net ALWAYS equals the net-worth line above,
+ * and never drops a good date (from the day ABH stabilised on, both come from the same cron source).
+ * So the composition span can be SHORTER than the net-worth line — that's intended, not a bug.
+ *
+ * Bands (display/stack order): Cash (checking+savings+other-deposit) · Investments · Retirement ·
+ * Home (asset, layered from the valuation timeline) · Debt (credit+loans, returned NEGATIVE so the
+ * stack nets to net worth). A band that's flat-zero across the whole window is dropped (no home /
+ * no retirement account ⇒ no empty legend entry).
+ *
+ * Returns ['labels'=>[date…], 'series'=>[['label'=>…,'values'=>[…]]…],
+ *          'current'=>['Cash'=>…, …, 'net'=>…], 'net'=>[per-date sum]].
+ */
+function q_networth_composition(PDO $pdo, int $days = 365): array
+{
+    $from = date('Y-m-d', strtotime("-{$days} days"));   // app-TZ window; one bind → HY093-safe
+    // account_group() needs type/subtype/retirement_flag/manual_type (the retirement classifier).
+    $st = $pdo->prepare(
+        "SELECT abh.snapshot_date, abh.balance,
+                a.type, a.subtype, a.retirement_flag, i.manual_type
+         FROM account_balance_history abh
+         JOIN accounts a ON a.account_id = abh.account_id
+         JOIN items i ON i.item_id = a.item_id
+         WHERE a.visibility <> 'hidden' AND abh.snapshot_date >= :from
+         ORDER BY abh.snapshot_date ASC"
+    );
+    $st->execute([':from' => $from]);
+    $rows = $st->fetchAll();
+
+    // ACCOUNT_GROUPS bucket → one of the 5 composition bands. 'other' (unknown type) reads as
+    // an asset, exactly as write_networth_snapshot()'s else-branch treats it, so the sum still
+    // reconciles to the net-worth line.
+    $bandOf = static function (array $a): string {
+        switch (account_group($a)) {
+            case 'checking':
+            case 'savings':     return 'Cash';
+            case 'investments': return 'Investments';
+            case 'retirement':  return 'Retirement';
+            case 'credit':
+            case 'loans':       return 'Debt';
+            default:            return 'Cash';
+        }
+    };
+
+    // Accumulate per (date, band). Debt is summed positive here, negated at emit.
+    $byDate = [];   // 'YYYY-MM-DD' => [band => total]
+    foreach ($rows as $r) {
+        $d = (string)$r['snapshot_date'];
+        $byDate[$d][$bandOf($r)] = ($byDate[$d][$bandOf($r)] ?? 0.0) + (float)$r['balance'];
+    }
+
+    // Household net-worth line per date (financial accounts only — no home), for the reconcile gate.
+    $bs = [];
+    foreach ($pdo->query("SELECT snapshot_date, net_worth FROM balance_snapshots")->fetchAll() as $r) {
+        $bs[(string)$r['snapshot_date']] = (float)$r['net_worth'];
+    }
+
+    $tl     = nw_home_timeline($pdo);            // home value timeline (ABH stores accounts only)
+    $bands  = ['Cash', 'Investments', 'Retirement', 'Home', 'Debt'];
+    $series = array_fill_keys($bands, []);
+    $labels = [];
+    $net    = [];
+    foreach (array_keys($byDate) as $d) {        // already date-ascending from the ORDER BY
+        $cash = round((float)($byDate[$d]['Cash'] ?? 0.0), 2);
+        $inv  = round((float)($byDate[$d]['Investments'] ?? 0.0), 2);
+        $ret  = round((float)($byDate[$d]['Retirement'] ?? 0.0), 2);
+        $debt = round((float)($byDate[$d]['Debt'] ?? 0.0), 2);   // positive here
+        // Reconcile gate: skip a date with no household snapshot, or whose financial-account
+        // net doesn't match it (incomplete ABH that day). $1 tolerance covers cent rounding.
+        if (!isset($bs[$d]) || abs(($cash + $inv + $ret - $debt) - $bs[$d]) > 1.0) continue;
+
+        $vals = ['Cash' => $cash, 'Investments' => $inv, 'Retirement' => $ret,
+                 'Home' => round(nw_home_at($tl, $d), 2), 'Debt' => -$debt];  // debt below zero
+        $labels[] = $d;
+        $n = 0.0;
+        foreach ($bands as $b) { $series[$b][] = $vals[$b]; $n += $vals[$b]; }
+        $net[] = round($n, 2);
+    }
+
+    // Latest column (for the current-mix breakdown) + drop all-zero bands.
+    $current = ['net' => $labels ? end($net) : 0.0];
+    $out = [];
+    foreach ($bands as $b) {
+        $current[$b] = $labels ? end($series[$b]) : 0.0;
+        foreach ($series[$b] as $v) {
+            if (abs($v) > 0.005) { $out[] = ['label' => $b, 'values' => $series[$b]]; break; }
+        }
+    }
+
+    return ['labels' => $labels, 'series' => $out, 'current' => $current, 'net' => $net];
+}
+
 /** Spending by category over the last $days days (outflows only). */
 function q_spending(PDO $pdo, int $uid, int $days = 30): array
 {

@@ -328,6 +328,17 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .chart-wrap canvas { max-height: 100%; }
 .chart-cap { font-size: .8rem; margin-top: 8px; }
 
+/* ---- Net-worth composition (#6) ---------------------------------------- */
+.head-form { margin: 0; }
+.head-form .select { padding: 5px 9px; font-size: .82rem; }
+.comp-mix { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.comp-row { display: grid; grid-template-columns: 1fr auto 48px; align-items: baseline; gap: 10px; padding: 7px 2px; border-top: 1px solid var(--line); }
+.comp-row:first-child { border-top: 0; }
+.comp-label { font-weight: 600; }
+.comp-amt { font-variant-numeric: tabular-nums; text-align: right; }
+.comp-amt.neg { color: var(--neg); }
+.comp-pct { font-variant-numeric: tabular-nums; text-align: right; font-size: .85rem; }
+
 /* ---- Economic page (#17) ----------------------------------------------- */
 .refi-card .refi-note { margin: 12px 0 0; font-size: .9rem; line-height: 1.45; }
 .refi-note.pos { color: var(--pos); }

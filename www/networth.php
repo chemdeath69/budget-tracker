@@ -26,6 +26,14 @@ if ($realVals !== null && ($change['date'] ?? null) !== null) {
     $realChange = fred_real_change($pdo, $stats['net_worth'], (float)$change['from'], (string)$change['date']);
 }
 
+// Net-worth composition over time (#6): how the cash/investments/retirement/home/debt mix
+// shifted. Derived at read time from account_balance_history (household-wide; sums to the
+// net-worth line above). Window selector (6/12/24 mo) via ?comp=, validated to a fixed set.
+$compWindows = [180 => 'Last 6 months', 365 => 'Last 12 months', 730 => 'Last 24 months'];
+$compDays    = (int)($_GET['comp'] ?? 365);
+if (!isset($compWindows[$compDays])) $compDays = 365;
+$comp = q_networth_composition($pdo, $compDays);
+
 $assets = array_filter($accounts, fn($a) => !is_liability($a));
 $debts  = array_filter($accounts, fn($a) => is_liability($a));
 
@@ -88,6 +96,46 @@ function nw_account_rows(array $rows, bool $debt): void
         <p class="muted">Net-worth history will appear as daily snapshots accumulate.</p>
     <?php endif; ?>
 </section>
+
+<?php if (count($comp['labels']) > 1): ?>
+<section class="card">
+    <div class="block-head">
+        <h2>Composition over time</h2>
+        <form method="get" action="/networth.php" class="head-form">
+            <select name="comp" class="select" data-autosubmit aria-label="Period">
+                <?php foreach ($compWindows as $d => $lbl): ?>
+                    <option value="<?= $d ?>"<?= $d === $compDays ? ' selected' : '' ?>><?= e($lbl) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+        </form>
+    </div>
+    <div class="chart-wrap tall">
+        <canvas id="comp-chart" data-chart="stackarea" data-src="comp-data"></canvas>
+        <script type="application/json" id="comp-data"><?= json_encode([
+            'labels' => $comp['labels'],
+            'series' => $comp['series'],
+        ], JSON_UNESCAPED_SLASHES) ?></script>
+    </div>
+    <p class="muted chart-cap">The stack nets to your net-worth line above — debt is shown below the axis. History fills in as daily snapshots accumulate.</p>
+
+    <?php // Current mix: the latest column, each band as a share of net worth.
+    $cnet = (float)($comp['current']['net'] ?? 0); ?>
+    <div class="comp-mix">
+        <?php foreach ($comp['series'] as $s):
+            $val = end($s['values']);
+            if (abs((float)$val) < 0.005) continue;
+            $pct   = $cnet != 0.0 ? round($val / $cnet * 100) : 0;
+            $debt  = strcasecmp($s['label'], 'Debt') === 0; ?>
+            <div class="comp-row">
+                <span class="comp-label"><?= e($s['label']) ?></span>
+                <span class="comp-amt<?= $debt ? ' neg' : '' ?>"><?= e(($debt && $val < 0 ? '−' : '') . usd(abs((float)$val))) ?></span>
+                <span class="comp-pct muted"><?= (int)$pct ?>%</span>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</section>
+<?php endif; ?>
 
 <?php if (count($accounts) > 8): ?>
 <div class="search-bar">

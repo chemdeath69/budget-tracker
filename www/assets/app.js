@@ -223,6 +223,42 @@ function initCharts() {
       });
     }
 
+    // Stacked AREA over time: d = {labels, series:[{label, values}, …]}.
+    // Asset bands fill above zero (doughnut palette); a "Debt" band fills below zero in
+    // --neg, so the stack nets to the net-worth line. Dollar-denominated (usd axis/tooltip),
+    // with a "Net" tooltip footer. Used by networth.php (#6).
+    if (type === 'stackarea') {
+      const series = d.series || [];
+      const datasets = series.map((s, i) => {
+        const col = /^debt$/i.test(s.label || '') ? c.neg : sliceColor(i);
+        return {
+          label: s.label, data: s.values,
+          borderColor: col, backgroundColor: hexA(col, .45),
+          borderWidth: 1.5, fill: true, tension: .25, spanGaps: true,
+          pointRadius: 0, pointHoverRadius: 3,
+        };
+      });
+      new Chart(canvas, {
+        type: 'line',
+        data: { labels: d.labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+            tooltip: { callbacks: {
+              label: i => `${i.dataset.label}: ${usd(i.parsed.y)}`,
+              footer: items => 'Net: ' + usd(items.reduce((a, it) => a + (it.parsed.y || 0), 0)),
+            } },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 7, maxRotation: 0 } },
+            y: { stacked: true, grid: { color: c.line }, border: { display: false }, ticks: { maxTicksLimit: 5, callback: v => usdCompact(v) } },
+          },
+        },
+      });
+    }
+
     if (type === 'doughnut') {
       new Chart(canvas, {
         type: 'doughnut',
