@@ -510,3 +510,17 @@ CREATE TABLE alert_log (
   PRIMARY KEY (id),
   UNIQUE KEY uq_alert (alert_type, alert_key, period)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- FRED economic-data cache (#17, migration 014): one observation per (series_id,
+-- obs_date) for the macro series the Economic page + inline insights use (CPI →
+-- real net worth, 30-yr mortgage rate → refi compare, Treasury/Fed-funds → savings
+-- context). Filled nightly by lib/fred.php → fred_refresh_latest(); read (NOT
+-- VIS-scoped — global data) via q_fred_latest()/q_fred_history(). The natural
+-- composite PK makes the upsert idempotent.
+CREATE TABLE fred_series (
+  series_id   VARCHAR(32)   NOT NULL,                 -- e.g. 'CPIAUCSL', 'MORTGAGE30US'
+  obs_date    DATE          NOT NULL,                 -- observation date (FRED, stored as-is)
+  value       DECIMAL(14,4) NOT NULL,                 -- index level or percent, per series
+  fetched_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (series_id, obs_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

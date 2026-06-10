@@ -3,6 +3,7 @@ require __DIR__ . '/lib/bootstrap.php';
 require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/queries.php';
+require __DIR__ . '/lib/fred.php';
 require __DIR__ . '/lib/layout.php';
 require_login();
 
@@ -13,6 +14,17 @@ $homeVal  = q_home_value($pdo);            // estimated house value (0 if none)
 $stats    = q_stats($accounts, $homeVal);  // net worth includes the home as an asset
 $snaps    = q_networth($pdo);
 $change   = q_networth_change($pdo, $stats['net_worth'], 30);
+
+// Real (inflation-adjusted) net worth (#17): a second chart line in today's dollars
+// + a real 30-day change chip. Null/empty when there's no cached CPI data, in which
+// case the page falls back to the plain nominal line (unchanged behaviour).
+$realVals   = fred_real_series($pdo, $snaps);   // null when no CPI data
+$realChange = ['pct' => null, 'abs' => null];
+if ($realVals !== null && ($change['date'] ?? null) !== null) {
+    // Reindex against the SAME baseline snapshot the nominal "30d" chip used
+    // ($change['date']) so the two chips can't diverge off different clocks (S24 trap).
+    $realChange = fred_real_change($pdo, $stats['net_worth'], (float)$change['from'], (string)$change['date']);
+}
 
 $assets = array_filter($accounts, fn($a) => !is_liability($a));
 $debts  = array_filter($accounts, fn($a) => is_liability($a));
@@ -43,6 +55,9 @@ function nw_account_rows(array $rows, bool $debt): void
         <?php if ($change['pct'] !== null): $up = $change['pct'] >= 0; ?>
             <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($change['pct']), 1) ?>%<span class="delta-sub">30d</span></span>
         <?php endif; ?>
+        <?php if ($realChange['pct'] !== null): $ru = $realChange['pct'] >= 0; ?>
+            <span class="delta <?= $ru ? 'up' : 'down' ?>" title="Inflation-adjusted (CPI), vs ~30 days ago"><?= $ru ? '▲' : '▼' ?> <?= number_format(abs($realChange['pct']), 1) ?>%<span class="delta-sub">real 30d</span></span>
+        <?php endif; ?>
     </div>
     <div class="hero-value"><?= e(usd($stats['net_worth'])) ?></div>
     <?php if ($change['abs'] !== null): ?>
@@ -51,11 +66,23 @@ function nw_account_rows(array $rows, bool $debt): void
 
     <?php if (count($snaps) > 1): ?>
         <div class="chart-wrap tall">
-            <canvas id="nw-chart" data-chart="line" data-src="nw-data"></canvas>
-            <script type="application/json" id="nw-data"><?= json_encode([
-                'labels' => array_column($snaps, 'snapshot_date'),
-                'values' => array_map('floatval', array_column($snaps, 'net_worth')),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            <?php if ($realVals !== null): ?>
+                <canvas id="nw-chart" data-chart="multiline" data-src="nw-data"></canvas>
+                <script type="application/json" id="nw-data"><?= json_encode([
+                    'labels' => array_column($snaps, 'snapshot_date'),
+                    'series' => [
+                        ['label' => 'Net worth', 'values' => array_map('floatval', array_column($snaps, 'net_worth')), 'color' => 'brand'],
+                        ['label' => "Real (today's $)", 'values' => $realVals, 'color' => 'muted', 'dashed' => true],
+                    ],
+                ], JSON_UNESCAPED_SLASHES) ?></script>
+                <p class="muted chart-cap">Dashed line is net worth in today's dollars (CPI-adjusted).</p>
+            <?php else: ?>
+                <canvas id="nw-chart" data-chart="line" data-src="nw-data"></canvas>
+                <script type="application/json" id="nw-data"><?= json_encode([
+                    'labels' => array_column($snaps, 'snapshot_date'),
+                    'values' => array_map('floatval', array_column($snaps, 'net_worth')),
+                ], JSON_UNESCAPED_SLASHES) ?></script>
+            <?php endif; ?>
         </div>
     <?php else: ?>
         <p class="muted">Net-worth history will appear as daily snapshots accumulate.</p>

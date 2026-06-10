@@ -22,6 +22,7 @@ require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/sync.php';
 require __DIR__ . '/../lib/prices.php';
 require __DIR__ . '/../lib/home_value.php';
+require __DIR__ . '/../lib/fred.php';
 require __DIR__ . '/../lib/digest.php';
 require __DIR__ . '/../lib/spend_alerts.php';
 
@@ -99,6 +100,21 @@ if ($homeAddr !== '') {
     echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): "
        . ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
        . " — quota {$u['used']}/{$u['cap']} this month\n";
+}
+
+// FRED economic series (TODO #17) — refresh CPI / 30-yr mortgage rate / Treasury +
+// Fed-funds yields into the fred_series cache (powers the Economic page + the inline
+// real-net-worth / refi / savings-context insights). FREE feed, no per-request
+// billing. No-op without a key. Wrapped in try/catch per the Session 22 resilience
+// contract so a transient failure logs one line instead of aborting the run.
+try {
+    $fr = fred_refresh_latest($pdo);
+    echo "[" . date('Y-m-d H:i:s T') . "] fred: " . ($fr['ok']
+        ? "{$fr['updated']} obs across {$fr['series']} series"
+          . (empty($fr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($fr['errors'])))
+        : "skipped ({$fr['error']})") . "\n";
+} catch (Throwable $e) {
+    echo '[' . date('Y-m-d H:i:s T') . '] fred: FAILED — ' . $e->getMessage() . "\n";
 }
 
 // Weekly email digest (TODO #15) — only actually sends on Sunday (app TZ) or as a

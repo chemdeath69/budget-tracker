@@ -28,6 +28,7 @@ function nav_items(): array
         ['key' => 'investments',  'href' => '/investments.php',  'label' => 'Investments',   'icon' => 'invest'],
         ['key' => 'retirement',   'href' => '/retirement.php',   'label' => 'Retirement',    'icon' => 'nest'],
         ['key' => 'property',     'href' => '/property.php',     'label' => 'Property',      'icon' => 'house'],
+        ['key' => 'economic',     'href' => '/economic.php',     'label' => 'Economic',      'icon' => 'globe'],
         ['key' => 'settings',     'href' => '/settings.php',     'label' => 'Settings',      'icon' => 'gear'],
     ];
 }
@@ -49,6 +50,7 @@ function nav_icon(string $name): string
         'house'  => '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/>',
         'nest'   => '<ellipse cx="12" cy="10.5" rx="5" ry="6.5"/><path d="M4 15c1.8 2 4.7 3.2 8 3.2s6.2-1.2 8-3.2"/><path d="M12 7.5v3M10.5 9h3"/>',
         'calendar' => '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="M8 2v4"/><path d="M16 2v4"/>',
+        'globe'  => '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.4 4 5.6 4 9s-1.4 6.6-4 9c-2.6-2.4-4-5.6-4-9s1.4-6.6 4-9z"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';

@@ -34,6 +34,7 @@ endif;
 
 $v = $view['value']; $m = $view['mortgage']; $p = $view['property'];
 $mk = $view['market']; $dv = $view['derived']; $ch = $view['charts'];
+$rf = $view['refi'] ?? null;
 $equity = $dv['equity'] ?? null;
 ?>
 
@@ -176,6 +177,38 @@ $equity = $dv['equity'] ?? null;
             <?php if ($m['has_pmi'] !== null): ?><div><span class="muted">PMI</span><strong><?= $m['has_pmi'] ? 'Yes' : 'No' ?></strong></div><?php endif; ?>
             <?php if (!empty($m['past_due'])): ?><div><span class="muted">Past due</span><strong class="neg"><?= e(usd($m['past_due'])) ?></strong></div><?php endif; ?>
         </div>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- Rate vs market / refi (FRED 30-yr, #17) -->
+<?php if ($rf): ?>
+<section class="block">
+    <div class="block-head"><h2>Rate vs market</h2><span class="muted">FRED 30-yr · <?= e($fdate($rf['as_of'])) ?></span></div>
+    <div class="card refi-card">
+        <div class="split">
+            <div class="split-cell">
+                <span class="split-label">Your rate</span>
+                <span class="split-value"><?= e(number_format($rf['your_rate'], 3)) ?>%</span>
+            </div>
+            <div class="split-cell">
+                <span class="split-label">Market 30-yr</span>
+                <span class="split-value"><?= e(number_format($rf['market_rate'], 2)) ?>%</span>
+            </div>
+        </div>
+        <?php if ($rf['beneficial']): ?>
+            <p class="refi-note pos">▼ Market is below your rate — refinancing the remaining balance
+                could save about <strong><?= e(usd($rf['annual_savings'])) ?>/yr</strong>
+                (<?= e(usd($rf['monthly_savings'])) ?>/mo), up to
+                <strong><?= e(usd($rf['lifetime_interest_savings'])) ?></strong> in interest over the
+                remaining term. <span class="muted">Estimate — excludes closing costs &amp; points.</span></p>
+        <?php elseif ($rf['market_rate'] >= $rf['your_rate']): ?>
+            <p class="refi-note muted">Your rate beats (or matches) today's market 30-yr average — no
+                refinancing benefit right now.</p>
+        <?php else: ?>
+            <p class="refi-note muted">Today's 30-yr is only <?= e(number_format($rf['your_rate'] - $rf['market_rate'], 2)) ?>pp
+                below your rate — likely not worth refinancing once closing costs are factored in.</p>
+        <?php endif; ?>
     </div>
 </section>
 <?php endif; ?>

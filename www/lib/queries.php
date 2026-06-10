@@ -233,19 +233,23 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
         )->fetch();
     }
     if (!$row) {
-        return ['pct' => null, 'abs' => null, 'from' => null];
+        return ['pct' => null, 'abs' => null, 'from' => null, 'date' => null];
     }
     // Layer the home value onto the comparison snapshot too (snapshots are
     // accounts-only), so the change isn't a fake one-time spike from adding the house.
     $tl = nw_home_timeline($pdo);
     $prev = (float)$row['net_worth'] + nw_home_at($tl, (string)$row['snapshot_date']);
     if ($prev == 0.0) {
-        return ['pct' => null, 'abs' => null, 'from' => null];
+        return ['pct' => null, 'abs' => null, 'from' => null, 'date' => null];
     }
+    // 'date' = the baseline snapshot actually used, so callers (e.g. the #17 real-NW
+    // chip) can reindex against the SAME snapshot instead of re-selecting one off a
+    // different clock (the S24 PHP-PDT vs MySQL-EDT trap).
     return [
         'pct'  => round((($current - $prev) / abs($prev)) * 100, 1),
         'abs'  => round($current - $prev, 2),
         'from' => $prev,
+        'date' => (string)$row['snapshot_date'],
     ];
 }
 
@@ -1564,4 +1568,39 @@ function q_alert_settings(PDO $pdo): array
 {
     require_once __DIR__ . '/mailer.php';
     return alert_settings($pdo);
+}
+
+/**
+ * Latest cached FRED observation for a series (#17), or null if none. Returns
+ * ['date'=>'YYYY-MM-DD','value'=>float]. NOT VIS-scoped — `fred_series` is global
+ * macro data shared by both household users (like q_alert_settings).
+ */
+function q_fred_latest(PDO $pdo, string $seriesId): ?array
+{
+    $st = $pdo->prepare(
+        "SELECT obs_date, value FROM fred_series
+         WHERE series_id = :s ORDER BY obs_date DESC LIMIT 1"
+    );
+    $st->execute([':s' => $seriesId]);
+    $row = $st->fetch();
+    return $row ? ['date' => (string)$row['obs_date'], 'value' => (float)$row['value']] : null;
+}
+
+/**
+ * Cached FRED observations for a series, OLDEST first (for charts). $limit=0 = all.
+ * Returns [['date'=>..,'value'=>..], ...]. NOT VIS-scoped (global macro data).
+ */
+function q_fred_history(PDO $pdo, string $seriesId, int $limit = 0): array
+{
+    // Take the newest $limit rows (DESC + LIMIT), then re-order ascending for plotting.
+    $sql = "SELECT obs_date, value FROM fred_series WHERE series_id = :s ORDER BY obs_date DESC";
+    if ($limit > 0) $sql .= " LIMIT " . (int)$limit;
+    $st = $pdo->prepare($sql);
+    $st->execute([':s' => $seriesId]);
+    $rows = $st->fetchAll();
+    $out = [];
+    foreach (array_reverse($rows) as $r) {
+        $out[] = ['date' => (string)$r['obs_date'], 'value' => (float)$r['value']];
+    }
+    return $out;
 }

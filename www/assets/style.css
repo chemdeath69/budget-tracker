@@ -302,6 +302,17 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .chart-wrap { position: relative; height: 240px; margin-top: 6px; }
 .chart-wrap.tall { height: 280px; }
 .chart-wrap canvas { max-height: 100%; }
+.chart-cap { font-size: .8rem; margin-top: 8px; }
+
+/* ---- Economic page (#17) ----------------------------------------------- */
+.refi-card .refi-note { margin: 12px 0 0; font-size: .9rem; line-height: 1.45; }
+.refi-note.pos { color: var(--pos); }
+.econ-series { display: flex; flex-direction: column; gap: 2px; }
+.econ-series-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.econ-series-label { font-weight: 600; }
+.econ-series-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.econ-yoy { font-weight: 500; font-size: .78rem; margin-left: 4px; }
+.econ-series-date { font-size: .78rem; }
 
 /* ---- Category list (spending) ------------------------------------------ */
 .cat-list { margin-top: 16px; }

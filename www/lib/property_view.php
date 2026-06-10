@@ -129,6 +129,35 @@ function build_property_view(PDO $pdo, int $uid): ?array
         ];
     }
 
+    // ---- Refi: your mortgage rate vs the current market 30-yr (FRED, #17) ----
+    // Re-amortize the CURRENT balance over the REMAINING term at each rate and compare
+    // — an estimate (ignores closing costs/points), only flagged "beneficial" when the
+    // market rate is materially (>=0.5pp) below yours. No-op without FRED data / a rate.
+    $refi = null;
+    if ($M && function_exists('q_fred_latest') && ($M['rate'] ?? null) !== null && ($M['balance'] ?? 0) > 0) {
+        $mk = q_fred_latest($pdo, 'MORTGAGE30US');
+        if ($mk) {
+            $yourRate = (float)$M['rate'];
+            $mktRate  = (float)$mk['value'];
+            $elapsed  = $M['_orig_date'] ? min($M['_n'], pv_months_between($M['_orig_date'], date('Y-m-d', $now))) : 0;
+            $rem      = max(1, $M['_n'] - $elapsed);
+            $bal      = (float)$M['balance'];
+            $yourAm   = pv_amortize($bal, $yourRate, $rem);
+            $mktAm    = pv_amortize($bal, $mktRate,  $rem);
+            $monthlyDelta = $yourAm['payment'] - $mktAm['payment'];   // + = you'd save by refinancing
+            $refi = [
+                'your_rate'        => $yourRate,
+                'market_rate'      => $mktRate,
+                'as_of'            => $mk['date'],
+                'remaining_months' => $rem,
+                'beneficial'       => ($yourRate - $mktRate) >= 0.5,
+                'monthly_savings'  => round($monthlyDelta, 2),
+                'annual_savings'   => round($monthlyDelta * 12, 2),
+                'lifetime_interest_savings' => round($yourAm['total_interest'] - $mktAm['total_interest'], 2),
+            ];
+        }
+    }
+
     // ---- Derived metrics -----------------------------------------------------
     $derived = [];
     if ($latestVal !== null) {
@@ -272,6 +301,7 @@ function build_property_view(PDO $pdo, int $uid): ?array
             'as_of'   => $valRowLast ? (string)$valRowLast['as_of'] : null,
         ] : null,
         'mortgage' => $M,
+        'refi'     => $refi,
         'property' => $facts ? [
             'purchase_price' => $facts['purchase_price'] !== null ? (float)$facts['purchase_price'] : null,
             'purchase_date'  => $facts['purchase_date'],

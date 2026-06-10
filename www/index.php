@@ -3,6 +3,7 @@ require __DIR__ . '/lib/bootstrap.php';
 require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/queries.php';
+require __DIR__ . '/lib/fred.php';
 require __DIR__ . '/lib/layout.php';
 require_login();
 
@@ -13,6 +14,13 @@ $homeVal  = q_home_value($pdo);            // estimated house value (0 if none)
 $stats    = q_stats($accounts, $homeVal);  // net worth includes the home as an asset
 $snaps    = q_networth($pdo);
 $change   = q_networth_change($pdo, $stats['net_worth'], 30);
+// Real (inflation-adjusted) 30-day net-worth change (#17) — reindex against the SAME
+// baseline snapshot the nominal chip used ($change['date']), so the two deltas can't
+// diverge off different clocks. Null when no CPI data / no baseline.
+$realChange = ['pct' => null, 'abs' => null];
+if (($change['date'] ?? null) !== null && fred_real_factor($pdo, date('Y-m-d')) !== null) {
+    $realChange = fred_real_change($pdo, $stats['net_worth'], (float)$change['from'], (string)$change['date']);
+}
 $spend30  = q_spending_total($pdo, $uid, 30);
 $topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
 $home     = q_home_equity($pdo, $accounts);
@@ -77,6 +85,12 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
                 <span class="delta <?= $up ? 'up' : 'down' ?>">
                     <?= $up ? '▲' : '▼' ?> <?= number_format(abs($change['pct']), 1) ?>%
                     <span class="delta-sub">30d</span>
+                </span>
+            <?php endif; ?>
+            <?php if ($realChange['pct'] !== null): $ru = $realChange['pct'] >= 0; ?>
+                <span class="delta <?= $ru ? 'up' : 'down' ?>" title="Inflation-adjusted (CPI), vs ~30 days ago">
+                    <?= $ru ? '▲' : '▼' ?> <?= number_format(abs($realChange['pct']), 1) ?>%
+                    <span class="delta-sub">real 30d</span>
                 </span>
             <?php endif; ?>
         </div>

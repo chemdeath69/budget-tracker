@@ -79,6 +79,16 @@ return [
         'api_key' => '',   // paste your Twelve Data key here (empty = disabled)
     ],
 
+    // FRED — Federal Reserve Economic Data (St. Louis Fed). FREE, generous rate limit,
+    // NO per-request billing. Powers the Economic page + inline insights: real
+    // (inflation-adjusted) net worth (CPI), mortgage-rate-vs-market / refi (30-yr avg),
+    // and savings-rate context (Treasury / Fed-funds). Get a free key at
+    // https://fredaccount.stlouisfed.org/apikeys. LEAVE EMPTY to disable the feature
+    // (the Economic page shows an empty-state; the inline insights are omitted).
+    'fred' => [
+        'api_key' => '',   // paste your FRED key here (empty = disabled)
+    ],
+
     // RentCast (free tier — 50 requests/month, with a PER-REQUEST OVERAGE FEE above
     // that) — home-value (AVM) feed for the home-value-vs-mortgage card. The hard
     // monthly cap is enforced in lib/home_value.php (the api_usage counter reserves
