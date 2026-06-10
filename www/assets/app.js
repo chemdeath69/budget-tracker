@@ -490,6 +490,67 @@ function initBudgets() {
   });
 }
 
+/* ---- Savings goals (#9) -------------------------------------------------- */
+/* The add/edit form is reused for both: a per-row ✎ Edit populates it with a
+   hidden id (→ UPDATE), the + Add button opens it blank (→ INSERT). The source
+   <select> toggles the manual "current amount" field — an account-tied goal
+   draws its progress from the account balance, so that field is hidden. */
+function initGoals() {
+  const form = $('#add-goal-form');
+  if (!form) return;
+  const addBtn = $('#add-goal-btn'), cancelBtn = $('#goal-cancel');
+  const idEl = $('#goal-id'), nameEl = $('#goal-name'), targetEl = $('#goal-target');
+  const sourceEl = $('#goal-source'), currentField = $('#goal-current-field'), currentEl = $('#goal-current');
+
+  const syncSource = () => { currentField.hidden = sourceEl.value !== 'manual'; };
+  const reset = () => { idEl.value = ''; nameEl.value = ''; targetEl.value = ''; sourceEl.value = 'manual'; currentEl.value = ''; syncSource(); };
+  const open = () => { form.hidden = false; syncSource(); nameEl.focus(); };
+
+  if (addBtn) addBtn.addEventListener('click', () => { if (form.hidden) { reset(); open(); } else { form.hidden = true; } });
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { form.hidden = true; reset(); });
+  sourceEl.addEventListener('change', syncSource);
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = nameEl.value.trim();
+    const target_amount = Number(targetEl.value);
+    if (!name || !(target_amount > 0)) return;
+    const body = { name, target_amount };
+    const id = Number(idEl.value);
+    if (id > 0) body.id = id;
+    if (sourceEl.value === 'manual') {
+      body.source = 'manual';
+      body.current_amount = Number(currentEl.value) || 0;
+    } else {
+      body.source = 'account';
+      body.account_id = sourceEl.value.replace(/^acct:/, '');
+    }
+    const out = await postJSON('/api/goals.php', body);
+    if (out && out.ok) location.reload();
+    else toast((out && out.error) || 'Could not save goal');
+  });
+
+  $$('.goal-edit[data-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.budget-row');
+      if (!row) return;
+      idEl.value = row.dataset.id;
+      nameEl.value = row.dataset.name || '';
+      targetEl.value = row.dataset.target || '';
+      sourceEl.value = row.dataset.source || 'manual';
+      currentEl.value = row.dataset.current || '';
+      open();
+    });
+  });
+
+  $$('.goal-del[data-id]').forEach(del => {
+    del.addEventListener('click', async () => {
+      const out = await postJSON('/api/goals.php', { id: Number(del.dataset.id) }, 'DELETE');
+      if (out && out.ok) location.reload();
+    });
+  });
+}
+
 /* ---- Alert settings (TODO #14) ------------------------------------------- */
 /* Household-shared notification prefs on settings.php. Any [data-alert] control
    change gathers the whole panel and POSTs it to api/alerts.php; toasts on save.
@@ -808,6 +869,7 @@ initRename();
 initStatementCadence();
 initRefresh();
 initBudgets();
+initGoals();
 initAlertSettings();
 initTxNotes();
 initTxTags();

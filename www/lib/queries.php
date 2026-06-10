@@ -880,6 +880,42 @@ function q_category_rules(PDO $pdo): array
     return $pdo->query($sql)->fetchAll();
 }
 
+/**
+ * Savings goals (#9). Household-shared — deliberately NOT VIS-scoped (one shared set, like
+ * q_budgets / q_category_rules). A goal tied to an account derives its progress from that
+ * account's live balance_current (LEFT JOIN, so a stale account_id just yields NULL → 0); a
+ * manual goal uses its stored current_amount. Derived fields (current/pct/remaining/reached)
+ * are computed in PHP. No bind params → no repeated-placeholder (HY093) risk; keep it that way.
+ */
+function q_goals(PDO $pdo): array
+{
+    $sql = "SELECT g.id, g.name, g.target_amount, g.account_id, g.current_amount, g.created_by,
+                   " . ACCT_NAME . " AS account_name, a.balance_current AS account_balance,
+                   i.user_id AS owner_id
+            FROM goals g
+            LEFT JOIN accounts a ON g.account_id = a.account_id
+            LEFT JOIN items i ON a.item_id = i.item_id
+            ORDER BY g.created_at ASC, g.id ASC";
+    $rows = $pdo->query($sql)->fetchAll();
+    foreach ($rows as &$g) {
+        $target  = (float)$g['target_amount'];
+        $tied    = $g['account_id'] !== null && $g['account_id'] !== '';
+        $current = $tied ? (float)($g['account_balance'] ?? 0) : (float)($g['current_amount'] ?? 0);
+        $g['current']   = round($current, 2);
+        $g['target']    = round($target, 2);
+        $g['tied']      = $tied;
+        $g['pct']       = $target > 0 ? min(100, max(0, $current / $target * 100)) : 0;
+        $g['remaining'] = round(max(0, $target - $current), 2);
+        $g['reached']   = $current >= $target && $target > 0;
+        // A tied goal whose account vanished (re-link/removal) has a NULL account_name.
+        if ($tied && ($g['account_name'] === null || $g['account_name'] === '')) {
+            $g['account_name'] = '(account unavailable)';
+        }
+    }
+    unset($g);
+    return $rows;
+}
+
 /** Liabilities. Optionally scoped to one account. */
 function q_liabilities(PDO $pdo, int $uid, ?string $accountId = null): array
 {

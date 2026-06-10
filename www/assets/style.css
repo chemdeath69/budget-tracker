@@ -495,6 +495,20 @@ a.cat-row:hover { background: var(--surface-2); }
 .budget-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .budget-del:active { color: var(--neg); }
 
+/* ---- Savings goals (#9) -------------------------------------------------- */
+.goal-form { display: flex; flex-direction: column; gap: 12px; }
+.goal-form .form-actions { display: flex; gap: 10px; align-items: center; }
+.goal-tag { font-weight: 500; font-size: .82rem; margin-left: 6px; }
+.goal-foot { margin: 0; font-size: .82rem; }
+.budget-bar.reached > span { background: var(--pos); }
+.goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+.goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
+.goal-edit:active { color: var(--brand); }
+.goal-del:active { color: var(--neg); }
+.goal-mini { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.goal-mini:last-of-type { border-bottom: 0; }
+.goal-mini .b-head { margin-bottom: 7px; }
+
 /* ---- Category rules (#10) ----------------------------------------------- */
 .rule-form { display: flex; flex-direction: column; gap: 10px; }
 .rule-form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

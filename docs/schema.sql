@@ -581,3 +581,19 @@ CREATE TABLE category_rules (
   PRIMARY KEY (id),
   UNIQUE KEY uq_rule (match_type, match_value)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Savings goals (#9, migration 017). Household-shared. A goal is either tied to an account
+-- (account_id SET → progress = that account's live balance_current) or manual (account_id NULL
+-- → progress = current_amount). Progress is derived at READ time in q_goals() (queries.php).
+CREATE TABLE goals (
+  id             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  name           VARCHAR(96)   NOT NULL,
+  target_amount  DECIMAL(15,2) NOT NULL,
+  account_id     VARCHAR(64)   NULL,                  -- tied account: progress = its balance; NULL = manual
+  current_amount DECIMAL(15,2) NULL,                  -- manual goals only (account_id IS NULL)
+  created_by     INT UNSIGNED  NULL,
+  created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_goals_account (account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

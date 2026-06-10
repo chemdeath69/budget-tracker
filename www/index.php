@@ -33,6 +33,7 @@ $billsSoon  = bill_occurrences(q_liabilities($pdo, $uid), q_recurring($pdo, $uid
                                new DateTimeImmutable('today'), (new DateTimeImmutable('today'))->add(new DateInterval('P14D')));
 $billsTotal = 0.0;
 foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
+$goals    = q_goals($pdo);                                  // savings-goals teaser (TODO #9)
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 $lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
@@ -224,6 +225,30 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             </div>
             <?php if (count($billsSoon) > 4): ?>
             <a class="block-link bills-more" href="/bills.php">+<?= count($billsSoon) - 4 ?> more ›</a>
+            <?php endif; ?>
+        </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($goals): ?>
+    <!-- Savings goals teaser → full goals.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Savings goals</h2>
+            <a class="block-link" href="/goals.php">All goals ›</a>
+        </div>
+        <div class="card">
+            <?php foreach (array_slice($goals, 0, 3) as $g): ?>
+            <a class="goal-mini" href="/goals.php">
+                <div class="b-head">
+                    <span><?= e($g['name']) ?></span>
+                    <span class="muted"><?= e(usd($g['current'])) ?> / <?= e(usd($g['target'])) ?></span>
+                </div>
+                <div class="budget-bar<?= $g['reached'] ? ' reached' : '' ?>"><span style="width:<?= round($g['pct']) ?>%"></span></div>
+            </a>
+            <?php endforeach; ?>
+            <?php if (count($goals) > 3): ?>
+            <a class="block-link" href="/goals.php">+<?= count($goals) - 3 ?> more ›</a>
             <?php endif; ?>
         </div>
     </section>
