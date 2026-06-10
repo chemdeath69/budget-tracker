@@ -29,11 +29,15 @@ if ($to)   { $where[] = 't.date <= :to';   $params[':to']   = $to; }
 if ($acct !== '') { $where[] = 't.account_id = :acct'; $params[':acct'] = $acct; }
 if ($cat !== '') {
     // 3-arg COALESCE mirrors q_transactions so an UNCATEGORIZED click-through matches;
-    // also match a SPLIT category (#8) so a split-driven drill-through exports too.
-    $where[] = "(COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') = :cat
+    // RULE_CAT (#10) keeps a rule-driven category filterable; also match a SPLIT
+    // category (#8) so a split-driven drill-through exports too.
+    // Distinct placeholders (:cat / :cat_s) — native prepares (emulation off) reject a
+    // reused named placeholder (HY093). Keep in lock-step with q_transactions.
+    $where[] = "(COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary, 'UNCATEGORIZED') = :cat
                  OR EXISTS (SELECT 1 FROM transaction_splits s
-                            WHERE s.transaction_id = t.transaction_id AND s.category = :cat))";
-    $params[':cat'] = $cat;
+                            WHERE s.transaction_id = t.transaction_id AND s.category = :cat_s))";
+    $params[':cat']   = $cat;
+    $params[':cat_s'] = $cat;
 }
 if ($tag !== '') {
     $where[] = "EXISTS (SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
@@ -44,15 +48,17 @@ if ($q !== '') {
     // Escape the user's own LIKE metacharacters (% _ \) so a literal '_' (common in
     // PFC tags) or '%' doesn't over-match relative to the page (matches q_transactions).
     $term = addcslashes($q, '\\%_');
-    $where[] = "(t.merchant_name LIKE :q ESCAPE '\\\\'
-                 OR t.name LIKE :q ESCAPE '\\\\'
-                 OR COALESCE(t.category_override, t.pfc_primary) LIKE :q ESCAPE '\\\\')";
-    $params[':q'] = '%' . $term . '%';
+    // Distinct placeholders per occurrence — native prepares (emulation off) reject a
+    // reused named placeholder (HY093). Keep in lock-step with q_transactions.
+    $where[] = "(t.merchant_name LIKE :q1 ESCAPE '\\\\'
+                 OR t.name LIKE :q2 ESCAPE '\\\\'
+                 OR COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\')";
+    $params[':q1'] = $params[':q2'] = $params[':q3'] = '%' . $term . '%';
 }
 // Note + tags (#8) join the export. Tags are a per-tx GROUP_CONCAT correlated
 // subquery (kept one row per parent transaction — splits stay parent-level here).
 $sql = 'SELECT t.date, t.merchant_name, t.name, t.amount, t.iso_currency_code,
-               COALESCE(t.category_override, t.pfc_primary) AS category, t.pending, t.note,
+               COALESCE(t.category_override, ' . RULE_CAT . ', t.pfc_primary) AS category, t.pending, t.note,
                COALESCE(NULLIF(a.display_name, \'\'), a.name) AS account_name, a.mask, i.institution_name,
                (SELECT GROUP_CONCAT(tg.name ORDER BY tg.name SEPARATOR \';\')
                   FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id

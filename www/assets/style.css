@@ -495,6 +495,32 @@ a.cat-row:hover { background: var(--surface-2); }
 .budget-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .budget-del:active { color: var(--neg); }
 
+/* ---- Category rules (#10) ----------------------------------------------- */
+.rule-form { display: flex; flex-direction: column; gap: 10px; }
+.rule-form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rule-form-row .select { flex: 0 1 12rem; min-width: 0; }
+.rule-form-row .input { flex: 1 1 12rem; min-width: 0; }
+.rule-arrow { flex: none; font-size: .85rem; }
+.intro-note { margin: 0; }
+
+.rule-list { display: flex; flex-direction: column; }
+.rule-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.rule-row:last-child { border-bottom: 0; }
+.rule-cond { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.rule-kind { font-size: .72rem; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--surface-2); padding: 2px 8px; border-radius: var(--r-pill); flex: none; }
+.rule-val { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-to { color: var(--brand); font-weight: 600; font-size: .9rem; }
+.rule-count { font-size: .78rem; margin-left: auto; flex: none; }
+.rule-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 2px 4px; flex: none; }
+.rule-del:active { color: var(--neg); }
+
+/* Inline quick-rule editor (render_tx_meta "+ rule") */
+.rule-panel { flex-basis: 100%; margin-top: 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); display: flex; flex-direction: column; gap: 8px; }
+.rule-panel-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rule-panel-row .rule-p-type { flex: 0 1 11rem; min-width: 0; }
+.rule-panel-row .rule-p-value { flex: 1 1 9rem; min-width: 0; }
+.rule-panel-row .rule-p-cat { flex: 1 1 9rem; min-width: 0; }
+
 /* ---- Settings ----------------------------------------------------------- */
 .profile-card { display: flex; align-items: center; gap: 14px; }
 .profile-name { font-size: 1.1rem; font-weight: 700; }

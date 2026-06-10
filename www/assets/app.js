@@ -708,6 +708,92 @@ function openSplitEditor(btn) {
   meta.appendChild(panel);
 }
 
+/* ---- Category rules (#10) ------------------------------------------------ */
+/* Management page (rules.php): add-form submit + per-row delete → api/rules.php,
+   then reload (refreshes the list + the per-rule match counts). */
+function initRules() {
+  const form = $('#add-rule-form');
+  if (form) {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const match_type = $('#rule-type').value;
+      const match_value = $('#rule-value').value.trim();
+      const category = $('#rule-cat').value;
+      if (!match_value || !category) { toast('Enter what to match and a category.'); return; }
+      const out = await postJSON('/api/rules.php', { action: 'add', match_type, match_value, category });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not save the rule.');
+    });
+  }
+  $$('.rule-del[data-id]').forEach(del => {
+    del.addEventListener('click', async () => {
+      const out = await postJSON('/api/rules.php', { action: 'delete', id: Number(del.dataset.id) });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not delete the rule.');
+    });
+  });
+}
+
+/* Inline "+ rule" shortcut on a transaction (render_tx_meta `.rule-add-btn`). Opens a
+   small form prefilled from the row's merchant/description + current category; POST
+   api/rules.php (add) → toast + reload so the re-bucketing shows. Reuses CATEGORY_OPTIONS
+   (loaded by initRecategorize, which boots earlier). */
+function initTxRules() {
+  $$('.rule-add-btn[data-tx]').forEach(btn => btn.addEventListener('click', () => openRuleEditor(btn)));
+}
+function openRuleEditor(btn) {
+  const meta = btn.closest('.tx-meta');
+  if (!meta) return;
+  const existing = meta.querySelector('.rule-panel');
+  if (existing) { existing.remove(); return; }   // toggle closed
+
+  const merchant = (meta.dataset.merchant || '').trim();
+  const name = (meta.dataset.name || '').trim();
+  const curCat = (meta.dataset.cat || '').trim();
+  const hasMerchant = merchant !== '';
+
+  const panel = document.createElement('div');
+  panel.className = 'rule-panel';
+  panel.innerHTML =
+    '<div class="rule-panel-row">' +
+      '<select class="select rule-p-type">' +
+        '<option value="merchant"' + (hasMerchant ? ' selected' : '') + '>Merchant is</option>' +
+        '<option value="contains"' + (hasMerchant ? '' : ' selected') + '>Description contains</option>' +
+      '</select>' +
+      '<input type="text" class="input rule-p-value" maxlength="255">' +
+    '</div>' +
+    '<div class="rule-panel-row">' +
+      '<span class="muted">categorize as</span>' +
+      '<select class="select rule-p-cat"></select>' +
+      '<button type="button" class="btn rule-p-save">Add rule</button>' +
+    '</div>';
+
+  const typeSel = panel.querySelector('.rule-p-type');
+  const valIn = panel.querySelector('.rule-p-value');
+  const catSel = panel.querySelector('.rule-p-cat');
+
+  const fillValue = () => { valIn.value = (typeSel.value === 'merchant' ? merchant : name).toUpperCase(); };
+  fillValue();
+  typeSel.addEventListener('change', fillValue);
+
+  // A rule must not target a transfer/income category (the server 422s it too) — it would
+  // drop the merchant's spend from the true-expense reads. Same set the split editor blocks.
+  const RULE_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
+  CATEGORY_OPTIONS.filter(c => !RULE_CAT_BLOCKED.includes(c.value)).forEach(c => { const o = new Option(c.label, c.value); if (c.value === curCat) o.selected = true; catSel.add(o); });
+  if (curCat && !CATEGORY_OPTIONS.some(c => c.value === curCat)) { const o = new Option(prettyCat(curCat), curCat); o.selected = true; catSel.add(o); }
+
+  panel.querySelector('.rule-p-save').addEventListener('click', async () => {
+    const match_value = valIn.value.trim();
+    const category = catSel.value;
+    if (!match_value || !category) { toast('Enter what to match and a category.'); return; }
+    const out = await postJSON('/api/rules.php', { action: 'add', match_type: typeSel.value, match_value, category });
+    if (out && out.ok) { toast('Rule saved — recategorizing matching transactions.'); location.reload(); }
+    else toast((out && out.error) || 'Could not save the rule.');
+  });
+
+  meta.appendChild(panel);
+}
+
 function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
 
 /* ---- Boot ---------------------------------------------------------------- */
@@ -726,3 +812,5 @@ initAlertSettings();
 initTxNotes();
 initTxTags();
 initTxSplits();
+initRules();
+initTxRules();

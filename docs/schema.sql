@@ -566,3 +566,18 @@ CREATE TABLE transaction_splits (
   KEY idx_split_tx (transaction_id),
   CONSTRAINT fk_split_tx FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Rule-based auto-recategorization (#10, migration 016). Household-shared "always
+-- categorize merchant X as Y" rules, resolved at READ time by the RULE_CAT subquery
+-- in queries.php (precedence: split > category_override > RULE > pfc_primary).
+CREATE TABLE category_rules (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  match_type  ENUM('merchant','contains') NOT NULL DEFAULT 'merchant',
+  match_value VARCHAR(255) NOT NULL,                  -- stored UPPER-normalised (no LIKE metachars)
+  category    VARCHAR(96)  NOT NULL,                  -- target PFC tag, UPPER (like category_override)
+  priority    INT NOT NULL DEFAULT 0,                 -- higher wins; UI sets 0 for v1
+  created_by  INT UNSIGNED NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_rule (match_type, match_value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

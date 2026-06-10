@@ -58,8 +58,48 @@ const SPLIT_JOIN = 'LEFT JOIN transaction_splits s ON s.transaction_id = t.trans
     . '  JOIN transactions tr ON tr.transaction_id = sr.transaction_id '
     . '  GROUP BY sr.transaction_id, tr.amount '
     . '  HAVING ABS(SUM(sr.amount) - tr.amount) < 0.005)';
-const EFF_CAT    = "COALESCE(s.category, t.category_override, t.pfc_primary, 'UNCATEGORIZED')";
+/**
+ * Rule-based auto-recategorization (#10, migration 016). Household-shared
+ * `category_rules` ("always categorize merchant X as Y") are resolved entirely at
+ * READ time — no transactions column, no backfill, instant retroactive + instant
+ * revert when a rule is deleted.
+ *
+ * RULE_MATCH is the predicate that decides whether a rule row `cr` applies to a
+ * transaction `t`:
+ *   - 'merchant' : exact (case-insensitive) match on t.merchant_name
+ *   - 'contains' : substring match on the raw descriptor (t.name, else t.merchant_name)
+ * Stored match_value is UPPER-normalised with LIKE metachars stripped
+ * (normalize_rule_value()), so the bare CONCAT('%',value,'%') needs no ESCAPE.
+ *
+ * RULE_CAT is a SCALAR correlated subquery (LIMIT 1 → always one value or NULL, so it
+ * never explodes a row like a JOIN would) returning the winning rule's category for
+ * the current `t`. Winner = exact-merchant over contains, then higher priority, then
+ * newest. It is folded into EFF_CAT between the per-tx override and Plaid's pfc_primary
+ * → precedence: split > category_override > RULE > pfc_primary > UNCATEGORIZED. Because
+ * all six spend aggregations consume the EFF_CAT const, rules propagate to every one of
+ * them with no per-query edit. Requires `transactions` aliased `t`.
+ */
+const RULE_MATCH =
+    "((cr.match_type = 'merchant' AND cr.match_value <> '' AND UPPER(t.merchant_name) = cr.match_value)
+      OR (cr.match_type = 'contains' AND cr.match_value <> ''
+            AND UPPER(COALESCE(t.name, t.merchant_name, '')) LIKE CONCAT('%', cr.match_value, '%')))";
+const RULE_CAT =
+    "(SELECT cr.category FROM category_rules cr
+        WHERE " . RULE_MATCH . "
+        ORDER BY (cr.match_type = 'merchant') DESC, cr.priority DESC, cr.id DESC
+        LIMIT 1)";
+
+const EFF_CAT    = "COALESCE(s.category, t.category_override, " . RULE_CAT . ", t.pfc_primary, 'UNCATEGORIZED')";
 const EFF_AMT    = "(CASE WHEN s.id IS NULL THEN t.amount ELSE s.amount END)";
+
+/**
+ * Categories a rule may NOT target (#10). RULE_CAT is folded into EFF_CAT, and the
+ * true-expense aggregations exclude TRANSFER_IN/OUT per category — so a rule pointing a
+ * merchant at a transfer/income category would silently drop its spend from cashflow/
+ * trends/digest/unusual-spend/budget. Same set the split editor blocks (api/account.php).
+ * Enforced on the write path (api/rules.php) and dropped from the pickers (rules.php / app.js).
+ */
+const RULE_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
 
 /**
  * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
@@ -682,10 +722,15 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         // match a SPLIT category (#8) — a split drives the category in the spend
         // aggregations, so the drill-through from spending/trends must surface a
         // transaction whose split (not its parent) carries the clicked category.
-        $where[] = "(COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') = :cat
+        // NB: distinct placeholders (:cat / :cat_s) for the two occurrences — this host's
+        // PDO runs with ATTR_EMULATE_PREPARES=false (db.php), and native MySQL prepares
+        // reject a named placeholder reused more than once (HY093). Same reason the q
+        // search below uses :q1/:q2/:q3.
+        $where[] = "(COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary, 'UNCATEGORIZED') = :cat
                      OR EXISTS (SELECT 1 FROM transaction_splits s
-                                WHERE s.transaction_id = t.transaction_id AND s.category = :cat))";
-        $params[':cat'] = (string)$opts['category'];
+                                WHERE s.transaction_id = t.transaction_id AND s.category = :cat_s))";
+        $params[':cat']   = (string)$opts['category'];
+        $params[':cat_s'] = (string)$opts['category'];
     }
     if (!empty($opts['tag'])) {
         // Free-form tag filter (#8) — EXISTS keeps it one row per transaction (no
@@ -700,15 +745,17 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         // Escape the user's own LIKE metacharacters (% _ \) so a literal '_' (common
         // in PFC tags like FOOD_AND_DRINK) or '%' isn't treated as a wildcard.
         $term = addcslashes((string)$opts['q'], '\\%_');
-        $where[] = "(t.merchant_name LIKE :q ESCAPE '\\\\'
-                     OR t.name LIKE :q ESCAPE '\\\\'
-                     OR COALESCE(t.category_override, t.pfc_primary) LIKE :q ESCAPE '\\\\')";
-        $params[':q'] = '%' . $term . '%';
+        // Distinct placeholders per occurrence — native prepares (emulation off) reject a
+        // reused named placeholder (HY093). See the category clause above.
+        $where[] = "(t.merchant_name LIKE :q1 ESCAPE '\\\\'
+                     OR t.name LIKE :q2 ESCAPE '\\\\'
+                     OR COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\')";
+        $params[':q1'] = $params[':q2'] = $params[':q3'] = '%' . $term . '%';
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
     $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending, t.note,
-                   COALESCE(t.category_override, t.pfc_primary) AS category,
+                   COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary) AS category,
                    " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
             FROM transactions t
             JOIN accounts a ON t.account_id = a.account_id
@@ -798,6 +845,39 @@ function attach_tx_meta(PDO $pdo, array &$rows): void
         $r['splits'] = $splitsByTx[$tid] ?? [];
     }
     unset($r);
+}
+
+/**
+ * Normalise a category-rule match value (#10): trim, strip the LIKE metacharacters
+ * `% _ \` (a merchant fragment never needs them, and leaving them in would let a stray
+ * `%` act as a wildcard in the RULE_MATCH `LIKE`), UPPER-case (the predicate compares
+ * UPPER(...)), and cap at 255. Returns '' for empty/garbage input (callers reject '').
+ * Shared by the write path (api/rules.php) so what's stored matches what RULE_MATCH compares.
+ */
+function normalize_rule_value(string $raw): string
+{
+    $v = trim($raw);
+    $v = str_replace(['%', '_', '\\'], '', $v);
+    $v = function_exists('mb_strtoupper') ? mb_strtoupper($v) : strtoupper($v);
+    return function_exists('mb_substr') ? mb_substr($v, 0, 255) : substr($v, 0, 255);
+}
+
+/**
+ * The household category-rule list (#10) for the management page. NOT VIS-scoped —
+ * `category_rules` is a shared household vocabulary (like `tags`/`budgets`), not
+ * per-account data. Each row carries a `match_count` (how many transactions the rule
+ * currently matches) so the owner can see a rule's reach; the count reuses the exact
+ * RULE_MATCH predicate (`t` = transactions, `cr` = the rule row) so it can't drift from
+ * what RULE_CAT actually applies. The count is global (it's an impact indicator, a bare
+ * number — no account detail is exposed).
+ */
+function q_category_rules(PDO $pdo): array
+{
+    $sql = "SELECT cr.id, cr.match_type, cr.match_value, cr.category, cr.priority, cr.created_by,
+                   (SELECT COUNT(*) FROM transactions t WHERE " . RULE_MATCH . ") AS match_count
+            FROM category_rules cr
+            ORDER BY cr.match_type, cr.match_value";
+    return $pdo->query($sql)->fetchAll();
 }
 
 /** Liabilities. Optionally scoped to one account. */

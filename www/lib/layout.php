@@ -20,6 +20,7 @@ function nav_items(): array
         ['key' => 'dashboard',    'href' => '/index.php',        'label' => 'Dashboard',     'icon' => 'home'],
         ['key' => 'transactions', 'href' => '/transactions.php', 'label' => 'Transactions',  'icon' => 'list'],
         ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart'],
+        ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Category rules', 'icon' => 'rules'],
         ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow'],
         ['key' => 'trends',       'href' => '/trends.php',       'label' => 'Spending trends', 'icon' => 'bars'],
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
@@ -51,6 +52,7 @@ function nav_icon(string $name): string
         'nest'   => '<ellipse cx="12" cy="10.5" rx="5" ry="6.5"/><path d="M4 15c1.8 2 4.7 3.2 8 3.2s6.2-1.2 8-3.2"/><path d="M12 7.5v3M10.5 9h3"/>',
         'calendar' => '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="M8 2v4"/><path d="M16 2v4"/>',
         'globe'  => '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.4 4 5.6 4 9s-1.4 6.6-4 9c-2.6-2.4-4-5.6-4-9s1.4-6.6 4-9z"/>',
+        'rules'  => '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';
@@ -167,9 +169,16 @@ function render_tx_meta(array $t): string
     $tags    = $t['tags']   ?? [];
     $splits  = $t['splits'] ?? [];
     $note    = (string)($t['note'] ?? '');
+    // Quick-rule (#10): the inline "+ rule" shortcut prefills from the row's merchant/
+    // description + its currently-shown category (the rule editor is wired by app.js
+    // initTxRules against api/rules.php). Offered only when there's something to match on.
+    $merch   = trim((string)($t['merchant_name'] ?? ''));
+    $rawName = trim((string)($t['name'] ?? ''));
+    $curCat  = (string)($t['category'] ?? '');
+    $canRule = ($merch !== '' || $rawName !== '');
     ob_start();
     ?>
-    <span class="tx-meta" data-tx="<?= e($tid) ?>" data-amount="<?= e(number_format($amt, 2, '.', '')) ?>" data-expense="<?= $expense ? '1' : '0' ?>">
+    <span class="tx-meta" data-tx="<?= e($tid) ?>" data-amount="<?= e(number_format($amt, 2, '.', '')) ?>" data-expense="<?= $expense ? '1' : '0' ?>" data-merchant="<?= e($merch) ?>" data-name="<?= e($rawName) ?>" data-cat="<?= e($curCat) ?>">
         <span class="tx-tags">
             <?php foreach ($tags as $tg): ?>
                 <span class="tag-chip" data-tag-id="<?= (int)$tg['id'] ?>">#<?= e($tg['name']) ?><button type="button" class="tag-x" data-tx="<?= e($tid) ?>" data-tag-id="<?= (int)$tg['id'] ?>" aria-label="Remove tag <?= e($tg['name']) ?>">×</button></span>
@@ -177,6 +186,9 @@ function render_tx_meta(array $t): string
             <button type="button" class="meta-btn tag-add-btn" data-tx="<?= e($tid) ?>">+ tag</button>
         </span>
         <button type="button" class="meta-btn note-btn<?= $note !== '' ? ' has-note' : '' ?>" data-tx="<?= e($tid) ?>"><?= $note !== '' ? e($note) : 'note' ?></button>
+        <?php if ($canRule): ?>
+            <button type="button" class="meta-btn rule-add-btn" data-tx="<?= e($tid) ?>" title="Always categorize this merchant — create a rule">+ rule</button>
+        <?php endif; ?>
         <?php if ($expense): ?>
             <?php $splitData = array_map(fn($s) => ['category' => $s['category'], 'amount' => (float)$s['amount']], $splits); ?>
             <button type="button" class="meta-btn split-btn<?= $splits ? ' is-split' : '' ?>" data-tx="<?= e($tid) ?>" data-splits="<?= e(json_encode($splitData, JSON_UNESCAPED_SLASHES)) ?>">Split<?= $splits ? ' (' . count($splits) . ')' : '' ?></button>
