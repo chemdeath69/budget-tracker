@@ -363,10 +363,16 @@ a.cat-row:hover { background: var(--surface-2); }
 .alert-card { padding: 4px 14px; }
 .alert-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; cursor: pointer; }
 .alert-card > .alert-row + .alert-row { border-top: 1px solid var(--line); }
-.alert-row.sub { padding-top: 10px; padding-left: 14px; cursor: default; }
+/* A number-input row belongs to the toggle directly above it: drop the divider +
+   top padding so it reads as a continuation, indent it slightly, lighter label. */
+.alert-card > .alert-row.sub { border-top: 0; padding-top: 0; padding-bottom: 14px; padding-left: 14px; cursor: default; }
 .alert-label { display: flex; flex-direction: column; gap: 2px; font-weight: 600; min-width: 0; }
+.alert-row.sub .alert-label { font-weight: 500; color: var(--ink-2); }
 .alert-sub { font-weight: 500; font-size: .8rem; }
-.alert-num { flex: none; width: 6.5rem; text-align: right; padding: 8px 10px; }
+/* The number inputs carry both .input (width:100%, defined later in this file) and
+   .alert-num; raise specificity here so the box stays compact instead of full-width
+   crushing the label. */
+.alert-card .alert-num { flex: none; width: 7rem; text-align: right; padding: 8px 10px; }
 /* Toggle switch built from a checkbox — theme-aware via the CSS vars. */
 .switch {
   appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0;
