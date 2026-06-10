@@ -2,6 +2,7 @@
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/auth.php';
+require __DIR__ . '/../lib/queries.php';   // normalize_tag() for the tag actions (#8)
 
 header('Content-Type: application/json');
 if (!is_logged_in()) {
@@ -24,6 +25,23 @@ $pdo = db();
 $uid = current_user_id();
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $action = $in['action'] ?? '';
+
+/** True if $uid may see this transaction (shared OR owns the Item; excludes hidden) — the
+ * same VIS rule q_transactions applies. Shared by the note/tag/split actions (#8) and
+ * mirrors the inline check recategorize uses. */
+function tx_visible(PDO $pdo, string $txId, int $uid): bool
+{
+    if ($txId === '') return false;
+    $st = $pdo->prepare(
+        'SELECT 1 FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE t.transaction_id = ?
+           AND (a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = ?))'
+    );
+    $st->execute([$txId, $uid]);
+    return (bool)$st->fetchColumn();
+}
 
 if ($action === 'visibility') {
     $accountId  = (string)($in['account_id'] ?? '');
@@ -132,6 +150,121 @@ if ($action === 'recategorize') {
     $pdo->prepare('UPDATE transactions SET category_override = ? WHERE transaction_id = ?')
         ->execute([$cat, $txId]);
     echo json_encode(['ok' => true, 'category' => $cat]);
+    exit;
+}
+
+if ($action === 'set_note') {
+    // Free-text note (#8) on a transaction. Stored in transactions.note (NOT in the
+    // sync UPSERT, so it survives re-sync like category_override). Blank → NULL.
+    $txId = (string)($in['transaction_id'] ?? '');
+    $note = trim((string)($in['note'] ?? ''));
+    $note = function_exists('mb_substr') ? mb_substr($note, 0, 500) : substr($note, 0, 500);
+    $store = $note === '' ? null : $note;
+
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pdo->prepare('UPDATE transactions SET note = ? WHERE transaction_id = ?')->execute([$store, $txId]);
+    echo json_encode(['ok' => true, 'note' => $store]);
+    exit;
+}
+
+if ($action === 'add_tag') {
+    // Attach a free-form tag (#8). Auto-creates the tag in the shared household
+    // vocabulary (INSERT IGNORE on the UNIQUE name), then links it to the tx.
+    $txId = (string)($in['transaction_id'] ?? '');
+    $name = normalize_tag((string)($in['tag'] ?? ''));
+    if ($name === '') { http_response_code(400); echo json_encode(['error' => 'empty tag']); exit; }
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pdo->prepare('INSERT IGNORE INTO tags (name, created_by) VALUES (?, ?)')->execute([$name, $uid]);
+    $g = $pdo->prepare('SELECT id FROM tags WHERE name = ?');
+    $g->execute([$name]);
+    $tagId = (int)$g->fetchColumn();
+    $pdo->prepare('INSERT IGNORE INTO transaction_tags (transaction_id, tag_id, created_by) VALUES (?, ?, ?)')
+        ->execute([$txId, $tagId, $uid]);
+    echo json_encode(['ok' => true, 'tag' => ['id' => $tagId, 'name' => $name]]);
+    exit;
+}
+
+if ($action === 'remove_tag') {
+    // Unlink a tag from a tx (#8). The tag stays in the vocabulary for reuse.
+    $txId  = (string)($in['transaction_id'] ?? '');
+    $tagId = (int)($in['tag_id'] ?? 0);
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pdo->prepare('DELETE FROM transaction_tags WHERE transaction_id = ? AND tag_id = ?')->execute([$txId, $tagId]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if ($action === 'set_splits') {
+    // Replace a transaction's split set (#8). Splits DRIVE the spend math (the
+    // aggregation LEFT JOIN drops no remainder), so they must sum to the parent
+    // amount. Only an expense (amount > 0) can be split. Empty array = un-split.
+    $txId   = (string)($in['transaction_id'] ?? '');
+    $splits = is_array($in['splits'] ?? null) ? $in['splits'] : [];
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pa = $pdo->prepare('SELECT amount FROM transactions WHERE transaction_id = ?');
+    $pa->execute([$txId]);
+    $parentRaw = $pa->fetchColumn();
+    if ($parentRaw === false) { http_response_code(404); echo json_encode(['error' => 'transaction not found']); exit; }
+    $parent = (float)$parentRaw;
+
+    // A split sub-categorises an EXPENSE across spending categories. Disallow inflow/
+    // transfer categories: the five true-expense aggregations exclude TRANSFER_IN/OUT
+    // per-split, so a split tagged as a transfer would silently drop that slice of real
+    // spend from cash-flow/trends/digest/anomaly/budget math (Session 30 review fix #2).
+    $SPLIT_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
+
+    // Normalise + validate the rows.
+    $clean = [];
+    $sum   = 0.0;
+    foreach ($splits as $s) {
+        $cat = strtoupper(trim((string)($s['category'] ?? '')));
+        $amt = round((float)($s['amount'] ?? 0), 2);
+        $sn  = trim((string)($s['note'] ?? ''));
+        $sn  = function_exists('mb_substr') ? mb_substr($sn, 0, 255) : substr($sn, 0, 255);
+        if ($cat === '' || $amt <= 0) continue;
+        if (in_array($cat, $SPLIT_CAT_BLOCKED, true)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'a split cannot use a transfer or income category', 'category' => $cat]);
+            exit;
+        }
+        $clean[] = ['category' => $cat, 'amount' => $amt, 'note' => ($sn === '' ? null : $sn)];
+        $sum += $amt;
+    }
+
+    if ($clean) {
+        if ($parent <= 0) { http_response_code(422); echo json_encode(['error' => 'only an expense can be split']); exit; }
+        if (count($clean) < 2) { http_response_code(422); echo json_encode(['error' => 'a split needs at least two parts']); exit; }
+        if (abs($sum - $parent) >= 0.005) {
+            http_response_code(422);
+            echo json_encode(['error' => 'splits must sum to the transaction amount',
+                              'expected' => round($parent, 2), 'got' => round($sum, 2)]);
+            exit;
+        }
+    }
+
+    // Replace atomically (delete existing → insert the new set; empty = un-split).
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('DELETE FROM transaction_splits WHERE transaction_id = ?')->execute([$txId]);
+        if ($clean) {
+            $ins = $pdo->prepare(
+                'INSERT INTO transaction_splits (transaction_id, category, amount, note, created_by)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            foreach ($clean as $c) { $ins->execute([$txId, $c['category'], $c['amount'], $c['note'], $uid]); }
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        http_response_code(500);
+        echo json_encode(['error' => 'could not save splits']);
+        exit;
+    }
+    echo json_encode(['ok' => true, 'splits' => count($clean)]);
     exit;
 }
 

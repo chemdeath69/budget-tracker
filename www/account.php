@@ -43,6 +43,8 @@ $txRowsRaw = q_transactions($pdo, $uid, $txFilters + [
 ]);
 $txHasNext = count($txRowsRaw) > PAGE_SIZE;
 $txns      = array_slice($txRowsRaw, 0, PAGE_SIZE);
+attach_tx_meta($pdo, $txns);   // notes/tags/splits for the page (#8)
+$tagOptions = all_tags($pdo);  // add-tag autocomplete vocabulary (#8)
 $txExport  = '/api/export.php?' . http_build_query(['account_id' => $accountId] + $txFilters);
 
 $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
@@ -356,6 +358,7 @@ render_header($acct['name'] ?: 'Account', '', [
                     <span class="tx-date"><?= e($t['date']) ?></span>
                     <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
                 </span>
+                <?= render_tx_meta($t) ?>
             </span>
             <span class="row-amt <?= $amt < 0 ? 'pos' : '' ?>"><?= $amt < 0 ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>
         </div>
@@ -368,5 +371,6 @@ render_header($acct['name'] ?: 'Account', '', [
 </div><!-- /.cols aside -->
 
 <script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES) ?></script>
+<script type="application/json" id="tag-options"><?= json_encode($tagOptions, JSON_UNESCAPED_SLASHES) ?></script>
 
 <?php render_footer(); ?>

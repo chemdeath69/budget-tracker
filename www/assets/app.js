@@ -510,6 +510,204 @@ function initAlertSettings() {
   controls.forEach(el => el.addEventListener('change', save));
 }
 
+/* ---- Transaction notes (#8) ---------------------------------------------- */
+/* Click a `.note-btn[data-tx]` → inline input prefilled with the current note;
+   Enter / blur commits `action=set_note`, Escape cancels. The button is rebuilt
+   reflecting the saved note (blank → "note" placeholder). */
+function initTxNotes() {
+  $$('.note-btn[data-tx]').forEach(btn => btn.addEventListener('click', () => openNoteInput(btn)));
+}
+function openNoteInput(btn) {
+  const tx = btn.dataset.tx;
+  const current = btn.classList.contains('has-note') ? btn.textContent : '';
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'note-input'; input.maxLength = 500;
+  input.placeholder = 'Add a note…'; input.value = current;
+  btn.replaceWith(input);
+
+  let done = false, busy = false;
+  const finish = text => {
+    if (done) return; done = true;
+    const nb = document.createElement('button');
+    nb.type = 'button';
+    nb.className = 'meta-btn note-btn' + (text ? ' has-note' : '');
+    nb.dataset.tx = tx;
+    nb.textContent = text || 'note';
+    nb.addEventListener('click', () => openNoteInput(nb));
+    if (input.isConnected) input.replaceWith(nb);
+  };
+  const commit = async () => {
+    if (busy || done) return; busy = true;
+    const val = input.value.trim();
+    if (val === current) { finish(current); return; }
+    const out = await postJSON('/api/account.php', { action: 'set_note', transaction_id: tx, note: val });
+    finish(out && out.ok ? (out.note || '') : current);
+  };
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { finish(current); }
+  });
+  input.addEventListener('blur', () => commit());
+  input.focus();
+}
+
+/* ---- Transaction tags (#8) ----------------------------------------------- */
+let TAG_OPTIONS = [];
+function makeTagChip(tx, id, name) {
+  const chip = document.createElement('span');
+  chip.className = 'tag-chip';
+  chip.dataset.tagId = id;
+  chip.textContent = '#' + name;
+  const x = document.createElement('button');
+  x.type = 'button'; x.className = 'tag-x';
+  x.dataset.tx = tx; x.dataset.tagId = id;
+  x.setAttribute('aria-label', 'Remove tag ' + name);
+  x.textContent = '×';
+  chip.appendChild(x);
+  return chip;
+}
+function initTxTags() {
+  const el = document.getElementById('tag-options');
+  if (el) { try { TAG_OPTIONS = JSON.parse(el.textContent) || []; } catch (e) { TAG_OPTIONS = []; } }
+  if (!$('.tx-meta')) return;
+  // Shared autocomplete datalist for the add-tag input.
+  if (TAG_OPTIONS.length && !$('#tag-datalist')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'tag-datalist';
+    TAG_OPTIONS.forEach(t => dl.appendChild(new Option(t, t)));
+    document.body.appendChild(dl);
+  }
+  // Remove a tag — delegated so dynamically-added chips work too.
+  document.addEventListener('click', async e => {
+    const x = e.target.closest('.tag-x');
+    if (!x) return;
+    e.preventDefault();
+    const out = await postJSON('/api/account.php', { action: 'remove_tag', transaction_id: x.dataset.tx, tag_id: Number(x.dataset.tagId) });
+    if (out && out.ok) { const chip = x.closest('.tag-chip'); chip && chip.remove(); }
+  });
+  $$('.tag-add-btn[data-tx]').forEach(btn => btn.addEventListener('click', () => openTagInput(btn)));
+}
+function openTagInput(btn) {
+  const tx = btn.dataset.tx;
+  const wrap = btn.parentElement;   // .tx-tags
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'tag-input'; input.placeholder = 'tag…';
+  if ($('#tag-datalist')) input.setAttribute('list', 'tag-datalist');
+  btn.replaceWith(input);
+
+  let done = false;
+  const finish = () => { if (done) return; done = true; if (input.isConnected) input.replaceWith(btn); };
+  const commit = async () => {
+    const val = input.value.trim();
+    if (!val) { finish(); return; }
+    const out = await postJSON('/api/account.php', { action: 'add_tag', transaction_id: tx, tag: val });
+    if (!input.isConnected) return;
+    if (out && out.ok && out.tag) {
+      if (!wrap.querySelector('.tag-chip[data-tag-id="' + out.tag.id + '"]')) {
+        wrap.insertBefore(makeTagChip(tx, out.tag.id, out.tag.name), input);
+      }
+      if (!TAG_OPTIONS.includes(out.tag.name)) TAG_OPTIONS.push(out.tag.name);
+      input.value = '';
+      input.focus();   // allow adding several in a row
+    } else {
+      toast((out && out.error) || 'Could not add tag');
+    }
+  };
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { finish(); }
+  });
+  input.addEventListener('blur', () => setTimeout(finish, 150));
+  input.focus();
+}
+
+/* ---- Transaction splits (#8) --------------------------------------------- */
+/* Click `.split-btn[data-tx]` → inline editor of {category, amount} parts. The
+   parts MUST sum to the parent amount (the server enforces it too) — Save stays
+   disabled until the remainder is 0. Reuses CATEGORY_OPTIONS (loaded by
+   initRecategorize). Save / Un-split reload so the spend figures + row refresh. */
+function initTxSplits() {
+  $$('.split-btn[data-tx]').forEach(btn => btn.addEventListener('click', () => openSplitEditor(btn)));
+}
+function openSplitEditor(btn) {
+  const meta = btn.closest('.tx-meta');
+  if (!meta) return;
+  const open = meta.querySelector('.split-panel');
+  if (open) { open.remove(); return; }   // toggle closed
+
+  const tx = btn.dataset.tx;
+  const total = Math.abs(Number(meta.dataset.amount) || 0);
+  let initial = [];
+  try { initial = JSON.parse(btn.dataset.splits || '[]') || []; } catch (e) { initial = []; }
+
+  const panel = document.createElement('div');
+  panel.className = 'split-panel';
+  panel.innerHTML =
+    '<div class="split-rows"></div>' +
+    '<div class="split-foot">' +
+      '<button type="button" class="btn-ghost split-add">+ part</button>' +
+      '<span class="split-remainder"></span>' +
+      '<button type="button" class="btn-ghost split-clear">Un-split</button>' +
+      '<button type="button" class="btn split-save">Save</button>' +
+    '</div>';
+  const rowsWrap = panel.querySelector('.split-rows');
+  const remEl = panel.querySelector('.split-remainder');
+  const saveBtn = panel.querySelector('.split-save');
+
+  const gather = () => $$('.split-row', panel).map(r => ({
+    category: r.querySelector('.split-cat').value,
+    amount: Number(r.querySelector('.split-amt').value) || 0,
+  }));
+  const recalc = () => {
+    const parts = gather();
+    const sum = parts.reduce((a, p) => a + p.amount, 0);
+    const rem = Math.round((total - sum) * 100) / 100;
+    remEl.textContent = (rem === 0 ? 'Balanced' : 'Remaining ' + usd(rem)) + ' of ' + usd(total);
+    remEl.classList.toggle('ok', rem === 0);
+    saveBtn.disabled = !(parts.length >= 2 && rem === 0 && parts.every(p => p.category && p.amount > 0));
+  };
+  // A split sub-categorises an expense — never a transfer/income (the server rejects
+  // those too; keeping the dropdown in lock-step avoids a confusing 422).
+  const SPLIT_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
+  const addRow = (cat = '', amt = '') => {
+    const row = document.createElement('div');
+    row.className = 'split-row';
+    const sel = document.createElement('select');
+    sel.className = 'select split-cat';
+    sel.add(new Option('— category —', ''));
+    CATEGORY_OPTIONS.filter(c => !SPLIT_CAT_BLOCKED.includes(c.value)).forEach(c => { const o = new Option(c.label, c.value); if (c.value === cat) o.selected = true; sel.add(o); });
+    if (cat && !CATEGORY_OPTIONS.some(c => c.value === cat)) { const o = new Option(prettyCat(cat), cat); o.selected = true; sel.add(o); }
+    const amtIn = document.createElement('input');
+    amtIn.type = 'number'; amtIn.step = '0.01'; amtIn.min = '0';
+    amtIn.className = 'input split-amt'; amtIn.value = amt; amtIn.placeholder = '0.00';
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'split-del'; del.textContent = '×'; del.setAttribute('aria-label', 'Remove part');
+    row.append(sel, amtIn, del);
+    rowsWrap.appendChild(row);
+    sel.addEventListener('change', recalc);
+    amtIn.addEventListener('input', recalc);
+    del.addEventListener('click', () => { row.remove(); recalc(); });
+  };
+
+  if (initial.length) initial.forEach(s => addRow(s.category, (Math.round(Number(s.amount) * 100) / 100).toFixed(2)));
+  else { addRow(); addRow(); }
+  recalc();
+
+  panel.querySelector('.split-add').addEventListener('click', () => { addRow(); recalc(); });
+  panel.querySelector('.split-clear').addEventListener('click', async () => {
+    const out = await postJSON('/api/account.php', { action: 'set_splits', transaction_id: tx, splits: [] });
+    if (out && out.ok) location.reload(); else toast((out && out.error) || 'Could not clear splits');
+  });
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    const out = await postJSON('/api/account.php', { action: 'set_splits', transaction_id: tx, splits: gather() });
+    if (out && out.ok) location.reload();
+    else { toast((out && out.error) || 'Could not save splits'); recalc(); }
+  });
+
+  meta.appendChild(panel);
+}
+
 function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
 
 /* ---- Boot ---------------------------------------------------------------- */
@@ -525,3 +723,6 @@ initStatementCadence();
 initRefresh();
 initBudgets();
 initAlertSettings();
+initTxNotes();
+initTxTags();
+initTxSplits();

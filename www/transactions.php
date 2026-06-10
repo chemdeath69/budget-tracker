@@ -11,17 +11,20 @@ $uid = current_user_id();
 
 $accounts   = q_accounts($pdo, $uid);
 $catOptions = transaction_category_options($pdo, $uid);
+$tagOptions = all_tags($pdo);   // tag vocabulary for the filter + add-tag autocomplete (#8)
 
 // Server-side filters (each applied in q_transactions) + pagination.
 $page  = page_num();
 $fAcct = trim((string)($_GET['account_id'] ?? ''));
 $fCat  = trim((string)($_GET['category'] ?? ''));
+$fTag  = trim((string)($_GET['tag'] ?? ''));
 $fFrom = trim((string)($_GET['from'] ?? ''));
 $fTo   = trim((string)($_GET['to'] ?? ''));
 $fQ    = trim((string)($_GET['q'] ?? ''));
 $filters = array_filter([
     'account_id' => $fAcct,
     'category'   => $fCat,
+    'tag'        => $fTag,
     'from'       => $fFrom,
     'to'         => $fTo,
     'q'          => $fQ,
@@ -32,6 +35,7 @@ $hasFilters = (bool)$filters;
 $rows    = q_transactions($pdo, $uid, $filters + ['limit' => PAGE_SIZE + 1, 'offset' => page_offset($page)]);
 $hasNext = count($rows) > PAGE_SIZE;
 $txns    = array_slice($rows, 0, PAGE_SIZE);
+attach_tx_meta($pdo, $txns);   // notes/tags/splits for the page (#8)
 
 // CSV export honours the active filters (same param names as api/export.php).
 $exportHref = '/api/export.php' . ($filters ? '?' . http_build_query($filters) : '');
@@ -57,6 +61,14 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
                 <option value="<?= e($o['value']) ?>"<?= $fCat === $o['value'] ? ' selected' : '' ?>><?= e($o['label']) ?></option>
             <?php endforeach; ?>
         </select>
+        <?php if ($tagOptions): ?>
+        <select name="tag" class="select" data-autosubmit aria-label="Filter by tag">
+            <option value="">All tags</option>
+            <?php foreach ($tagOptions as $tg): ?>
+                <option value="<?= e($tg) ?>"<?= $fTag === $tg ? ' selected' : '' ?>>#<?= e($tg) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
         <input type="date" name="from" class="input date-input" value="<?= e($fFrom) ?>" data-autosubmit aria-label="From date">
         <input type="date" name="to" class="input date-input" value="<?= e($fTo) ?>" data-autosubmit aria-label="To date">
         <button class="btn-ghost" type="submit">Filter</button>
@@ -98,6 +110,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
                         <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
                         <span class="muted">· <?= e($acctLabel) ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>
                     </span>
+                    <?= render_tx_meta($t) ?>
                 </span>
                 <span class="row-amt <?= $amt < 0 ? 'pos' : '' ?>"><?= $amt < 0 ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>
             </div>
@@ -108,5 +121,6 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
 <?php endif; ?>
 
 <script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES) ?></script>
+<script type="application/json" id="tag-options"><?= json_encode($tagOptions, JSON_UNESCAPED_SLASHES) ?></script>
 
 <?php render_footer(); ?>

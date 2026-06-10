@@ -91,6 +91,7 @@ CREATE TABLE transactions (
   pfc_primary             VARCHAR(64) NULL,        -- personal_finance_category.primary
   pfc_detailed            VARCHAR(96) NULL,        -- personal_finance_category.detailed
   category_override       VARCHAR(96) NULL,        -- manual; survives re-sync
+  note                    VARCHAR(500) NULL,       -- free-text user note (#8); survives re-sync (not in sync UPSERT)
   payment_channel         VARCHAR(32) NULL,
   ext_source              VARCHAR(16) NULL,        -- manual feed origin (e.g. 'webull'); NULL = Plaid
   ext_period              VARCHAR(16) NULL,        -- doc bucket key (e.g. '2026-05'); scopes re-ingest
@@ -107,7 +108,7 @@ CREATE TABLE transactions (
   CONSTRAINT fk_tx_account FOREIGN KEY (account_id) REFERENCES accounts(account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- Upsert from sync: INSERT ... ON DUPLICATE KEY UPDATE everything EXCEPT
--- category_override and large_tx_alerted (preserve those). 'removed' => DELETE by id.
+-- category_override, note and large_tx_alerted (preserve those). 'removed' => DELETE by id.
 -- Manual rows carry ext_source/ext_period so a re-uploaded document can replace
 -- exactly its own bucket. Spending/budget queries exclude rows where ext_source
 -- IS NOT NULL (brokerage trades/cash moves are not household "spending").
@@ -523,4 +524,45 @@ CREATE TABLE fred_series (
   value       DECIMAL(14,4) NOT NULL,                 -- index level or percent, per series
   fetched_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (series_id, obs_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- transaction annotations (#8, migration 015) — notes/tags/splits. The `note`
+-- column lives on `transactions` (above); these are the tag vocabulary + the two
+-- child tables. All FK to transactions(transaction_id) ON DELETE CASCADE so a Plaid
+-- 'removed' tx cleans up its annotations. Splits "explode" a parent in the spend
+-- aggregations (LEFT JOIN transaction_splits in queries.php) — the split amounts MUST
+-- sum to the parent amount (enforced at write in api/account.php; the LEFT JOIN drops
+-- no remainder). tags are a household-shared free-form vocabulary.
+CREATE TABLE tags (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name        VARCHAR(48)  NOT NULL,                  -- normalised: lowercase, [a-z0-9-], no leading '#'
+  created_by  INT UNSIGNED NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_tag_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE transaction_tags (
+  transaction_id VARCHAR(64)  NOT NULL,
+  tag_id         INT UNSIGNED NOT NULL,
+  created_by     INT UNSIGNED NULL,
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (transaction_id, tag_id),
+  KEY idx_txtag_tag (tag_id),
+  CONSTRAINT fk_txtag_tx  FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+  CONSTRAINT fk_txtag_tag FOREIGN KEY (tag_id)         REFERENCES tags(id)                     ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE transaction_splits (
+  id             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  transaction_id VARCHAR(64)   NOT NULL,
+  category       VARCHAR(96)   NOT NULL,              -- PFC-style tag, like category_override
+  amount         DECIMAL(15,2) NOT NULL,              -- positive portion; splits sum to the parent amount
+  note           VARCHAR(255)  NULL,
+  created_by     INT UNSIGNED  NULL,
+  created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_split_tx (transaction_id),
+  CONSTRAINT fk_split_tx FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

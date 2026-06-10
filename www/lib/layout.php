@@ -147,6 +147,63 @@ function render_pager(int $page, bool $hasNext, array $params = [], string $para
 }
 
 /**
+ * Shared per-transaction metadata strip (#8) — tags, note + split affordances — shown
+ * under a transaction row on transactions.php + account.php so both stay identical.
+ * Expects a row already passed through attach_tx_meta() (queries.php), i.e. $t['tags']
+ * (= [['id','name'],…]), $t['splits'] (= [['category','amount','note'],…]) and the
+ * selected $t['note'] are present. Returns an HTML string the caller echoes inside
+ * .row-main. The interactive parts are wired by app.js (initTxTags / initTxNotes /
+ * initTxSplits) against api/account.php — the data-* attributes are the contract:
+ *   .tx-meta[data-tx][data-amount][data-expense]  · .tag-chip[data-tag-id] + .tag-x
+ *   · .tag-add-btn · .note-btn · .split-btn. Splits are offered only on an expense
+ *   (amount > 0 = money OUT); data-amount is the positive parent total the split
+ *   editor must reconcile to. pretty_cat()/usd() come from queries.php (loaded first).
+ */
+function render_tx_meta(array $t): string
+{
+    $tid     = (string)($t['transaction_id'] ?? '');
+    $amt     = (float)($t['amount'] ?? 0);
+    $expense = $amt > 0;                       // Plaid sign: + = money OUT
+    $tags    = $t['tags']   ?? [];
+    $splits  = $t['splits'] ?? [];
+    $note    = (string)($t['note'] ?? '');
+    ob_start();
+    ?>
+    <span class="tx-meta" data-tx="<?= e($tid) ?>" data-amount="<?= e(number_format($amt, 2, '.', '')) ?>" data-expense="<?= $expense ? '1' : '0' ?>">
+        <span class="tx-tags">
+            <?php foreach ($tags as $tg): ?>
+                <span class="tag-chip" data-tag-id="<?= (int)$tg['id'] ?>">#<?= e($tg['name']) ?><button type="button" class="tag-x" data-tx="<?= e($tid) ?>" data-tag-id="<?= (int)$tg['id'] ?>" aria-label="Remove tag <?= e($tg['name']) ?>">×</button></span>
+            <?php endforeach; ?>
+            <button type="button" class="meta-btn tag-add-btn" data-tx="<?= e($tid) ?>">+ tag</button>
+        </span>
+        <button type="button" class="meta-btn note-btn<?= $note !== '' ? ' has-note' : '' ?>" data-tx="<?= e($tid) ?>"><?= $note !== '' ? e($note) : 'note' ?></button>
+        <?php if ($expense): ?>
+            <?php $splitData = array_map(fn($s) => ['category' => $s['category'], 'amount' => (float)$s['amount']], $splits); ?>
+            <button type="button" class="meta-btn split-btn<?= $splits ? ' is-split' : '' ?>" data-tx="<?= e($tid) ?>" data-splits="<?= e(json_encode($splitData, JSON_UNESCAPED_SLASHES)) ?>">Split<?= $splits ? ' (' . count($splits) . ')' : '' ?></button>
+        <?php endif; ?>
+        <?php if ($splits): ?>
+            <?php
+            // Splits drive spend ONLY while they still reconcile with the parent amount
+            // (queries.php SPLIT_JOIN). If a Plaid re-sync changed the amount under the
+            // splits, they've gone stale → the spend math falls back to the parent, so
+            // flag it here rather than silently showing a split that no longer counts.
+            $splitSum = 0.0;
+            foreach ($splits as $sp) { $splitSum += (float)$sp['amount']; }
+            $stale = abs($splitSum - abs($amt)) >= 0.005;
+            ?>
+            <span class="split-summary<?= $stale ? ' is-stale' : '' ?>"><?php
+                $parts = [];
+                foreach ($splits as $sp) { $parts[] = e(pretty_cat($sp['category'])) . ' ' . e(usd((float)$sp['amount'])); }
+                echo implode(' · ', $parts);
+                if ($stale) echo ' <span class="split-stale" title="The transaction amount changed after this split was set — the split no longer matches, so it isn\'t counted. Edit it to re-balance.">⚠ amount changed — review</span>';
+            ?></span>
+        <?php endif; ?>
+    </span>
+    <?php
+    return (string)ob_get_clean();
+}
+
+/**
  * Emit the document head + banner + drawer and open <main>.
  *  $active = nav key to highlight.
  *  $opts: ['chart'=>bool, 'back'=>?string url, 'subtitle'=>string, 'narrow'=>bool]

@@ -26,6 +26,42 @@ const VIS = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id
 const ACCT_NAME = "COALESCE(NULLIF(a.display_name, ''), a.name)";
 
 /**
+ * Split-explosion primitives (#8, migration 015). A transaction can be split
+ * across categories (transaction_splits). To make splits DRIVE the spend math, the
+ * six spend aggregations LEFT JOIN transaction_splits and use these two expressions
+ * instead of the bare category-coalesce / `t.amount`:
+ *
+ *   FROM transactions t … SPLIT_JOIN
+ *     - a tx with N splits explodes into N rows (each split's category + amount)
+ *     - a tx with 0 splits stays 1 row (s.id IS NULL → EFF_CAT = the old coalesce,
+ *       EFF_AMT = t.amount) — so behaviour is byte-for-byte unchanged when unsplit.
+ *
+ * The per-category transfer/CC-payment exclusions then apply PER SPLIT (correct).
+ * Sign predicates (t.amount > 0 / < 0) stay on the PARENT. The split amounts are
+ * enforced to sum to the parent amount at write time (api/account.php), so the
+ * LEFT JOIN never drops a remainder. Requires `transactions` aliased `t`.
+ *
+ * ⚠️ SELF-RECONCILING (Session 30 review fix #1): the write-time sum-to-parent gate
+ * runs ONCE, but `transactions.amount` is later UPSERT-updated in place by a Plaid
+ * re-sync (lib/sync.php `amount=VALUES(amount)`) while the splits are never re-touched
+ * — so a same-id amount revision would leave stale splits that no longer sum to the
+ * parent, and the aggregations would silently total the OLD amount. The join therefore
+ * only explodes a transaction whose splits STILL reconcile with its current amount (a
+ * non-correlated subquery of reconciling tx ids, computed once). A tx whose splits have
+ * gone stale falls back to its parent amount/category (s.id IS NULL → EFF_* = parent),
+ * so the spend math always reflects the real `t.amount`. (render_tx_meta() badges the
+ * stale split for the user.)
+ */
+const SPLIT_JOIN = 'LEFT JOIN transaction_splits s ON s.transaction_id = t.transaction_id '
+    . 'AND s.transaction_id IN ('
+    . '  SELECT sr.transaction_id FROM transaction_splits sr '
+    . '  JOIN transactions tr ON tr.transaction_id = sr.transaction_id '
+    . '  GROUP BY sr.transaction_id, tr.amount '
+    . '  HAVING ABS(SUM(sr.amount) - tr.amount) < 0.005)';
+const EFF_CAT    = "COALESCE(s.category, t.category_override, t.pfc_primary, 'UNCATEGORIZED')";
+const EFF_AMT    = "(CASE WHEN s.id IS NULL THEN t.amount ELSE s.amount END)";
+
+/**
  * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
  * Used by is_retirement_account() + q_retirement_accounts() so Plaid-linked IRAs /
  * 401(k)s / pensions land on the Retirement page (not the Investments page) without
@@ -257,14 +293,15 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
 function q_spending(PDO $pdo, int $uid, int $days = 30): array
 {
     $st = $pdo->prepare(
-        "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(t.amount) AS total
+        "SELECT " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS total
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
-         GROUP BY category
+         GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
@@ -305,16 +342,17 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 function q_digest_spending(PDO $pdo, int $days = 7): array
 {
     $st = $pdo->prepare(
-        "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(t.amount) AS total
+        "SELECT " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS total
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
+         " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
-         GROUP BY category
+         GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
     $st->bindValue(':d', $days, PDO::PARAM_INT);
@@ -386,16 +424,17 @@ function q_spend_anomalies(PDO $pdo): array
 
     $st = $pdo->prepare(
         "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
-                COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(CASE WHEN DAY(t.date) <= :dom THEN t.amount ELSE 0 END) AS mtd
+                " . EFF_CAT . " AS category,
+                SUM(CASE WHEN DAY(t.date) <= :dom THEN " . EFF_AMT . " ELSE 0 END) AS mtd
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
+         " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
-         GROUP BY ym, category"
+         GROUP BY ym, " . EFF_CAT
     );
     $st->bindValue(':start', $start);
     $st->bindValue(':dom', $dom, PDO::PARAM_INT);
@@ -459,13 +498,14 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
 
     $st = $pdo->prepare(
         "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
-                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END)  AS expense,
-                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS income
+                SUM(CASE WHEN t.amount > 0 THEN " . EFF_AMT . " ELSE 0 END)  AS expense,
+                SUM(CASE WHEN t.amount < 0 THEN -" . EFF_AMT . " ELSE 0 END) AS income
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.ext_source IS NULL
-           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
          GROUP BY ym"
@@ -530,17 +570,18 @@ function q_spending_trend(PDO $pdo, int $uid, int $months = 12): array
 
     $st = $pdo->prepare(
         "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
-                COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(t.amount) AS total,
-                SUM(CASE WHEN DAY(t.date) <= :dom THEN t.amount ELSE 0 END) AS mtd
+                " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS total,
+                SUM(CASE WHEN DAY(t.date) <= :dom THEN " . EFF_AMT . " ELSE 0 END) AS mtd
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
-         GROUP BY ym, category"
+         GROUP BY ym, " . EFF_CAT
     );
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
     $st->bindValue(':start', $start);
@@ -637,9 +678,21 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     }
     if (!empty($opts['category'])) {
         // Third fallback to 'UNCATEGORIZED' mirrors q_spending/q_budgets so a
-        // category click-through on rows with no PFC at all still matches.
-        $where[] = "COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') = :cat";
+        // category click-through on rows with no PFC at all still matches. Also
+        // match a SPLIT category (#8) — a split drives the category in the spend
+        // aggregations, so the drill-through from spending/trends must surface a
+        // transaction whose split (not its parent) carries the clicked category.
+        $where[] = "(COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') = :cat
+                     OR EXISTS (SELECT 1 FROM transaction_splits s
+                                WHERE s.transaction_id = t.transaction_id AND s.category = :cat))";
         $params[':cat'] = (string)$opts['category'];
+    }
+    if (!empty($opts['tag'])) {
+        // Free-form tag filter (#8) — EXISTS keeps it one row per transaction (no
+        // JOIN fan-out). Tag names are stored normalised (normalize_tag()).
+        $where[] = "EXISTS (SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
+                            WHERE tt.transaction_id = t.transaction_id AND tg.name = :tag)";
+        $params[':tag'] = normalize_tag((string)$opts['tag']);
     }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
@@ -654,7 +707,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
-    $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending,
+    $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pending, t.note,
                    COALESCE(t.category_override, t.pfc_primary) AS category,
                    " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
             FROM transactions t
@@ -666,6 +719,85 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * Normalise a free-form tag (#8): strip a leading '#', lowercase, collapse internal
+ * whitespace to '-', drop anything but [a-z0-9-], trim stray dashes, cap at 32 chars.
+ * Returns '' for an empty/garbage tag (callers reject ''). Shared by the write path
+ * (api/account.php add_tag), the read filter (q_transactions 'tag' opt) and all_tags.
+ */
+function normalize_tag(string $raw): string
+{
+    $t = strtolower(trim($raw));
+    $t = ltrim($t, '#');
+    $t = preg_replace('/\s+/', '-', $t);
+    $t = preg_replace('/[^a-z0-9-]/', '', (string)$t);
+    $t = trim((string)$t, '-');
+    return substr($t, 0, 32);
+}
+
+/**
+ * The household tag vocabulary (#8) — every tag name, alphabetical. Used to populate
+ * the add-tag autocomplete datalist + the transactions tag filter. NOT VIS-scoped:
+ * `tags` is a shared household vocabulary (like categories), not per-account data.
+ */
+function all_tags(PDO $pdo): array
+{
+    return $pdo->query('SELECT name FROM tags ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/**
+ * Bulk-attach notes/tags/splits metadata (#8) to a page of transaction rows fetched
+ * by q_transactions (or any list carrying `transaction_id`). Loads tags + splits for
+ * the whole page in two `IN (…)` queries (no per-row N+1) and sets, on each row:
+ *   $row['tags']   => [['id'=>int,'name'=>str], …]            (alphabetical)
+ *   $row['splits'] => [['category'=>str,'amount'=>float,'note'=>?str], …]
+ * `note` is already selected by q_transactions. Mutates $rows in place. The rows are
+ * already VIS-scoped by the feeding query, so this needs no visibility clause.
+ */
+function attach_tx_meta(PDO $pdo, array &$rows): void
+{
+    if (!$rows) return;
+    $ids = [];
+    foreach ($rows as $r) { if (!empty($r['transaction_id'])) $ids[] = $r['transaction_id']; }
+    if (!$ids) return;
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+
+    $tagsByTx = [];
+    $ts = $pdo->prepare(
+        "SELECT tt.transaction_id, tg.id, tg.name
+         FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
+         WHERE tt.transaction_id IN ($ph)
+         ORDER BY tg.name"
+    );
+    $ts->execute($ids);
+    foreach ($ts->fetchAll() as $row) {
+        $tagsByTx[$row['transaction_id']][] = ['id' => (int)$row['id'], 'name' => $row['name']];
+    }
+
+    $splitsByTx = [];
+    $ss = $pdo->prepare(
+        "SELECT transaction_id, category, amount, note
+         FROM transaction_splits
+         WHERE transaction_id IN ($ph)
+         ORDER BY id"
+    );
+    $ss->execute($ids);
+    foreach ($ss->fetchAll() as $row) {
+        $splitsByTx[$row['transaction_id']][] = [
+            'category' => $row['category'],
+            'amount'   => (float)$row['amount'],
+            'note'     => $row['note'],
+        ];
+    }
+
+    foreach ($rows as &$r) {
+        $tid = $r['transaction_id'] ?? '';
+        $r['tags']   = $tagsByTx[$tid]   ?? [];
+        $r['splits'] = $splitsByTx[$tid] ?? [];
+    }
+    unset($r);
 }
 
 /** Liabilities. Optionally scoped to one account. */
@@ -932,10 +1064,11 @@ function q_budgets(PDO $pdo): array
     // spend — join accounts to drop them. (Private accounts still count: the budget
     // is a shared household figure; only 'hidden' is registered nowhere.)
     $rows = $pdo->prepare(
-        "SELECT COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') AS category,
-                SUM(t.amount) AS spent
+        "SELECT " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS spent
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
+         " . SPLIT_JOIN . "
          WHERE t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND a.visibility <> 'hidden'
            -- Same true-expense exclusions as q_cashflow / q_spending_trend /
@@ -943,11 +1076,12 @@ function q_budgets(PDO $pdo): array
            -- credit-card payments must not inflate a category's budget spend
            -- (Session 28 — else a budget on a transfer/CC-payment category would
            -- over-count and fire a false budget-exceeded alert). 3-arg COALESCE so
-           -- a NULL category isn't dropped by `NULL NOT IN (...)`.
-           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           -- a NULL category isn't dropped by `NULL NOT IN (...)`. Splits (#8) drive
+           -- the spend via EFF_CAT/EFF_AMT, so a budgeted split category counts here.
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND DATE_FORMAT(t.date, '%Y-%m') = :m
-         GROUP BY category"
+         GROUP BY " . EFF_CAT
     );
     $rows->execute([':m' => $month]);
     $spent = [];
