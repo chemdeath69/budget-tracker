@@ -169,21 +169,29 @@ CREATE TABLE holdings (
   CONSTRAINT fk_holding_security FOREIGN KEY (security_id) REFERENCES securities(security_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- investment_transactions — buy/sell lots with qty + price (Webull parser fills
--- these; the transactions table only keeps net cash). Used to DERIVE per-position
--- cost basis (average cost) → holdings.cost_basis. See migration 003 + webull.php.
+-- investment_transactions — investment activity with qty + price.
+--   * Webull (manual): buy/sell lots — the transactions table only keeps net cash,
+--     so these DERIVE per-position cost basis (average cost) → holdings.cost_basis.
+--   * Plaid (ext_source='plaid', migration 018): the FULL /investments/transactions
+--     feed — buys/sells PLUS dividends/interest/fees/cash (side=NULL for non-trades).
+--     Plaid holdings already carry cost_basis, so the derive is NOT run for Plaid;
+--     these rows back the Dividends/Trades activity on investments.php + retirement.php.
+-- See migrations 003 + 018, webull.php, and sync_investment_transactions() in sync.php.
 CREATE TABLE investment_transactions (
-  inv_tx_id   VARCHAR(64)   NOT NULL,
+  inv_tx_id   VARCHAR(64)   NOT NULL,           -- Webull lot id, or Plaid investment_transaction_id
   account_id  VARCHAR(64)   NOT NULL,
-  security_id VARCHAR(64)   NOT NULL,           -- 'wb_'+cusip; no FK (sold-out secs)
-  side        ENUM('buy','sell') NOT NULL,
+  security_id VARCHAR(64)   NOT NULL,           -- 'wb_'+cusip / Plaid security_id; no FK (sold-out secs)
+  side        ENUM('buy','sell') NULL,          -- NULL for Plaid non-trade rows (dividend/interest/fee/cash)
+  type        VARCHAR(32)   NULL,               -- Plaid type: buy|sell|cash|fee|transfer|cancel
+  subtype     VARCHAR(48)   NULL,               -- Plaid subtype: dividend|interest|contribution|…
+  name        VARCHAR(255)  NULL,               -- Plaid description (Webull → NULL, falls back to security name)
   quantity    DECIMAL(20,6) NOT NULL,
   price       DECIMAL(18,4) NOT NULL,           -- per share
   fees        DECIMAL(18,4) NOT NULL DEFAULT 0, -- commission + fee
   amount      DECIMAL(18,4) NULL,               -- net cash effect (+ out / - in)
   trade_date  DATE          NOT NULL,
-  ext_source  VARCHAR(16)   NOT NULL DEFAULT 'webull',
-  ext_period  VARCHAR(16)   NULL,               -- doc bucket (YYYY-MM) for re-ingest
+  ext_source  VARCHAR(16)   NOT NULL DEFAULT 'webull', -- 'webull' | 'plaid'
+  ext_period  VARCHAR(16)   NULL,               -- doc bucket (YYYY-MM) for re-ingest (Webull only)
   updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (inv_tx_id),
   KEY idx_itx_acct_sec (account_id, security_id, trade_date),

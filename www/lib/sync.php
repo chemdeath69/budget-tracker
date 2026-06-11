@@ -42,6 +42,7 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
         // Best-effort extras.
         try { sync_liabilities($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('liab: ' . $e->getMessage()); }
         try { sync_investments($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest: ' . $e->getMessage()); }
+        try { sync_investment_transactions($pdo, $item, $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest_tx: ' . $e->getMessage()); }
         try { sync_recurring($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('recurring: ' . $e->getMessage()); }
 
         $pdo->prepare('UPDATE items SET status="active", error_code=NULL, last_synced_at=NOW() WHERE item_id=?')
@@ -286,6 +287,110 @@ function sync_investments(PDO $pdo, string $itemId, string $token): void
             ':val'=>$h['institution_value']??null,':iso'=>$h['iso_currency_code']??'USD']);
     }
 }
+
+/**
+ * /investments/transactions/get -> upsert securities + investment_transactions rows
+ * for a Plaid brokerage (best-effort; benign for items with no investments product).
+ *
+ * Unlike /transactions/sync there is NO cursor — the endpoint is a date-windowed,
+ * OFFSET-paginated pull. We re-pull a bounded trailing window each sync and UPSERT
+ * (PK = Plaid investment_transaction_id), so re-runs are idempotent. The window is
+ * wide (INV_TX_BACKFILL_DAYS) the first time we see this item (no plaid rows yet),
+ * then narrow (INV_TX_WINDOW_DAYS) thereafter. Plaid caps the range at 24 months.
+ *
+ * Storage maps onto the shared investment_transactions table (migration 018):
+ *   side = buy/sell for trades, NULL otherwise; type/subtype/name carry the rest.
+ * Cost basis is NOT derived here — Plaid holdings already carry it (sync_investments).
+ */
+function sync_investment_transactions(PDO $pdo, array $item, string $token): void
+{
+    $itemId = $item['item_id'];
+
+    // First Plaid pull for this item? (No plaid invest-tx rows under its accounts yet.)
+    $seen = $pdo->prepare(
+        "SELECT COUNT(*) FROM investment_transactions it
+         JOIN accounts a ON it.account_id = a.account_id
+         WHERE a.item_id = ? AND it.ext_source = 'plaid'"
+    );
+    $seen->execute([$itemId]);
+    $firstPull = ((int)$seen->fetchColumn() === 0);
+
+    $days  = $firstPull ? INV_TX_BACKFILL_DAYS : INV_TX_WINDOW_DAYS;
+    $end   = date('Y-m-d');                              // PHP app TZ (never CURDATE())
+    $start = date('Y-m-d', strtotime("-{$days} days"));
+
+    $secUp = $pdo->prepare(
+        'INSERT INTO securities (security_id, ticker_symbol, name, type, close_price, close_price_date, iso_currency_code)
+         VALUES (:id,:tic,:name,:type,:price,:pdate,:iso)
+         ON DUPLICATE KEY UPDATE ticker_symbol=VALUES(ticker_symbol), name=VALUES(name), type=VALUES(type),
+             close_price=VALUES(close_price), close_price_date=VALUES(close_price_date), iso_currency_code=VALUES(iso_currency_code)'
+    );
+    $txUp = $pdo->prepare(
+        'INSERT INTO investment_transactions
+            (inv_tx_id, account_id, security_id, side, type, subtype, name,
+             quantity, price, fees, amount, trade_date, ext_source, ext_period)
+         VALUES (:id,:acct,:sec,:side,:type,:subtype,:name,:qty,:price,:fees,:amt,:tdate,\'plaid\',NULL)
+         ON DUPLICATE KEY UPDATE
+             account_id=VALUES(account_id), security_id=VALUES(security_id), side=VALUES(side),
+             type=VALUES(type), subtype=VALUES(subtype), name=VALUES(name), quantity=VALUES(quantity),
+             price=VALUES(price), fees=VALUES(fees), amount=VALUES(amount), trade_date=VALUES(trade_date)'
+    );
+
+    $offset = 0;
+    $total  = null;
+    $guard  = 0;
+    do {
+        $res = plaid_call('/investments/transactions/get', [
+            'access_token' => $token,
+            'start_date'   => $start,
+            'end_date'     => $end,
+            'options'      => ['count' => 500, 'offset' => $offset],
+        ]);
+
+        foreach ($res['securities'] ?? [] as $s) {
+            $secUp->execute([':id'=>$s['security_id'],':tic'=>$s['ticker_symbol']??null,':name'=>$s['name']??null,
+                ':type'=>$s['type']??null,':price'=>$s['close_price']??null,':pdate'=>$s['close_price_as_of']??null,
+                ':iso'=>$s['iso_currency_code']??'USD']);
+        }
+
+        $batch = $res['investment_transactions'] ?? [];
+        foreach ($batch as $t) {
+            $type  = $t['type'] ?? null;
+            $side  = ($type === 'buy' || $type === 'sell') ? $type : null;
+            $qty   = $t['quantity'] ?? null;
+            $price = $t['price'] ?? null;
+            // Skip rows missing a stable id / account / security (no usable row).
+            if (empty($t['investment_transaction_id']) || empty($t['account_id']) || empty($t['security_id'])) continue;
+            // A buy/sell MUST carry quantity + price — skip a malformed trade rather than
+            // store a corrupt 0-lot (the columns are NOT NULL; 0 qty/price would lie about
+            // the trade). Non-trade cash rows (dividend/interest/contribution/fee)
+            // legitimately have qty/price 0, so they keep the `?? 0` fallback below.
+            if ($side !== null && ($qty === null || $price === null)) continue;
+            $txUp->execute([
+                ':id'      => $t['investment_transaction_id'],
+                ':acct'    => $t['account_id'],
+                ':sec'     => $t['security_id'],
+                ':side'    => $side,
+                ':type'    => $type,
+                ':subtype' => $t['subtype'] ?? null,
+                ':name'    => clean_name($t['name'] ?? null),
+                ':qty'     => $qty ?? 0,
+                ':price'   => $price ?? 0,
+                ':fees'    => $t['fees'] ?? 0,
+                ':amt'     => $t['amount'] ?? null,
+                ':tdate'   => $t['date'] ?? $end,
+            ]);
+        }
+
+        $total   = $total ?? (int)($res['total_investment_transactions'] ?? 0);
+        $offset += count($batch);
+        // Stop when we've covered the reported total, an empty page, or a sanity cap.
+    } while ($batch && $offset < $total && ++$guard < 200);
+}
+
+/** First Plaid invest-tx pull window (≤ Plaid's 24-month cap) and the incremental window. */
+const INV_TX_BACKFILL_DAYS = 720;
+const INV_TX_WINDOW_DAYS   = 120;
 
 /** /transactions/recurring/get -> upsert recurring_streams (best-effort). */
 function sync_recurring(PDO $pdo, string $itemId, string $token): void

@@ -1136,34 +1136,32 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
 }
 
 /**
- * Brokerage cash activity matching one or more `pfc_primary` tags, scoped to
- * manual investment feeds (ext_source IS NOT NULL — Plaid investment
- * transactions aren't synced yet). Newest first. Used for dividend/interest and
- * trade lists on the Investments page. Amounts keep the stored sign
- * (+ = money out, − = money in); callers flip as needed for display.
- * Pass $offset (and request $limit = PAGE_SIZE + 1) to paginate; $accountId
- * scopes to one brokerage account.
+ * Investment activity (dividends/interest OR trades), UNIONing the two feeds:
+ *   - MANUAL (Webull): brokerage cash rows in `transactions` (ext_source IS NOT NULL),
+ *     classified by `pfc_primary`.
+ *   - PLAID (Session 34/#18): rows in `investment_transactions` (ext_source='plaid'),
+ *     classified by type/subtype/side.
+ * VIS-scoped per viewing user. $kind ∈ 'income' | 'trades'. Amount keeps the stored
+ * sign (+ = money out, − = money in); the caller renders − as a green inflow.
+ *
+ * Scoped to an explicit $accountIds set — the accounts the CALLING PAGE renders — so
+ * Betterment's activity lands on retirement.php and a non-retirement brokerage on
+ * investments.php (the same account is never shown on both). Empty set ⇒ no rows.
+ * Pass $limit = PAGE_SIZE + 1 and slice to detect the next page.
+ *
+ * ⚠️ HY093: the VIS clause contains :uid and appears in BOTH union arms — this host's
+ * native prepares (emulation off) reject a :name reused across the statement — so each
+ * arm binds a DISTINCT :uid_m / :uid_p, and the per-arm account-id IN-lists use
+ * distinct placeholder names. The kind predicates are constant literals (no binds).
  */
-function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50, int $offset = 0, ?string $accountId = null): array
+function q_investment_activity(PDO $pdo, int $uid, string $kind, array $accountIds, int $limit = 50, int $offset = 0): array
 {
-    if (!$tags) return [];
-    $in = [];
-    $params = [':uid' => $uid];
-    foreach (array_values($tags) as $k => $tag) { $ph = ":t$k"; $in[] = $ph; $params[$ph] = $tag; }
-    $acctClause = '';
-    if ($accountId !== null && $accountId !== '') {
-        $acctClause = ' AND t.account_id = :acct';
-        $params[':acct'] = $accountId;
-    }
+    $accountIds = array_values(array_unique(array_filter($accountIds, fn($x) => $x !== null && $x !== '')));
+    if (!$accountIds) return [];
+    [$sql, $params] = inv_activity_union($uid, $kind, $accountIds);
     $st = $pdo->prepare(
-        "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.amount, t.pfc_primary,
-                " . ACCT_NAME . " AS account_name, a.mask, a.account_id
-         FROM transactions t
-         JOIN accounts a ON t.account_id = a.account_id
-         JOIN items i ON a.item_id = i.item_id
-         WHERE " . VIS . " AND t.ext_source IS NOT NULL
-           AND t.pfc_primary IN (" . implode(',', $in) . ")" . $acctClause . "
-         ORDER BY t.date DESC, t.imported_at DESC
+        "SELECT * FROM ($sql) u
+         ORDER BY u.tdate DESC, u.sortts DESC
          LIMIT " . max(1, (int)$limit) . " OFFSET " . max(0, (int)$offset)
     );
     $st->execute($params);
@@ -1171,31 +1169,80 @@ function q_investment_activity(PDO $pdo, int $uid, array $tags, int $limit = 50,
 }
 
 /**
- * Total of investment-activity amounts (all rows, not one page) for the given
- * tags — so the Dividends & interest header stays accurate while the list below
+ * Signed total of investment-activity amounts (all rows, not one page) for $kind over
+ * $accountIds — so the Dividends & interest header stays accurate while the list below
  * is paginated. Keeps the stored sign (+ = money out, − = money in).
  */
-function q_investment_activity_total(PDO $pdo, int $uid, array $tags, ?string $accountId = null): float
+function q_investment_activity_total(PDO $pdo, int $uid, string $kind, array $accountIds): float
 {
-    if (!$tags) return 0.0;
-    $in = [];
-    $params = [':uid' => $uid];
-    foreach (array_values($tags) as $k => $tag) { $ph = ":t$k"; $in[] = $ph; $params[$ph] = $tag; }
-    $acctClause = '';
-    if ($accountId !== null && $accountId !== '') {
-        $acctClause = ' AND t.account_id = :acct';
-        $params[':acct'] = $accountId;
+    $accountIds = array_values(array_unique(array_filter($accountIds, fn($x) => $x !== null && $x !== '')));
+    if (!$accountIds) return 0.0;
+    [$sql, $params] = inv_activity_union($uid, $kind, $accountIds);
+    $st = $pdo->prepare("SELECT COALESCE(SUM(u.amount), 0) FROM ($sql) u");
+    $st->execute($params);
+    return (float)$st->fetchColumn();
+}
+
+/**
+ * Builds the manual ∪ plaid investment-activity UNION for one $kind + $accountIds,
+ * returning [$sql, $params]. Both arms emit the SAME normalized columns:
+ *   tdate, title, amount, account_name, mask, account_id, owner_id, sortts.
+ * Internal helper for q_investment_activity / _total only.
+ */
+function inv_activity_union(int $uid, string $kind, array $accountIds): array
+{
+    $params = [':uid_m' => $uid, ':uid_p' => $uid];
+    $mIn = []; $pIn = [];
+    foreach ($accountIds as $k => $aid) {
+        $params[":am$k"] = $aid; $mIn[] = ":am$k";
+        $params[":ap$k"] = $aid; $pIn[] = ":ap$k";
     }
-    $st = $pdo->prepare(
-        "SELECT COALESCE(SUM(t.amount), 0)
+    // Kind predicates are constant literals (no binds).
+    if ($kind === 'trades') {
+        $mKind = "t.pfc_primary IN ('INVESTMENT')";
+        $pKind = "it.side IN ('buy','sell')";
+    } elseif ($kind === 'contributions') {
+        // Deposits into the account (Plaid 'contribution' subtype — e.g. payroll 401(k)
+        // contributions). The manual Webull feed has no contribution concept (1=0 → the
+        // arm contributes no rows but stays a valid, bound UNION half). Kept SEPARATE from
+        // 'income' so a contribution never inflates the dividends/interest total.
+        $mKind = "1 = 0";
+        $pKind = "(it.type = 'cash' AND it.subtype LIKE '%contribution%')";
+    } else { // 'income' — dividends + interest
+        $mKind = "t.pfc_primary IN ('INCOME_DIVIDENDS','INCOME_INTEREST')";
+        $pKind = "(it.type = 'cash' AND (it.subtype LIKE '%dividend%' OR it.subtype LIKE '%interest%'))";
+    }
+    $visM = str_replace(':uid', ':uid_m', VIS);
+    $visP = str_replace(':uid', ':uid_p', VIS);
+
+    $manual =
+        "SELECT t.date AS tdate,
+                COALESCE(NULLIF(t.merchant_name,''), t.name, 'Activity') AS title,
+                t.amount AS amount,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id,
+                i.user_id AS owner_id, t.imported_at AS sortts
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
-         WHERE " . VIS . " AND t.ext_source IS NOT NULL
-           AND t.pfc_primary IN (" . implode(',', $in) . ")" . $acctClause
-    );
-    $st->execute($params);
-    return (float)$st->fetchColumn();
+         WHERE $visM AND t.ext_source IS NOT NULL
+           AND t.account_id IN (" . implode(',', $mIn) . ")
+           AND $mKind";
+
+    $plaid =
+        "SELECT it.trade_date AS tdate,
+                COALESCE(NULLIF(it.name,''), s.name, s.ticker_symbol, it.type, 'Activity') AS title,
+                it.amount AS amount,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id,
+                i.user_id AS owner_id, it.updated_at AS sortts
+         FROM investment_transactions it
+         JOIN accounts a ON it.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         LEFT JOIN securities s ON it.security_id = s.security_id
+         WHERE $visP AND it.ext_source = 'plaid'
+           AND it.account_id IN (" . implode(',', $pIn) . ")
+           AND $pKind";
+
+    return ["$manual UNION ALL $plaid", $params];
 }
 
 /**

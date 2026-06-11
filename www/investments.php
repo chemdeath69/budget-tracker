@@ -85,29 +85,38 @@ foreach ($holds as $h) {
 }
 arsort($alloc);
 
-/* ---- Brokerage income + trades (from manual feeds) ----------------------- */
+/* ---- Brokerage income + trades (manual Webull feeds + Plaid investment txns) ---- */
 // Optional account filter (governs both the dividend and trade lists), plus
 // independent pagination keys for each list.
 $invAcct = trim((string)($_GET['iacct'] ?? ''));
 $dPage   = page_num('dpage');
 $tPage   = page_num('tpage');
+$cPage   = page_num('cpage');
 
-// Accounts offered in the activity filter — the manual brokerage feeds present.
+// Activity is scoped to the (non-retirement) investment accounts THIS page renders —
+// so a retirement brokerage's dividends/trades stay on retirement.php, not here. The
+// picker offers all of them; choosing one narrows the scope.
 $invAcctOpts = [];
-foreach ($byAccount as $aid => $g) {
-    if (($g['source'] ?? 'plaid') === 'manual') $invAcctOpts[(string)$aid] = $g['name'] ?: 'Account';
-}
+foreach ($byAccount as $aid => $g) $invAcctOpts[(string)$aid] = $g['name'] ?: 'Account';
+$invScope = ($invAcct !== '' && isset($invAcctOpts[$invAcct])) ? [$invAcct] : array_keys($invAcctOpts);
 
-$incomeRaw     = q_investment_activity($pdo, $uid, ['INCOME_DIVIDENDS', 'INCOME_INTEREST'], PAGE_SIZE + 1, page_offset($dPage), $invAcct);
+$incomeRaw     = q_investment_activity($pdo, $uid, 'income', $invScope, PAGE_SIZE + 1, page_offset($dPage));
 $incomeHasNext = count($incomeRaw) > PAGE_SIZE;
 $income        = array_slice($incomeRaw, 0, PAGE_SIZE);
 
-$tradesRaw     = q_investment_activity($pdo, $uid, ['INVESTMENT'], PAGE_SIZE + 1, page_offset($tPage), $invAcct);
+$tradesRaw     = q_investment_activity($pdo, $uid, 'trades', $invScope, PAGE_SIZE + 1, page_offset($tPage));
 $tradesHasNext = count($tradesRaw) > PAGE_SIZE;
 $trades        = array_slice($tradesRaw, 0, PAGE_SIZE);
 
-// True total across all rows (not just this page); stored − = money in.
-$incomeTotal = -q_investment_activity_total($pdo, $uid, ['INCOME_DIVIDENDS', 'INCOME_INTEREST'], $invAcct);
+// Contributions (Plaid deposits, e.g. payroll) — kept separate so they don't inflate the
+// dividend/interest total. Only rendered when present (a taxable brokerage may have none).
+$contribRaw     = q_investment_activity($pdo, $uid, 'contributions', $invScope, PAGE_SIZE + 1, page_offset($cPage));
+$contribHasNext = count($contribRaw) > PAGE_SIZE;
+$contribs       = array_slice($contribRaw, 0, PAGE_SIZE);
+$contribTotal   = -q_investment_activity_total($pdo, $uid, 'contributions', $invScope);
+
+// True total across all rows (not just this page); stored − = money in → flip to +.
+$incomeTotal = -q_investment_activity_total($pdo, $uid, 'income', $invScope);
 
 /* Tax summaries for each manual investment account we're showing. */
 $taxByAccount = [];
@@ -128,24 +137,6 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
     $base = $c[$key] * $qty;
     return [$abs, $base != 0.0 ? $abs / abs($base) * 100 : null];
 }
-
-/**
- * Account picker shared by the dividend + trade lists (GET ?iacct=). Changing it
- * submits with no page keys, so both lists reset to their first page.
- */
-function activity_account_filter(array $opts, string $current): void
-{ ?>
-    <form class="filter-bar" method="get" action="/investments.php">
-        <div class="filter-row">
-            <select name="iacct" class="select" data-autosubmit aria-label="Filter activity by account">
-                <option value="">All accounts</option>
-                <?php foreach ($opts as $aid => $nm): ?>
-                    <option value="<?= e($aid) ?>"<?= $current === (string)$aid ? ' selected' : '' ?>><?= e($nm) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-    </form>
-<?php }
 ?>
 
 <?php if (!$holds): ?>
@@ -231,24 +222,17 @@ function activity_account_filter(array $opts, string $current): void
     </section>
 
     <!-- Brokerage income -->
-    <section class="block">
-        <div class="block-head"><h2>Dividends &amp; interest</h2><?php if ($incomeTotal > 0): ?><span class="split-value pos"><?= e(usd($incomeTotal)) ?></span><?php endif; ?></div>
-        <?php if (count($invAcctOpts) > 1) activity_account_filter($invAcctOpts, $invAcct); ?>
-        <div class="rows card">
-            <?php if (!$income): ?>
-                <p class="muted" style="padding:1rem"><?= $invAcct !== '' || $dPage > 1 ? 'No dividend or interest activity for this filter.' : 'No dividend or interest activity recorded yet. It appears here as brokerage statements are uploaded.' ?></p>
-            <?php else: foreach ($income as $r): $in = -(float)$r['amount']; ?>
-            <div class="row">
-                <span class="row-main">
-                    <span class="row-title"><?= e($r['merchant_name'] ?: ($r['name'] ?: 'Income')) ?></span>
-                    <span class="row-sub"><span class="tx-date"><?= e($r['date']) ?></span> · <?= e(pretty_cat($r['pfc_primary'])) ?></span>
-                </span>
-                <span class="row-amt pos">+<?= e(usd($in)) ?></span>
-            </div>
-            <?php endforeach; endif; ?>
-        </div>
-        <?php render_pager($dPage, $incomeHasNext, array_filter(['iacct' => $invAcct]) + ($tPage > 1 ? ['tpage' => $tPage] : []), 'dpage'); ?>
-    </section>
+    <?php render_investment_activity('Dividends & interest', $income, [
+        'head_right'   => $incomeTotal > 0 ? '<span class="split-value pos">' . e(usd($incomeTotal)) . '</span>' : '',
+        'page'         => $dPage,
+        'has_next'     => $incomeHasNext,
+        'pager_key'    => 'dpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($tPage > 1 ? ['tpage' => $tPage] : []) + ($cPage > 1 ? ['cpage' => $cPage] : []),
+        'empty'        => $invAcct !== '' || $dPage > 1
+            ? 'No dividend or interest activity for this filter.'
+            : 'No dividend or interest activity recorded yet. It appears as brokerage feeds sync or statements are uploaded.',
+        'filter'       => ['opts' => $invAcctOpts, 'current' => $invAcct, 'action' => '/investments.php'],
+    ]); ?>
     </div><!-- /.cols -->
 
     <!-- Holdings, grouped by account -->
@@ -311,24 +295,28 @@ function activity_account_filter(array $opts, string $current): void
 
     <!-- Recent trades -->
     <?php if ($trades || $invAcct !== '' || $tPage > 1): ?>
-    <section class="block">
-        <div class="block-head"><h2>Recent trades</h2><?php if ($trades): ?><span class="count-pill"><?= count($trades) ?></span><?php endif; ?></div>
-        <?php if (count($invAcctOpts) > 1) activity_account_filter($invAcctOpts, $invAcct); ?>
-        <div class="rows card">
-            <?php if (!$trades): ?>
-                <p class="muted" style="padding:1rem">No trades for this filter.</p>
-            <?php else: foreach ($trades as $t): $amt = (float)$t['amount']; ?>
-            <div class="row">
-                <span class="row-main">
-                    <span class="row-title"><?= e($t['name'] ?: ($t['merchant_name'] ?: 'Trade')) ?></span>
-                    <span class="row-sub"><span class="tx-date"><?= e($t['date']) ?></span> · <?= e($t['account_name'] ?: '') ?></span>
-                </span>
-                <span class="row-amt <?= $amt < 0 ? 'pos' : '' ?>"><?= $amt < 0 ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>
-            </div>
-            <?php endforeach; endif; ?>
-        </div>
-        <?php render_pager($tPage, $tradesHasNext, array_filter(['iacct' => $invAcct]) + ($dPage > 1 ? ['dpage' => $dPage] : []), 'tpage'); ?>
-    </section>
+    <?php render_investment_activity('Recent trades', $trades, [
+        'head_right'   => $trades ? '<span class="count-pill">' . count($trades) . '</span>' : '',
+        'page'         => $tPage,
+        'has_next'     => $tradesHasNext,
+        'pager_key'    => 'tpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($dPage > 1 ? ['dpage' => $dPage] : []) + ($cPage > 1 ? ['cpage' => $cPage] : []),
+        'empty'        => 'No trades for this filter.',
+        'filter'       => ['opts' => $invAcctOpts, 'current' => $invAcct, 'action' => '/investments.php'],
+    ]); ?>
+    <?php endif; ?>
+
+    <!-- Contributions (Plaid deposits) — only when present -->
+    <?php if ($contribs || $cPage > 1): ?>
+    <?php render_investment_activity('Recent contributions', $contribs, [
+        'head_right'   => $contribTotal > 0 ? '<span class="split-value pos">' . e(usd($contribTotal)) . '</span>' : '',
+        'page'         => $cPage,
+        'has_next'     => $contribHasNext,
+        'pager_key'    => 'cpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($dPage > 1 ? ['dpage' => $dPage] : []) + ($tPage > 1 ? ['tpage' => $tPage] : []),
+        'empty'        => 'No contributions for this filter.',
+        'filter'       => ['opts' => $invAcctOpts, 'current' => $invAcct, 'action' => '/investments.php'],
+    ]); ?>
     <?php endif; ?>
 
     <!-- Tax summaries (manual 1099) -->

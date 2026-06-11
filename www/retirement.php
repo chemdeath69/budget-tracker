@@ -19,6 +19,34 @@ $chgAbs   = $prev !== null ? $total - $prev : null;
 $chgPct   = ($prev !== null && $prev != 0.0) ? $chgAbs / abs($prev) * 100 : null;
 $proj     = $view['projection'];
 
+/* ---- Investment activity for the Plaid retirement brokerages shown here (#18) ----
+ * Dividends/interest + trades come from q_investment_activity() scoped to THIS page's
+ * (non-manual) retirement accounts — e.g. Betterment. Manual 401(k)s contribute
+ * nothing (their statements live in retirement_statements, not the investment feeds). */
+$invAcct     = trim((string)($_GET['iacct'] ?? ''));
+$rdPage      = page_num('dpage');
+$rtPage      = page_num('tpage');
+$rcPage      = page_num('cpage');
+$retAcctOpts = [];
+foreach ($view['cards'] as $c) {
+    if (empty($c['manual'])) $retAcctOpts[(string)$c['account']['account_id']] = $c['account']['name'] ?: 'Account';
+}
+$retScope = ($invAcct !== '' && isset($retAcctOpts[$invAcct])) ? [$invAcct] : array_keys($retAcctOpts);
+
+$retIncomeRaw  = $retScope ? q_investment_activity($pdo, $uid, 'income', $retScope, PAGE_SIZE + 1, page_offset($rdPage)) : [];
+$retIncomeNext = count($retIncomeRaw) > PAGE_SIZE;
+$retIncome     = array_slice($retIncomeRaw, 0, PAGE_SIZE);
+$retTradesRaw  = $retScope ? q_investment_activity($pdo, $uid, 'trades', $retScope, PAGE_SIZE + 1, page_offset($rtPage)) : [];
+$retTradesNext = count($retTradesRaw) > PAGE_SIZE;
+$retTrades     = array_slice($retTradesRaw, 0, PAGE_SIZE);
+// Contributions (payroll 401(k) deposits, Plaid) — separate so they don't inflate the
+// dividend/interest total; the account balance already reflects them.
+$retContribRaw  = $retScope ? q_investment_activity($pdo, $uid, 'contributions', $retScope, PAGE_SIZE + 1, page_offset($rcPage)) : [];
+$retContribNext = count($retContribRaw) > PAGE_SIZE;
+$retContribs    = array_slice($retContribRaw, 0, PAGE_SIZE);
+$retContribTotal = $retScope ? -q_investment_activity_total($pdo, $uid, 'contributions', $retScope) : 0.0;
+$retIncomeTotal = $retScope ? -q_investment_activity_total($pdo, $uid, 'income', $retScope) : 0.0;
+
 /** Friendly description of the growth-rate basis. */
 function ret_rate_note(array $view): string
 {
@@ -241,6 +269,40 @@ render_header('Retirement', 'retirement', ['chart' => true]);
             <span class="muted" style="margin-left:.5rem">Plaid-linked retirement accounts (IRA / 401k) appear here automatically.</span>
         </div>
     </section>
+
+    <?php if ($retScope): /* Plaid retirement brokerage(s) present → show their activity (#18) */ ?>
+    <?php render_investment_activity('Dividends & interest', $retIncome, [
+        'head_right'   => $retIncomeTotal > 0 ? '<span class="split-value pos">' . e(usd($retIncomeTotal)) . '</span>' : '',
+        'page'         => $rdPage,
+        'has_next'     => $retIncomeNext,
+        'pager_key'    => 'dpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($rtPage > 1 ? ['tpage' => $rtPage] : []) + ($rcPage > 1 ? ['cpage' => $rcPage] : []),
+        'empty'        => 'No dividend or interest activity in the synced window.',
+        'filter'       => ['opts' => $retAcctOpts, 'current' => $invAcct, 'action' => '/retirement.php'],
+    ]); ?>
+    <?php if ($retTrades || $invAcct !== '' || $rtPage > 1): ?>
+    <?php render_investment_activity('Recent trades', $retTrades, [
+        'head_right'   => $retTrades ? '<span class="count-pill">' . count($retTrades) . '</span>' : '',
+        'page'         => $rtPage,
+        'has_next'     => $retTradesNext,
+        'pager_key'    => 'tpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($rdPage > 1 ? ['dpage' => $rdPage] : []) + ($rcPage > 1 ? ['cpage' => $rcPage] : []),
+        'empty'        => 'No trades for this filter.',
+        'filter'       => ['opts' => $retAcctOpts, 'current' => $invAcct, 'action' => '/retirement.php'],
+    ]); ?>
+    <?php endif; ?>
+    <?php if ($retContribs || $rcPage > 1): ?>
+    <?php render_investment_activity('Recent contributions', $retContribs, [
+        'head_right'   => $retContribTotal > 0 ? '<span class="split-value pos">' . e(usd($retContribTotal)) . '</span>' : '',
+        'page'         => $rcPage,
+        'has_next'     => $retContribNext,
+        'pager_key'    => 'cpage',
+        'pager_params' => array_filter(['iacct' => $invAcct]) + ($rdPage > 1 ? ['dpage' => $rdPage] : []) + ($rtPage > 1 ? ['tpage' => $rtPage] : []),
+        'empty'        => 'No contributions in the synced window.',
+        'filter'       => ['opts' => $retAcctOpts, 'current' => $invAcct, 'action' => '/retirement.php'],
+    ]); ?>
+    <?php endif; ?>
+    <?php endif; ?>
 
 <?php endif; ?>
 

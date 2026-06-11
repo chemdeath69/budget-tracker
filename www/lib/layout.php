@@ -153,6 +153,52 @@ function render_pager(int $page, bool $hasNext, array $params = [], string $para
 }
 
 /**
+ * Investment-activity list section (Dividends & interest / Recent trades), shared by
+ * investments.php + retirement.php (Session 34/#18). $rows come from
+ * q_investment_activity() (normalized: tdate, title, amount, account_name, owner_id);
+ * amount keeps the stored sign (+ = out, − = in) and is rendered as a green inflow
+ * when negative. $o options:
+ *   head_right    => HTML for the block-head right side (a total or a count pill)
+ *   page,has_next,pager_key,pager_params  => render_pager() args
+ *   empty         => message when $rows is empty
+ *   filter        => ['opts'=>[id=>name], 'current'=>id, 'action'=>'/page.php'] | null
+ *                    (an account picker; only render when there's >1 account)
+ */
+function render_investment_activity(string $title, array $rows, array $o): void
+{
+    $f = $o['filter'] ?? null; ?>
+    <section class="block">
+        <div class="block-head"><h2><?= e($title) ?></h2><?= $o['head_right'] ?? '' ?></div>
+        <?php if ($f && count($f['opts']) > 1): ?>
+        <form class="filter-bar" method="get" action="<?= e($f['action']) ?>">
+            <div class="filter-row">
+                <select name="iacct" class="select" data-autosubmit aria-label="Filter activity by account">
+                    <option value="">All accounts</option>
+                    <?php foreach ($f['opts'] as $aid => $nm): ?>
+                        <option value="<?= e($aid) ?>"<?= (string)$f['current'] === (string)$aid ? ' selected' : '' ?>><?= e($nm) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </form>
+        <?php endif; ?>
+        <div class="rows card">
+            <?php if (!$rows): ?>
+                <p class="muted" style="padding:1rem"><?= e($o['empty'] ?? 'No activity yet.') ?></p>
+            <?php else: foreach ($rows as $r): $amt = (float)$r['amount']; $in = $amt < 0; ?>
+            <div class="row">
+                <span class="row-main">
+                    <span class="row-title"><?= e($r['title'] ?: 'Activity') ?></span>
+                    <span class="row-sub"><span class="tx-date"><?= e($r['tdate']) ?></span> · <?= e($r['account_name'] ?: '') ?><?= owner_suffix($r['owner_id'] ?? null) ?></span>
+                </span>
+                <span class="row-amt <?= $in ? 'pos' : '' ?>"><?= $in ? '+' . e(usd(-$amt)) : e(usd($amt)) ?></span>
+            </div>
+            <?php endforeach; endif; ?>
+        </div>
+        <?php render_pager((int)($o['page'] ?? 1), (bool)($o['has_next'] ?? false), $o['pager_params'] ?? [], $o['pager_key'] ?? 'page'); ?>
+    </section>
+<?php }
+
+/**
  * Shared per-transaction metadata strip (#8) — tags, note + split affordances — shown
  * under a transaction row on transactions.php + account.php so both stay identical.
  * Expects a row already passed through attach_tx_meta() (queries.php), i.e. $t['tags']

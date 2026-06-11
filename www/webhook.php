@@ -58,6 +58,35 @@ if ($type === 'TRANSACTIONS' && in_array($code, $triggers, true)) {
     }
 }
 
+// Investments: Plaid signals fresh holdings (HOLDINGS) or new investment
+// transactions (INVESTMENTS_TRANSACTIONS). Re-pull the relevant feed for this Item.
+// (#18 — this is what makes a Plaid brokerage's holdings, e.g. Betterment, refresh
+// promptly instead of waiting for the nightly cron.) Token decrypted per the existing
+// pattern; failures are logged, never fatal (the 200 is already flushed).
+if ($type === 'HOLDINGS' && $code === 'DEFAULT_UPDATE') {
+    $st = $pdo->prepare('SELECT item_id, access_token_enc FROM items WHERE item_id = ?');
+    $st->execute([$itemId]);
+    if ($row = $st->fetch()) {
+        $tok = decrypt_secret($row['access_token_enc']);
+        if ($tok !== null) {
+            try { sync_investments($pdo, $itemId, $tok); write_networth_snapshot($pdo); }
+            catch (Throwable $e) { if (!plaid_benign($e)) error_log('holdings webhook: ' . $e->getMessage()); }
+        }
+    }
+}
+
+if ($type === 'INVESTMENTS_TRANSACTIONS' && in_array($code, ['DEFAULT_UPDATE', 'HISTORICAL_UPDATE'], true)) {
+    $st = $pdo->prepare('SELECT item_id, access_token_enc FROM items WHERE item_id = ?');
+    $st->execute([$itemId]);
+    if ($row = $st->fetch()) {
+        $tok = decrypt_secret($row['access_token_enc']);
+        if ($tok !== null) {
+            try { sync_investment_transactions($pdo, $row, $tok); }
+            catch (Throwable $e) { if (!plaid_benign($e)) error_log('invtx webhook: ' . $e->getMessage()); }
+        }
+    }
+}
+
 if ($type === 'ITEM' && in_array($code, ['ERROR', 'PENDING_EXPIRATION', 'USER_PERMISSION_REVOKED'], true)) {
     require __DIR__ . '/lib/mailer.php';
     // Honour the household alert toggles (Session 25, TODO #14) so this matches the
