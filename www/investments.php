@@ -240,7 +240,7 @@ function div_freq_label(?int $f): string
                 <script type="application/json" id="pv-data"><?= json_encode([
                     'labels' => array_column($history, 'date'),
                     'values' => array_map('floatval', array_column($history, 'value')),
-                ], JSON_UNESCAPED_SLASHES) ?></script>
+                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             </div>
         </div>
     </section>
@@ -254,9 +254,12 @@ function div_freq_label(?int $f): string
             <div class="chart-wrap">
                 <canvas id="alloc-chart" data-chart="doughnut" data-src="alloc-data"></canvas>
                 <script type="application/json" id="alloc-data"><?= json_encode([
+                    // labels are ticker_symbol ?: security_name — RAW Plaid strings, so
+                    // JSON_HEX_TAG is REQUIRED: a security name containing "</script>"
+                    // would otherwise close this <script> element early (stored XSS).
                     'labels' => array_keys($alloc),
                     'values' => array_map(fn($v) => round($v, 2), array_values($alloc)),
-                ], JSON_UNESCAPED_SLASHES) ?></script>
+                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             </div>
             <div class="rows">
                 <?php $i = 0; foreach ($alloc as $label => $val): if ($total <= 0) break; ?>

@@ -101,7 +101,11 @@ render_header('Spending trends', 'trends', ['chart' => true]);
             <script type="application/json" id="trend-data"><?= json_encode([
                 'labels' => array_column($tr['months'], 'label'),
                 'series' => $series,
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            // JSON_HEX_TAG keeps a category/series label that contains "</script>"
+            // from breaking out of this <script> element (defense-in-depth — these
+            // labels are pretty_cat()'d codes today, but the flag makes the blob safe
+            // regardless of what feeds it). app.js reads via textContent + JSON.parse.
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </div>
         <p class="muted load-note">Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice. The current month is still filling in.</p>
     </section>
