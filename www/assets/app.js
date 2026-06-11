@@ -259,6 +259,59 @@ function initCharts() {
       });
     }
 
+    // Money-flow Sankey (#7): income sources → "Income" → spending categories.
+    // d = {nodes:[{id,label,column,color}], links:[{from,to,flow}]}. color is a token
+    // (brand|pos|neg|muted|slice:N) resolved theme-aware here. Needs the chartjs-chart-sankey
+    // plugin (loaded by render_header(['sankey'=>true])); register defensively in case the
+    // UMD build exposes a global without auto-registering.
+    if (type === 'sankey') {
+      if (typeof Chart === 'undefined' || !(d.links && d.links.length)) return;
+      try {
+        const S = window.ChartSankey;
+        if (S && S.SankeyController && !Chart.registry.controllers.get('sankey')) {
+          Chart.register(S.SankeyController, S.Flow);
+        }
+      } catch (e) { /* already registered, or plugin auto-registered */ }
+      if (!Chart.registry.controllers.get('sankey')) return;   // plugin missing → leave canvas blank
+
+      const tok = t =>
+        t === 'brand' ? c.brand : t === 'pos' ? c.pos : t === 'neg' ? c.neg :
+        t === 'muted' ? c.muted : (String(t).startsWith('slice:') ? sliceColor(+String(t).slice(6)) : c.muted);
+      const labels = {}, columns = {}, colorByNode = {};
+      (d.nodes || []).forEach(n => { labels[n.id] = n.label; columns[n.id] = n.column; colorByNode[n.id] = tok(n.color); });
+      const nodeColor = id => colorByNode[id] || c.muted;
+
+      const sankeyChart = new Chart(canvas, {
+        type: 'sankey',
+        data: { datasets: [{
+          data: d.links,
+          labels, column: columns,
+          colorFrom: ctx => nodeColor(ctx.dataset.data[ctx.dataIndex].from),
+          colorTo:   ctx => nodeColor(ctx.dataset.data[ctx.dataIndex].to),
+          colorMode: 'gradient',
+          alpha: 0.6,
+          borderWidth: 0,
+          nodeWidth: 10,
+          nodePadding: 14,
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          layout: { padding: { left: 4, right: 4 } },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => {
+              const l = d.links[ctx.dataIndex] || {};
+              return `${labels[l.from] || l.from} → ${labels[l.to] || l.to}: ${usd(l.flow)}`;
+            } } },
+          },
+        },
+      });
+      // The sankey plugin sometimes measures the container at 0 width on first
+      // layout; since the container size never actually changes, the responsive
+      // ResizeObserver never fires to correct it. Force one resize next frame.
+      requestAnimationFrame(() => { try { sankeyChart.resize(); } catch (e) { /* noop */ } });
+    }
+
     if (type === 'doughnut') {
       new Chart(canvas, {
         type: 'doughnut',

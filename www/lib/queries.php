@@ -868,6 +868,117 @@ function q_spending_trend(PDO $pdo, int $uid, int $months = 12): array
 }
 
 /**
+ * Single-month money flow — income sources (by payer) → spending categories — for the
+ * Money-flow Sankey (#7). VIS-scoped per viewing user. Reuses the EXACT true-expense
+ * filter set + split consts every spend aggregation uses, so the two sides RECONCILE TO
+ * q_cashflow's income/expense for the same month to the penny: income = SUM(-EFF_AMT)
+ * over amount<0 grouped by the merchant display expression (the q_top_merchants idiom —
+ * the raw `name` when Plaid gave no enriched merchant_name; grouped by the explicit
+ * expression, never a bare alias — the S30 trap); expense = SUM(EFF_AMT) over amount>0
+ * grouped by the explicit EFF_CAT (also the S30 trap). Both exclude pending, ext_source,
+ * internal transfers (TRANSFER_IN/OUT) and credit-card payments. The month window is
+ * anchored in PHP and bound as :start (>=) / :end (<) — never CURDATE() (the S24 TZ
+ * trap). Each statement binds :uid (in VIS) once + :start + :end once → HY093-safe.
+ *
+ * Long tails are folded so the diagram stays legible: top 8 payers (rest → "Other
+ * income") and top 12 expense categories (rest → "OTHER"). The page assembles the
+ * Sankey nodes/links + the balancing Saved / Drawn-from-savings node from this.
+ *
+ * Returns:
+ *   'ym','month_label'          the requested month + an 'F Y' label
+ *   'income_total','expense_total','net'   period totals (net = income − expense)
+ *   'income'  => [['payer'=>str,'amount'=>f,'other'=>bool], …]  desc, "Other income" last
+ *   'expense' => [['category'=>RAWCAT|'OTHER','amount'=>f,'other'=>bool], …]  desc, "OTHER" last
+ */
+function q_money_flow(PDO $pdo, int $uid, string $ym): array
+{
+    // Anchor the calendar-month window in PHP (app TZ) and bind it as half-open
+    // [start, end) so the SQL never touches CURDATE() (the S24 TZ trap).
+    $first = new DateTimeImmutable($ym . '-01');
+    $start = $first->format('Y-m-01');
+    $end   = $first->add(new DateInterval('P1M'))->format('Y-m-01');
+
+    // ---- Income (money in): amount < 0, grouped by payer ---------------------
+    $si = $pdo->prepare(
+        "SELECT COALESCE(NULLIF(t.merchant_name, ''), t.name) AS payer,
+                SUM(-(" . EFF_AMT . ")) AS amount
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount < 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start AND t.date < :end
+         GROUP BY COALESCE(NULLIF(t.merchant_name, ''), t.name)
+         HAVING amount > 0
+         ORDER BY amount DESC"
+    );
+    $si->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $si->bindValue(':start', $start);
+    $si->bindValue(':end', $end);
+    $si->execute();
+    $incomeRaw = $si->fetchAll();
+
+    // ---- Expense (money out): amount > 0, grouped by effective category ------
+    $se = $pdo->prepare(
+        "SELECT " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS amount
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start AND t.date < :end
+         GROUP BY " . EFF_CAT . "
+         HAVING amount > 0
+         ORDER BY amount DESC"
+    );
+    $se->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $se->bindValue(':start', $start);
+    $se->bindValue(':end', $end);
+    $se->execute();
+    $expenseRaw = $se->fetchAll();
+
+    // Fold the long tail so the Sankey stays legible (top N, remainder → "Other").
+    $fold = function (array $rows, string $keyCol, int $keep, string $otherKey): array {
+        $out = [];
+        $otherSum = 0.0;
+        $i = 0;
+        foreach ($rows as $r) {
+            $amt = (float)$r['amount'];
+            $key = ($r[$keyCol] === null || $r[$keyCol] === '') ? null : (string)$r[$keyCol];
+            if ($i < $keep && $key !== null) {
+                $out[] = [$keyCol => $key, 'amount' => $amt, 'other' => false];
+                $i++;
+            } else {
+                $otherSum += $amt;   // beyond the cap, or an unlabeled payer/category
+            }
+        }
+        if ($otherSum > 0) $out[] = [$keyCol => $otherKey, 'amount' => $otherSum, 'other' => true];
+        return $out;
+    };
+
+    $income  = $fold($incomeRaw,  'payer',    8,  'Other income');
+    $expense = $fold($expenseRaw, 'category', 12, 'OTHER');
+
+    $incomeTotal  = array_sum(array_column($income, 'amount'));
+    $expenseTotal = array_sum(array_column($expense, 'amount'));
+
+    return [
+        'ym'            => $ym,
+        'month_label'   => $first->format('F Y'),
+        'income_total'  => $incomeTotal,
+        'expense_total' => $expenseTotal,
+        'net'           => $incomeTotal - $expenseTotal,
+        'income'        => $income,
+        'expense'       => $expense,
+    ];
+}
+
+/**
  * Visible transactions. Options:
  *   account_id (string), q (search text), category (exact tag),
  *   from / to (YYYY-MM-DD date bounds, inclusive),

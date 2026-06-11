@@ -327,6 +327,8 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 /* ---- Charts ------------------------------------------------------------- */
 .chart-wrap { position: relative; height: 240px; margin-top: 6px; }
 .chart-wrap.tall { height: 280px; }
+/* Money-flow Sankey (#7) needs vertical room for the node columns + labels. */
+.chart-wrap.sankey { height: 420px; }
 .chart-wrap canvas { max-height: 100%; }
 .chart-cap { font-size: .8rem; margin-top: 8px; }
 
@@ -366,6 +368,10 @@ a.cat-row:hover { background: var(--surface-2); }
 /* Spending trends (Session 23): muted "Other" bucket, non-clickable aggregate
    row, and the vs-baseline delta chip (red = spending up, green = down). */
 .cat-swatch.other { background: var(--muted); }
+/* Money-flow (#7) breakdown swatches: income green, drawn-from-savings red —
+   matching the Sankey's node colours (income = --pos, deficit = --neg). */
+.cat-swatch.pos { background: var(--pos); }
+.cat-swatch.neg { background: var(--neg); }
 .cat-row.is-static { padding: 4px 6px; margin: -4px -6px; }
 .delta-chip { font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; margin-left: 6px; }
 .delta-chip.pos { color: var(--pos); }

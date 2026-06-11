@@ -23,6 +23,7 @@ function nav_items(): array
         ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Category rules', 'icon' => 'rules'],
         ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow'],
         ['key' => 'trends',       'href' => '/trends.php',       'label' => 'Spending trends', 'icon' => 'bars'],
+        ['key' => 'moneyflow',    'href' => '/moneyflow.php',    'label' => 'Money flow',    'icon' => 'sankey'],
         ['key' => 'merchants',    'href' => '/merchants.php',    'label' => 'Top merchants', 'icon' => 'store'],
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
         ['key' => 'goals',        'href' => '/goals.php',        'label' => 'Savings goals', 'icon' => 'target'],
@@ -47,6 +48,7 @@ function nav_icon(string $name): string
         'bars'   => '<rect x="4" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16" y="5" width="4" height="15" rx="1"/>',
         'repeat' => '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
         'flow'   => '<path d="M7 21V5"/><path d="M3 9l4-4 4 4"/><path d="M17 3v16"/><path d="M13 15l4 4 4-4"/>',
+        'sankey' => '<path d="M4 4v16"/><path d="M4 8h6a4 4 0 0 1 4 4 4 4 0 0 0 4 4h2"/><path d="M4 16h6a4 4 0 0 0 4-4 4 4 0 0 1 4-4h2"/>',
         'invest' => '<path d="M3 3v18h18"/><path d="M7 14l3-3 3 2 5-6"/>',
         'gear'   => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 1.7V1a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 4.6a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
         'bank'   => '<path d="M3 10l9-6 9 6"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 21h18"/>',
@@ -277,7 +279,8 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     $assets  = __DIR__ . '/../assets';
     $cssV    = @filemtime($assets . '/style.css') ?: time();
     $jsV     = @filemtime($assets . '/app.js') ?: time();
-    $needChart = !empty($opts['chart']);
+    $needSankey = !empty($opts['sankey']);
+    $needChart  = !empty($opts['chart']) || $needSankey;
     $back    = $opts['back'] ?? null;
     $name    = $_SESSION['name'] ?? ($_SESSION['user_email'] ?? '');
     $email   = $_SESSION['user_email'] ?? '';
@@ -295,6 +298,9 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <link rel="stylesheet" href="/assets/style.css?v=<?= $cssV ?>">
     <?php if ($needChart): ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <?php if ($needSankey): ?>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.12.1"></script>
+    <?php endif; ?>
     <?php endif; ?>
 </head>
 <body data-page="<?= e($active) ?>">
