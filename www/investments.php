@@ -364,7 +364,7 @@ function div_freq_label(?int $f): string
                 $qty   = $h['quantity'] !== null ? (float)$h['quantity'] : null; ?>
             <div class="row" data-search="<?= e(strtolower($sec)) ?>">
                 <span class="row-main">
-                    <span class="row-title"><?= e($sec) ?></span>
+                    <span class="row-title"><a href="/security.php?security_id=<?= e(urlencode($h['security_id'])) ?>&amp;from=investments"><?= e($sec) ?></a></span>
                     <span class="row-sub">
                         <?php if ($h['quantity'] !== null): ?><?= e(number_format((float)$h['quantity'], 4)) ?> @ <?= e(usd($h['institution_price'])) ?><?php endif; ?>
                         <?php if ($cb !== null): ?> · cost <?= e(usd($cb)) ?><?php endif; ?>

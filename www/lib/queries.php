@@ -1566,6 +1566,118 @@ function q_portfolio_history(PDO $pdo, array $holds): array
     return $out;
 }
 
+/* ===========================================================================
+ * Per-security detail page (security.php, #24)
+ * ---------------------------------------------------------------------------
+ * A focused drill-down for ONE security, reached from the holding rows on
+ * investments.php / retirement.php. Market facts (securities/security_prices/
+ * security_dividends) are non-sensitive, but the VIEWER's position and lot
+ * ledger MUST be VIS-scoped — a security held only in the OTHER user's
+ * private/hidden account must not leak. q_security_has_access() is the gate.
+ * ======================================================================== */
+
+/** Bare security metadata (market fact, not user data). NULL if unknown. */
+function q_security(PDO $pdo, string $securityId): ?array
+{
+    $st = $pdo->prepare(
+        "SELECT security_id, ticker_symbol, name, type, close_price, close_price_date
+         FROM securities WHERE security_id = ?"
+    );
+    $st->execute([$securityId]);
+    $r = $st->fetch();
+    return $r ?: null;
+}
+
+/**
+ * Does the viewing user have ANY visible exposure to this security — a holding
+ * OR a buy/sell lot in an account they can see? The access gate for security.php
+ * (so a security held only in the other user's private/hidden account 404s
+ * instead of leaking that it exists in the household). Two separate prepared
+ * statements, so each may reuse :uid (HY093-safe).
+ */
+function q_security_has_access(PDO $pdo, int $uid, string $securityId): bool
+{
+    $h = $pdo->prepare(
+        "SELECT 1 FROM holdings h
+         JOIN accounts a ON h.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND h.security_id = :sid LIMIT 1"
+    );
+    $h->execute([':uid' => $uid, ':sid' => $securityId]);
+    if ($h->fetchColumn()) return true;
+
+    $l = $pdo->prepare(
+        "SELECT 1 FROM investment_transactions it
+         JOIN accounts a ON it.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND it.security_id = :sid AND it.side IN ('buy','sell') LIMIT 1"
+    );
+    $l->execute([':uid' => $uid, ':sid' => $securityId]);
+    return (bool)$l->fetchColumn();
+}
+
+/**
+ * The viewing user's holdings of one security, one row per visible account that
+ * holds it (taxable AND retirement — this is a per-security view, not per-page).
+ * VIS-scoped; selects type/subtype/retirement_flag so the page can tag a
+ * retirement account, and owner_id for owner_suffix(). Distinct :uid/:sid → HY093-safe.
+ */
+function q_security_holdings(PDO $pdo, int $uid, string $securityId): array
+{
+    $st = $pdo->prepare(
+        "SELECT h.quantity, h.cost_basis, h.institution_price, h.institution_value,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id,
+                a.type, a.subtype, a.retirement_flag,
+                i.institution_name, i.source, i.manual_type, i.user_id AS owner_id
+         FROM holdings h
+         JOIN accounts a ON h.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND h.security_id = :sid
+         ORDER BY h.institution_value DESC"
+    );
+    $st->execute([':uid' => $uid, ':sid' => $securityId]);
+    return $st->fetchAll();
+}
+
+/**
+ * The viewing user's buy/sell lot ledger for one security (from
+ * investment_transactions — Webull manual lots ∪ Plaid trades). VIS-scoped,
+ * newest first, paginated (fetch PAGE_SIZE+1 and slice). Distinct :uid/:sid → HY093-safe.
+ */
+function q_security_lots(PDO $pdo, int $uid, string $securityId, int $limit = 50, int $offset = 0): array
+{
+    $st = $pdo->prepare(
+        "SELECT it.trade_date, it.side, it.type, it.subtype, it.name,
+                it.quantity, it.price, it.fees, it.amount, it.ext_source,
+                " . ACCT_NAME . " AS account_name, a.mask, i.user_id AS owner_id
+         FROM investment_transactions it
+         JOIN accounts a ON it.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND it.security_id = :sid AND it.side IN ('buy','sell')
+         ORDER BY it.trade_date DESC, it.updated_at DESC
+         LIMIT " . max(1, (int)$limit) . " OFFSET " . max(0, (int)$offset)
+    );
+    $st->execute([':uid' => $uid, ':sid' => $securityId]);
+    return $st->fetchAll();
+}
+
+/**
+ * Daily close history for one security over the last $days, oldest first, for
+ * the price chart. Market data (not user-scoped — the page already gated access
+ * via q_security_has_access). Returns [['price_date'=>…,'close'=>f], …].
+ */
+function q_security_prices(PDO $pdo, string $securityId, int $days = 730): array
+{
+    $from = date('Y-m-d', strtotime("-{$days} days"));
+    $st = $pdo->prepare(
+        "SELECT price_date, close FROM security_prices
+         WHERE security_id = :sid AND price_date >= :from
+         ORDER BY price_date ASC"
+    );
+    $st->execute([':sid' => $securityId, ':from' => $from]);
+    return $st->fetchAll();
+}
+
 /** Active recurring streams. Optionally scoped to one account. */
 function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
 {
