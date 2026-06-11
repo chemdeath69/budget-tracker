@@ -97,7 +97,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
             <script type="application/json" id="ret-spark-data"><?= json_encode([
                 'labels' => array_column($vs, 'date'),
                 'values' => array_map('floatval', array_column($vs, 'value')),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         <?php endif; ?>
 
         <div class="hero-split">
@@ -124,7 +124,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
             <script type="application/json" id="ret-value-data"><?= json_encode([
                 'labels' => array_column($vs, 'date'),
                 'values' => array_map('floatval', array_column($vs, 'value')),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </section>
     </section>
     <?php endif; ?>
@@ -147,7 +147,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
                 'labels' => array_keys($view['contrib_periods']),
                 'values' => array_map(fn($p) => round($p['ee'] + $p['er'], 2), array_values($view['contrib_periods'])),
                 'color'  => 'pos',
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             <?php endif; ?>
         </section>
     </section>
@@ -191,7 +191,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
             <script type="application/json" id="ret-proj-data"><?= json_encode([
                 'labels' => array_map(fn($p) => (string)$p['year'], $proj['series']),
                 'series' => $series,
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
             <div class="kv-grid" style="margin-top:1rem">
                 <div><span class="muted">Growth rate</span><strong><?= e(ret_rate_note($view)) ?></strong></div>

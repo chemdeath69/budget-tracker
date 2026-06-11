@@ -82,14 +82,14 @@ function nw_account_rows(array $rows, bool $debt): void
                         ['label' => 'Net worth', 'values' => array_map('floatval', array_column($snaps, 'net_worth')), 'color' => 'brand'],
                         ['label' => "Real (today's $)", 'values' => $realVals, 'color' => 'muted', 'dashed' => true],
                     ],
-                ], JSON_UNESCAPED_SLASHES) ?></script>
+                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
                 <p class="muted chart-cap">Dashed line is net worth in today's dollars (CPI-adjusted).</p>
             <?php else: ?>
                 <canvas id="nw-chart" data-chart="line" data-src="nw-data"></canvas>
                 <script type="application/json" id="nw-data"><?= json_encode([
                     'labels' => array_column($snaps, 'snapshot_date'),
                     'values' => array_map('floatval', array_column($snaps, 'net_worth')),
-                ], JSON_UNESCAPED_SLASHES) ?></script>
+                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             <?php endif; ?>
         </div>
     <?php else: ?>
@@ -115,7 +115,7 @@ function nw_account_rows(array $rows, bool $debt): void
         <script type="application/json" id="comp-data"><?= json_encode([
             'labels' => $comp['labels'],
             'series' => $comp['series'],
-        ], JSON_UNESCAPED_SLASHES) ?></script>
+        ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
     </div>
     <p class="muted chart-cap">The stack nets to your net-worth line above — debt is shown below the axis. History fills in as daily snapshots accumulate.</p>
 

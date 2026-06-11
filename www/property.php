@@ -15,7 +15,9 @@ $view = build_property_view($pdo, $uid);
 /* tiny local formatters */
 $pct   = fn($x) => $x === null ? '—' : number_format((float)$x * 100, 1) . '%';
 $fdate = fn($d) => $d ? date('M j, Y', strtotime((string)$d)) : '—';
-$jenc  = fn($a) => json_encode($a, JSON_UNESCAPED_SLASHES);
+// JSON_HEX_TAG (+ AMP/APOS/QUOT) so a data-derived label containing "</script>"
+// can't break out of the inline <script type="application/json"> chart blobs.
+$jenc  = fn($a) => json_encode($a, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
 render_header('Home & Mortgage', 'property', ['chart' => true]);
 

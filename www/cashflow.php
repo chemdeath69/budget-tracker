@@ -82,7 +82,7 @@ render_header('Cash flow', 'cashflow', ['chart' => true]);
                 'income'  => array_map(fn($m) => round($m['income'], 2), $cf['months']),
                 'expense' => array_map(fn($m) => round($m['expense'], 2), $cf['months']),
                 'net'     => array_map(fn($m) => round($m['net'], 2), $cf['months']),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </div>
         <p class="muted load-note">Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice.</p>
     </section>

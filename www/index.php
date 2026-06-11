@@ -104,7 +104,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <script type="application/json" id="nw-spark-data"><?= json_encode([
                 'labels' => array_column($snaps, 'snapshot_date'),
                 'values' => array_map('floatval', array_column($snaps, 'net_worth')),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         <?php endif; ?>
 
         <div class="hero-split">
@@ -187,7 +187,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <script type="application/json" id="cf-spark-data"><?= json_encode([
                 'labels' => array_column($cf6['months'], 'label'),
                 'values' => array_map(fn($m) => round($m['net'], 2), $cf6['months']),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             <?php endif; ?>
             <div class="cf-mini">
                 <span class="pos">+<?= e(usd($cf6['income'])) ?> in</span>

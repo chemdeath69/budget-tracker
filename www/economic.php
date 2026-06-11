@@ -64,7 +64,7 @@ render_header('Economic', 'economic', ['chart' => true, 'narrow' => true]);
                     ['label' => 'Nominal', 'values' => $r['nominal'], 'color' => 'brand'],
                     ['label' => "Real (today's $)", 'values' => $r['real'], 'color' => 'muted', 'dashed' => true],
                 ],
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </div>
         <p class="muted chart-cap">Growth measured since <?= e($fdate($r['from_date'])) ?>. The gap
             between the lines is inflation's bite on purchasing power.</p>
@@ -154,7 +154,7 @@ render_header('Economic', 'economic', ['chart' => true, 'narrow' => true]);
             <script type="application/json" id="econ-spark-<?= (int)$i ?>"><?= json_encode([
                 'labels' => array_column($s['history'], 'date'),
                 'values' => array_map('floatval', array_column($s['history'], 'value')),
-            ], JSON_UNESCAPED_SLASHES) ?></script>
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
             <?php endif; ?>
         </div>
         <?php endforeach; ?>
