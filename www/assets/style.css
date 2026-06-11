@@ -517,7 +517,10 @@ a.cat-row:hover { background: var(--surface-2); }
 .filter-search { display: flex; gap: 8px; align-items: center; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filter-row .select { flex: 1 1 8rem; min-width: 0; }
-.date-input { width: auto; flex: 1 1 7rem; min-width: 0; color-scheme: light dark; }
+/* A native type=date control needs ~150px to show MM/DD/YYYY + the picker icon;
+   min-width:0 let it shrink to ~125px and clip the year segment (S45). Give it a
+   real floor so it wraps to its own line rather than clipping. */
+.date-input { width: auto; flex: 1 1 9.5rem; min-width: 9.5rem; color-scheme: light dark; }
 /* Amount-range inputs (#12b) — compact; the two-class selector beats `.input{width:100%}`
    (defined later in the file) so the box doesn't stretch full-width (S25 specificity gotcha). */
 .filter-row .amt-input { flex: 1 1 5rem; min-width: 0; width: auto; }
@@ -596,6 +599,8 @@ a.cat-row:hover { background: var(--surface-2); }
 .rule-panel-row .rule-p-type { flex: 0 1 11rem; min-width: 0; }
 .rule-panel-row .rule-p-value { flex: 1 1 9rem; min-width: 0; }
 .rule-panel-row .rule-p-cat { flex: 1 1 9rem; min-width: 0; }
+.rule-panel-row .rule-p-save { flex: 0 0 auto; width: auto; }
+.rule-panel-row .rule-p-cancel { flex: 0 0 auto; }
 
 /* ---- Settings ----------------------------------------------------------- */
 .profile-card { display: flex; align-items: center; gap: 14px; }

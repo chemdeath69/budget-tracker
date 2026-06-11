@@ -930,6 +930,7 @@ function openRuleEditor(btn) {
       '<span class="muted">categorize as</span>' +
       '<select class="select rule-p-cat"></select>' +
       '<button type="button" class="btn rule-p-save">Add rule</button>' +
+      '<button type="button" class="btn-ghost rule-p-cancel">Cancel</button>' +
     '</div>';
 
   const typeSel = panel.querySelector('.rule-p-type');
@@ -945,6 +946,8 @@ function openRuleEditor(btn) {
   const RULE_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
   CATEGORY_OPTIONS.filter(c => !RULE_CAT_BLOCKED.includes(c.value)).forEach(c => { const o = new Option(c.label, c.value); if (c.value === curCat) o.selected = true; catSel.add(o); });
   if (curCat && !CATEGORY_OPTIONS.some(c => c.value === curCat)) { const o = new Option(prettyCat(curCat), curCat); o.selected = true; catSel.add(o); }
+
+  panel.querySelector('.rule-p-cancel').addEventListener('click', () => panel.remove());
 
   panel.querySelector('.rule-p-save').addEventListener('click', async () => {
     const match_value = valIn.value.trim();
