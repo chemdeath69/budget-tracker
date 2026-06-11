@@ -78,7 +78,7 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
     <?php endif; ?>
 
     <!-- Net-worth hero -->
-    <section class="hero card">
+    <a class="hero card hero-link" href="/networth.php">
         <div class="hero-top">
             <span class="hero-label">Net worth</span>
             <?php if ($change['pct'] !== null): ?>
@@ -108,20 +108,20 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
         <?php endif; ?>
 
         <div class="hero-split">
-            <a class="split-cell" href="/networth.php">
+            <div class="split-cell">
                 <span class="split-label">Assets</span>
                 <span class="split-value pos"><?= e(usd($stats['assets'])) ?></span>
-            </a>
-            <a class="split-cell" href="/networth.php">
+            </div>
+            <div class="split-cell">
                 <span class="split-label">Liabilities</span>
                 <span class="split-value neg"><?= e(usd($stats['liabilities'])) ?></span>
-            </a>
+            </div>
         </div>
-    </section>
+    </a>
 
     <?php if ($home): ?>
     <!-- Home value vs. mortgage → equity (RentCast AVM, refreshed ~monthly) -->
-    <section class="hero card">
+    <a class="hero card hero-link" href="/property.php">
         <div class="hero-top">
             <span class="hero-label"><?= $home['equity'] !== null ? 'Home equity' : 'Home value' ?></span>
             <span class="delta-sub muted">est. <?= e($home['as_of']) ?></span>
@@ -142,28 +142,28 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             </div>
             <?php endif; ?>
         </div>
-    </section>
+    </a>
     <?php endif; ?>
 
     <?php if ($ret['count'] > 0): ?>
     <!-- Retirement (manual 401(k)s) — combined total -->
-    <section class="hero card">
+    <a class="hero card hero-link" href="/retirement.php">
         <div class="hero-top">
             <span class="hero-label">Retirement</span>
             <?php if ($ret['latest']): ?><span class="delta-sub muted">as of <?= e($ret['latest']) ?></span><?php endif; ?>
         </div>
         <div class="hero-value"><?= e(usd($ret['total'])) ?></div>
         <div class="hero-split">
-            <a class="split-cell" href="/retirement.php">
+            <div class="split-cell">
                 <span class="split-label">Accounts</span>
                 <span class="split-value"><?= (int)$ret['count'] ?></span>
-            </a>
-            <a class="split-cell" href="/retirement.php">
+            </div>
+            <div class="split-cell">
                 <span class="split-label">Projection</span>
                 <span class="split-value">View ›</span>
-            </a>
+            </div>
         </div>
-    </section>
+    </a>
     <?php endif; ?>
 
     <?php if ($cf6['income'] > 0 || $cf6['expense'] > 0): ?>
