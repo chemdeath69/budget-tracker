@@ -538,6 +538,10 @@ a.cat-row:hover { background: var(--surface-2); }
 .bud-spark-bar { flex: 1 1 0; min-width: 3px; background: var(--brand); border-radius: 2px 2px 0 0; align-self: flex-end; }
 .bud-spark-bar.over { background: var(--neg); }
 .bud-spark-limit { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--line); pointer-events: none; }
+/* Rollover (#11b): the add-form opt-in, the per-row toggle, and the carried-amount note. */
+.roll-field { display: flex; align-items: center; gap: 10px; font-size: .92rem; }
+.roll-toggle { display: flex; align-items: center; gap: 8px; font-size: .82rem; cursor: pointer; }
+.roll-note { font-size: .76rem; margin: -2px 0 0; }
 
 /* ---- Savings goals (#9) -------------------------------------------------- */
 .goal-form { display: flex; flex-direction: column; gap: 12px; }

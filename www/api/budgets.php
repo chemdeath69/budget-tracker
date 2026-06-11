@@ -34,6 +34,7 @@ if (!csrf_check_request()) {
 if ($method === 'POST') {
     $category = strtoupper(trim((string)($in['category'] ?? '')));
     $limit    = (float)($in['monthly_limit'] ?? 0);
+    $rollover = !empty($in['rollover']) ? 1 : 0;   // #11b — carry unspent forward
     if ($category === '' || $limit <= 0) {
         http_response_code(400);
         echo json_encode(['error' => 'category and positive monthly_limit required']);
@@ -45,14 +46,14 @@ if ($method === 'POST') {
     // row(s) explicitly, then insert only when none exists. (rowCount() is not
     // reliable here: an unchanged value reports 0 affected rows.)
     $upd = $pdo->prepare(
-        'UPDATE budgets SET monthly_limit = :l WHERE category = :c AND effective_month IS NULL'
+        'UPDATE budgets SET monthly_limit = :l, rollover = :r WHERE category = :c AND effective_month IS NULL'
     );
-    $upd->execute([':c' => $category, ':l' => $limit]);
+    $upd->execute([':c' => $category, ':l' => $limit, ':r' => $rollover]);
     $has = $pdo->prepare('SELECT 1 FROM budgets WHERE category = :c AND effective_month IS NULL LIMIT 1');
     $has->execute([':c' => $category]);
     if (!$has->fetchColumn()) {
-        $pdo->prepare('INSERT INTO budgets (category, monthly_limit, effective_month) VALUES (:c,:l,NULL)')
-            ->execute([':c' => $category, ':l' => $limit]);
+        $pdo->prepare('INSERT INTO budgets (category, monthly_limit, rollover, effective_month) VALUES (:c,:l,:r,NULL)')
+            ->execute([':c' => $category, ':l' => $limit, ':r' => $rollover]);
     }
     echo json_encode(['ok' => true]);
     exit;

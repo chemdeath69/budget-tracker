@@ -1451,7 +1451,25 @@ function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
     return $st->fetchAll();
 }
 
-/** Shared budgets with current-month spend (household-wide). */
+/**
+ * Shared budgets with current-month spend (household-wide).
+ *
+ * Each budget row carries:
+ *   monthly_limit  the base limit
+ *   spent          current-month true-expense spend in the category
+ *   rollover       bool — is "carry unspent forward" enabled (#11b)
+ *   carryover      $ carried into this month (0 unless rollover); see below
+ *   available      monthly_limit + carryover (= monthly_limit when not rollover)
+ *
+ * ROLLOVER (#11b) is a pure READ-TIME derive (no schema beyond the `rollover` flag):
+ * for a rollover budget the carryover accumulates over COMPLETED months from the
+ * budget's creation month (anchored on `budgets.created_at`) up to last month —
+ * runningCarry = max(0, runningCarry + (limit − spent)) per month, so an overspent
+ * month draws the bucket down but never below $0 ("overspend floors carryover at $0").
+ * The current (partial) month is excluded from the accumulation; its spend shows
+ * against `available`. A non-rollover budget is unchanged (carryover 0, available =
+ * monthly_limit), so existing callers keep working.
+ */
 function q_budgets(PDO $pdo): array
 {
     $month = date('Y-m');
@@ -1482,12 +1500,114 @@ function q_budgets(PDO $pdo): array
     $spent = [];
     foreach ($rows->fetchAll() as $r) $spent[$r['category']] = (float)$r['spent'];
 
-    $budgets = $pdo->query('SELECT id, category, monthly_limit FROM budgets ORDER BY category')->fetchAll();
-    foreach ($budgets as &$b) {
-        $b['monthly_limit'] = (float)$b['monthly_limit'];
-        $b['spent'] = round($spent[$b['category']] ?? 0, 2);
+    $budgets = $pdo->query(
+        'SELECT id, category, monthly_limit, effective_month, rollover, created_at
+         FROM budgets ORDER BY category'
+    )->fetchAll();
+
+    // Per-category limit maps + the rollover anchor (creation month), needed by the
+    // carryover accumulation below. The recurring (effective_month NULL) row is the
+    // persistent budget the UI manages; any effective_month rows are per-month overrides.
+    $recurLimit = [];   // CAT => recurring limit
+    $monthLimit = [];   // CAT => [ 'YYYY-MM' => override limit ]
+    $rollCats   = [];   // CAT => true  (category has rollover enabled on any of its rows)
+    $createdM   = [];   // CAT => earliest 'YYYY-MM' the budget existed (carry start anchor)
+    foreach ($budgets as $b) {
+        $cat = $b['category'];
+        if ($b['effective_month'] === null) $recurLimit[$cat] = (float)$b['monthly_limit'];
+        else $monthLimit[$cat][$b['effective_month']] = (float)$b['monthly_limit'];
+        if ((int)$b['rollover'] === 1) $rollCats[$cat] = true;
+        $cm = substr((string)$b['created_at'], 0, 7);   // 'YYYY-MM'
+        if ($cm !== '' && (!isset($createdM[$cat]) || $cm < $createdM[$cat])) $createdM[$cat] = $cm;
     }
+
+    $carry = q_budget_carryover($pdo, array_keys($rollCats), $recurLimit, $monthLimit, $createdM);
+
+    foreach ($budgets as &$b) {
+        $cat = $b['category'];
+        $b['monthly_limit'] = (float)$b['monthly_limit'];
+        $b['rollover']      = (int)$b['rollover'] === 1;
+        $b['spent']         = round($spent[$cat] ?? 0, 2);
+        $b['carryover']     = $b['rollover'] ? round($carry[$cat] ?? 0.0, 2) : 0.0;
+        $b['available']     = round($b['monthly_limit'] + $b['carryover'], 2);
+        unset($b['effective_month'], $b['created_at']);   // internal; callers don't need them
+    }
+    unset($b);
     return ['month' => $month, 'budgets' => $budgets];
+}
+
+/**
+ * Carryover (rollover #11b) per category — the running unspent bucket carried INTO the
+ * current month. Accumulated over COMPLETED months (creation month .. last month;
+ * the partial current month is excluded) as runningCarry = max(0, runningCarry +
+ * (limit − spent)), so an overspent month never makes the bucket negative.
+ *
+ * HOUSEHOLD-WIDE, NOT VIS-scoped and reuses q_budgets' EXACT true-expense filters +
+ * SPLIT_JOIN/EFF_CAT/EFF_AMT so the per-month spend ties to q_budgets. One aggregate over
+ * [earliest-anchor, this-month) restricted to rollover categories; ALL placeholders
+ * distinct (:start/:curstart/:rc0…:rcN → HY093-safe); window bounds are PHP-app-TZ
+ * anchored (never CURDATE() — the S24 TZ trap). The lookback is clamped to 36 months as a
+ * safety bound. Returns [CAT => carryover$]; [] when there are no rollover categories.
+ */
+function q_budget_carryover(PDO $pdo, array $rollCats, array $recurLimit, array $monthLimit, array $createdM): array
+{
+    if (!$rollCats) return [];
+
+    $cur1     = new DateTimeImmutable('first day of this month');
+    $curYm    = $cur1->format('Y-m');
+    $floor36  = $cur1->sub(new DateInterval('P36M'))->format('Y-m');   // safety bound
+
+    // Earliest creation month across the rollover categories (the window start).
+    $earliest = $curYm;
+    foreach ($rollCats as $c) {
+        $cm = $createdM[$c] ?? $curYm;
+        if ($cm < $earliest) $earliest = $cm;
+    }
+    if ($earliest < $floor36) $earliest = $floor36;
+
+    // Monthly spend per rollover category over [start, current month) — completed months
+    // only. Same filters/explosion as q_budgets so the figures reconcile to the penny.
+    $inKeys = [];
+    $params = [':start' => $earliest . '-01', ':curstart' => $cur1->format('Y-m-01')];
+    foreach ($rollCats as $i => $c) { $k = ':rc' . $i; $inKeys[] = $k; $params[$k] = $c; }
+
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
+                " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS spent
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         " . SPLIT_JOIN . "
+         WHERE a.visibility <> 'hidden'
+           AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND " . EFF_CAT . " IN (" . implode(',', $inKeys) . ")
+           AND t.date >= :start AND t.date < :curstart
+         GROUP BY ym, " . EFF_CAT
+    );
+    $st->execute($params);
+    $hist = [];   // hist[CAT][ym] = spent that month
+    foreach ($st->fetchAll() as $r) $hist[$r['category']][$r['ym']] = (float)$r['spent'];
+
+    $out = [];
+    foreach ($rollCats as $cat) {
+        $startCm = $createdM[$cat] ?? $earliest;
+        if ($startCm < $earliest) $startCm = $earliest;
+        $acc = 0.0;
+        // Iterate completed months [startCm, curYm). Anchored on day 1 so P1M never
+        // overflows a month-end. String 'YYYY-MM' compare bounds the loop.
+        $m = new DateTimeImmutable($startCm . '-01');
+        while ($m->format('Y-m') < $curYm) {
+            $ym  = $m->format('Y-m');
+            $lim = $monthLimit[$cat][$ym] ?? $recurLimit[$cat] ?? 0.0;
+            $sp  = $hist[$cat][$ym] ?? 0.0;
+            $acc = max(0.0, $acc + ($lim - $sp));
+            $m   = $m->add(new DateInterval('P1M'));
+        }
+        $out[$cat] = $acc;
+    }
+    return $out;
 }
 
 /**

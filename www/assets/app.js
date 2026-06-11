@@ -512,8 +512,9 @@ function initBudgets() {
       e.preventDefault();
       const category = $('#budget-cat').value.trim();
       const monthly_limit = Number($('#budget-limit').value);
+      const rollover = $('#budget-rollover') && $('#budget-rollover').checked ? 1 : 0;
       if (!category || !(monthly_limit > 0)) return;
-      const out = await postJSON('/api/budgets.php', { category, monthly_limit });
+      const out = await postJSON('/api/budgets.php', { category, monthly_limit, rollover });
       if (out && out.ok) location.reload();
     });
   }
@@ -522,6 +523,19 @@ function initBudgets() {
       e.preventDefault();
       const out = await postJSON('/api/budgets.php', { id: Number(del.dataset.id) }, 'DELETE');
       if (out && out.ok) location.reload();
+    });
+  });
+  // Per-row "roll unspent forward" toggle (#11b) — re-saves the budget (upsert on the
+  // recurring NULL-month row) with the new flag, then reloads so the carryover recomputes.
+  $$('.budget-roll[data-id]').forEach(t => {
+    t.addEventListener('change', async () => {
+      const out = await postJSON('/api/budgets.php', {
+        category: t.dataset.category,
+        monthly_limit: Number(t.dataset.limit),
+        rollover: t.checked ? 1 : 0,
+      });
+      if (out && out.ok) location.reload();
+      else { t.checked = !t.checked; toast((out && out.error) || 'Could not update budget'); }
     });
   });
 }

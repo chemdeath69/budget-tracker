@@ -344,6 +344,7 @@ CREATE TABLE budgets (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   category        VARCHAR(96) NOT NULL,            -- matches pfc_primary (or override scheme)
   monthly_limit   DECIMAL(15,2) NOT NULL,
+  rollover        TINYINT(1) NOT NULL DEFAULT 0,   -- #11b: carry unspent forward (read-time derive in q_budgets)
   effective_month CHAR(7) NULL,                    -- 'YYYY-MM'; NULL = applies every month
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP

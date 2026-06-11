@@ -40,11 +40,14 @@ function build_spend_alerts(PDO $pdo, array $cfg): array
     $out = ['budget' => [], 'unusual' => [], 'bills' => []];
 
     // 1. Budget exceeded — reuse q_budgets() (household-wide, hidden excluded,
-    //    current-month spent vs monthly_limit).
+    //    current-month spent vs the available limit). For a rollover budget (#11b)
+    //    `available` = monthly_limit + carryover, so the alert fires against what's
+    //    actually available this month (matches the spending.php bar); a non-rollover
+    //    budget has available = monthly_limit, so behaviour is unchanged.
     if (!empty($cfg['budget_alert_enabled'])) {
         $pct = max(1, (int)($cfg['budget_alert_pct'] ?? 90));
         foreach (q_budgets($pdo)['budgets'] as $b) {
-            $limit = (float)$b['monthly_limit'];
+            $limit = (float)($b['available'] ?? $b['monthly_limit']);
             $spent = (float)$b['spent'];
             if ($limit > 0 && $spent >= $limit * $pct / 100) {
                 $out['budget'][] = [

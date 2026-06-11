@@ -106,6 +106,10 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
             <span>Monthly limit ($)</span>
             <input id="budget-limit" type="number" min="1" step="1" placeholder="500">
         </label>
+        <label class="roll-field">
+            <input id="budget-rollover" type="checkbox" class="switch">
+            <span>Roll unspent forward <span class="muted">— carry under/over-spend into next month</span></span>
+        </label>
         <button class="btn" type="submit">Save budget</button>
     </form>
 
@@ -119,8 +123,13 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
             $budFrom = $bud['month'] . '-01';
             $budTo   = date('Y-m-t', strtotime($budFrom));
             foreach ($bud['budgets'] as $b):
-            $pct  = $b['monthly_limit'] > 0 ? min(100, ($b['spent'] / $b['monthly_limit']) * 100) : 0;
-            $over = $b['spent'] > $b['monthly_limit'];
+            // Rollover (#11b): the bar + "spent / available" measure against the rolled-up
+            // available (base limit + carried bucket); a non-rollover budget has
+            // available == monthly_limit, so this is the old behaviour unchanged.
+            $avail = (float)$b['available'];
+            $carry = (float)$b['carryover'];
+            $pct  = $avail > 0 ? min(100, ($b['spent'] / $avail) * 100) : 0;
+            $over = $b['spent'] > $avail;
             $bHref = '/transactions.php?' . http_build_query([
                 'category' => $b['category'],
                 'from'     => $budFrom,
@@ -130,11 +139,15 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
         <div class="budget-row card" data-id="<?= (int)$b['id'] ?>">
             <div class="b-head">
                 <span><a class="cat-link" href="<?= e($bHref) ?>"><?= e(pretty_cat($b['category'])) ?></a> <?= $over ? '⚠️' : '' ?>
-                    <?php if ($h): ?><?= $deltaChip((float)$h['this'], (float)$h['avg3']) ?><?php endif; ?></span>
-                <span class="muted"><?= e(usd($b['spent'])) ?> / <?= e(usd($b['monthly_limit'])) ?>
+                    <?php if ($h): ?><?= $deltaChip((float)$h['this'], (float)$h['avg3']) ?><?php endif; ?>
+                    <?php if ($b['rollover'] && $carry > 0): ?><span class="delta-chip pos">+<?= e(usd($carry)) ?> rolled over</span><?php endif; ?></span>
+                <span class="muted"><?= e(usd($b['spent'])) ?> / <?= e(usd($avail)) ?>
                     <button class="budget-del" data-id="<?= (int)$b['id'] ?>" aria-label="Delete budget">✕</button></span>
             </div>
             <div class="budget-bar<?= $over ? ' over' : '' ?>"><span style="width:<?= round($pct) ?>%"></span></div>
+            <?php if ($b['rollover'] && $carry > 0): ?>
+            <p class="muted roll-note">base <?= e(usd($b['monthly_limit'])) ?> + <?= e(usd($carry)) ?> carried = <?= e(usd($avail)) ?> available</p>
+            <?php endif; ?>
             <?php if ($h && $b['monthly_limit'] > 0):
                 // Mini month-bar history: bar height ∝ spend, scaled so the limit sits at a
                 // fixed reference line (70% height); a month over the limit clamps full + red.
@@ -152,6 +165,12 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
+            <label class="roll-toggle">
+                <input type="checkbox" class="switch budget-roll" data-id="<?= (int)$b['id'] ?>"
+                       data-category="<?= e($b['category']) ?>" data-limit="<?= e((string)$b['monthly_limit']) ?>"
+                       <?= $b['rollover'] ? 'checked' : '' ?>>
+                <span class="muted">Roll unspent forward</span>
+            </label>
         </div>
         <?php endforeach; endif; ?>
     </div>
