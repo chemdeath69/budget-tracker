@@ -63,10 +63,17 @@ if ($q !== '') {
     $term = addcslashes($q, '\\%_');
     // Distinct placeholders per occurrence — native prepares (emulation off) reject a
     // reused named placeholder (HY093). Keep in lock-step with q_transactions.
-    $where[] = "(t.merchant_name LIKE :q1 ESCAPE '\\\\'
-                 OR t.name LIKE :q2 ESCAPE '\\\\'
-                 OR COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\')";
+    $clauses = ["t.merchant_name LIKE :q1 ESCAPE '\\\\'",
+                "t.name LIKE :q2 ESCAPE '\\\\'",
+                "COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\'"];
     $params[':q1'] = $params[':q2'] = $params[':q3'] = '%' . $term . '%';
+    // #12a: also match the account owner's first name (resolved in PHP via owner_ids_matching);
+    // OR-only, distinct :qo* placeholders → HY093-safe. Keep in lock-step with q_transactions.
+    foreach (owner_ids_matching($q) as $k => $oid) {
+        $clauses[] = "i.user_id = :qo$k";
+        $params[":qo$k"] = $oid;
+    }
+    $where[] = '(' . implode(' OR ', $clauses) . ')';
 }
 // Note + tags (#8) join the export. Tags are a per-tx GROUP_CONCAT correlated
 // subquery (kept one row per parent transaction — splits stay parent-level here).

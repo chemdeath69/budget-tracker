@@ -980,7 +980,8 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
 
 /**
  * Visible transactions. Options:
- *   account_id (string), q (search text), category (exact tag),
+ *   account_id (string), q (search text — matches merchant/name/category AND, #12a, the
+ *     account owner's first name), category (exact tag),
  *   from / to (YYYY-MM-DD date bounds, inclusive),
  *   limit (int, default 100), offset (int, default 0).
  * For pagination, request limit = PAGE_SIZE + 1 and treat an extra row as
@@ -1042,10 +1043,18 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         $term = addcslashes((string)$opts['q'], '\\%_');
         // Distinct placeholders per occurrence — native prepares (emulation off) reject a
         // reused named placeholder (HY093). See the category clause above.
-        $where[] = "(t.merchant_name LIKE :q1 ESCAPE '\\\\'
-                     OR t.name LIKE :q2 ESCAPE '\\\\'
-                     OR COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\')";
+        $clauses = ["t.merchant_name LIKE :q1 ESCAPE '\\\\'",
+                    "t.name LIKE :q2 ESCAPE '\\\\'",
+                    "COALESCE(t.category_override, t.pfc_primary) LIKE :q3 ESCAPE '\\\\'"];
         $params[':q1'] = $params[':q2'] = $params[':q3'] = '%' . $term . '%';
+        // #12a (S13 follow-up): also match the account owner's first name, resolved in PHP
+        // to the owning user id(s) (no extra JOIN). OR-only — this can only ADD matches, never
+        // drop a merchant/category hit. Distinct :qo* placeholders → HY093-safe.
+        foreach (owner_ids_matching((string)$opts['q']) as $k => $oid) {
+            $clauses[] = "i.user_id = :qo$k";
+            $params[":qo$k"] = $oid;
+        }
+        $where[] = '(' . implode(' OR ', $clauses) . ')';
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
@@ -1953,6 +1962,27 @@ function owner_suffix($ownerId): string
 {
     $n = owner_first_name($ownerId);
     return $n === '' ? '' : ' · <span class="acct-owner">' . e($n) . '</span>';
+}
+
+/**
+ * Household user IDs whose first name matches a free-text search term (#12a, S13 follow-up).
+ * Folds the account owner's first name into the transactions free-text search so typing
+ * "louis" surfaces Louis's transactions (not just merchants/categories named that) — the
+ * S13 marker shows the owner first name, but it wasn't searchable until now. Resolved in PHP
+ * off the tiny cached household_users() map (no extra JOIN); case-insensitive substring on
+ * owner_first_name(). Empty/whitespace term → [] (no owner match). Shared by q_transactions
+ * and api/export.php so the page and its CSV stay in lock-step.
+ */
+function owner_ids_matching(string $term): array
+{
+    $term = trim($term);
+    if ($term === '') return [];
+    $ids = [];
+    foreach (array_keys(household_users()) as $uid) {
+        $first = owner_first_name($uid);
+        if ($first !== '' && stripos($first, $term) !== false) $ids[] = (int)$uid;
+    }
+    return $ids;
 }
 
 /** Is this account a liability (debt)? */

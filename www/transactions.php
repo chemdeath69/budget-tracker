@@ -51,7 +51,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
 
 <form class="filter-bar" method="get" action="/transactions.php">
     <div class="filter-search">
-        <input type="search" name="q" class="search-input" value="<?= e($fQ) ?>" placeholder="Search merchant or category…">
+        <input type="search" name="q" class="search-input" value="<?= e($fQ) ?>" placeholder="Search merchant, category, or owner…">
         <a class="btn-ghost" href="<?= e($exportHref) ?>">CSV</a>
     </div>
     <div class="filter-row">
