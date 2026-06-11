@@ -141,6 +141,11 @@ function manual_ingest(PDO $pdo, array $account, string $tmpPath, string $origNa
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        // The PDF was stored before the (now-rolled-back) DB write. For a brand-new
+        // bucket that leaves a file with no document row — delete it. On a correction
+        // we keep it: the surviving prior `manual_documents` row still points at this
+        // same per-bucket slot path (the copy already overwrote the old file).
+        if (!$isCorrection) @unlink($stored);
         throw $e;
     }
 

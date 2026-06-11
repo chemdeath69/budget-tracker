@@ -107,11 +107,19 @@ function user_avatar_html(bool $large = false): string
 /** Default rows shown per page in a paginated list. */
 const PAGE_SIZE = 50;
 
-/** Current 1-based page from ?$param= (min 1). A bad value falls back to 1. */
+/**
+ * Largest page we'll honour. At PAGE_SIZE=50 this caps the SQL OFFSET at ~500k
+ * rows — far beyond any real list here — so an absurd ?page=99999999 can't push
+ * a giant OFFSET into a query (a needless full scan).
+ */
+const PAGE_NUM_MAX = 10000;
+
+/** Current 1-based page from ?$param= (clamped to [1, PAGE_NUM_MAX]). Bad value → 1. */
 function page_num(string $param = 'page'): int
 {
     $n = (int)($_GET[$param] ?? 1);
-    return $n < 1 ? 1 : $n;
+    if ($n < 1) return 1;
+    return $n > PAGE_NUM_MAX ? PAGE_NUM_MAX : $n;
 }
 
 /** Zero-based SQL offset for $page at PAGE_SIZE rows each. */

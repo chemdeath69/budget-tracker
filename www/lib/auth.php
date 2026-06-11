@@ -32,12 +32,14 @@ function require_login(): void
     }
 }
 
-/** Build the Google consent-screen URL and remember an anti-CSRF state. */
+/** Build the Google consent-screen URL and remember an anti-CSRF state + nonce. */
 function google_auth_url(): string
 {
     global $CONFIG;
     $state = bin2hex(random_bytes(16));
+    $nonce = bin2hex(random_bytes(16));
     $_SESSION['oauth_state'] = $state;
+    $_SESSION['oauth_nonce'] = $nonce;  // bound back into the id_token's `nonce` claim
 
     $params = [
         'client_id'     => $CONFIG['google']['client_id'],
@@ -45,6 +47,7 @@ function google_auth_url(): string
         'response_type' => 'code',
         'scope'         => 'openid email profile',
         'state'         => $state,
+        'nonce'         => $nonce,
         'access_type'   => 'online',
         'prompt'        => 'select_account',
     ];
@@ -108,8 +111,30 @@ function google_handle_callback(): ?string
         return 'Could not read the identity token.';
     }
 
-    // The id_token came directly from Google over TLS in this exchange,
-    // so trusting its claims here is acceptable for this small private app.
+    // The id_token came directly from Google's token endpoint over TLS in THIS
+    // exchange (authorization-code flow), so we don't re-verify its RS256
+    // signature against Google's JWKS. But we still enforce the standard claims
+    // — audience, issuer, expiry, and the per-request nonce — so a token minted
+    // for a different client, an expired token, or a replayed login is rejected.
+    $expectNonce = (string)($_SESSION['oauth_nonce'] ?? '');
+    unset($_SESSION['oauth_nonce']);   // one-shot, consumed whether or not it matches
+
+    if (!hash_equals((string)$CONFIG['google']['client_id'], (string)($claims['aud'] ?? ''))) {
+        error_log('OAuth id_token aud mismatch: ' . (string)($claims['aud'] ?? ''));
+        return 'The identity token was issued for a different application.';
+    }
+    $iss = (string)($claims['iss'] ?? '');
+    if ($iss !== 'accounts.google.com' && $iss !== 'https://accounts.google.com') {
+        error_log('OAuth id_token iss mismatch: ' . $iss);
+        return 'The identity token came from an unexpected issuer.';
+    }
+    if ((int)($claims['exp'] ?? 0) <= time()) {
+        return 'The identity token has expired. Please try signing in again.';
+    }
+    if ($expectNonce === '' || !hash_equals($expectNonce, (string)($claims['nonce'] ?? ''))) {
+        return 'Invalid sign-in nonce. Please try signing in again.';
+    }
+
     $email    = strtolower(trim((string)($claims['email'] ?? '')));
     $verified = (bool)($claims['email_verified'] ?? false);
     $name     = (string)($claims['name'] ?? $email);

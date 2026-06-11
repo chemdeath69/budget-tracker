@@ -315,7 +315,13 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
     // accounts-only), so the change isn't a fake one-time spike from adding the house.
     $tl = nw_home_timeline($pdo);
     $prev = (float)$row['net_worth'] + nw_home_at($tl, (string)$row['snapshot_date']);
-    if ($prev == 0.0) {
+    // A baseline at (or within $1 of) zero makes the comparison meaningless —
+    // dividing by a few cents yields a wild percentage, and a near-zero baseline
+    // is an inception/degenerate snapshot, not a real prior net worth. Suppress the
+    // WHOLE comparison (all-null, matching the exact-zero case, just widened to a $1
+    // floor) so neither the nominal nor the sibling real-NW chip — which gates on
+    // 'date' — renders a garbage delta off it.
+    if (abs($prev) < 1.0) {
         return ['pct' => null, 'abs' => null, 'from' => null, 'date' => null];
     }
     // 'date' = the baseline snapshot actually used, so callers (e.g. the #17 real-NW

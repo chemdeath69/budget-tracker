@@ -13,15 +13,27 @@ function mail_subject(string $subject): string
     return mb_encode_mimeheader($subject, 'UTF-8', 'B', "\r\n");
 }
 
+/**
+ * The From address for outgoing mail, CR/LF-stripped (header-injection hardening)
+ * so a malformed `config['alerts']['from']` can never inject extra headers.
+ * The display name is a fixed literal; only the address comes from config.
+ */
+function mail_from(): string
+{
+    global $CONFIG;
+    $from = (string)($CONFIG['alerts']['from'] ?? 'budget@example.com');
+    $from = str_replace(["\r", "\n"], '', $from);
+    return "Budget Tracker <$from>";
+}
+
 /** Send a plain-text alert email to the configured recipients. Best-effort. */
 function send_alert(string $subject, string $body): void
 {
     global $CONFIG;
     $to   = implode(', ', $CONFIG['alerts']['recipients'] ?? []);
     if ($to === '') return;
-    $from = $CONFIG['alerts']['from'] ?? 'budget@example.com';
 
-    $headers = "From: Budget Tracker <$from>\r\n"
+    $headers = 'From: ' . mail_from() . "\r\n"
              . "MIME-Version: 1.0\r\n"
              . "Content-Type: text/plain; charset=UTF-8\r\n"
              . "Content-Transfer-Encoding: 8bit\r\n";   // bodies may carry UTF-8 (names, symbols)
@@ -40,11 +52,10 @@ function send_html_alert(string $subject, string $html, string $text): void
     global $CONFIG;
     $to = implode(', ', $CONFIG['alerts']['recipients'] ?? []);
     if ($to === '') return;
-    $from = $CONFIG['alerts']['from'] ?? 'budget@example.com';
 
     $boundary = 'bt_' . bin2hex(random_bytes(8));
 
-    $headers = "From: Budget Tracker <$from>\r\n"
+    $headers = 'From: ' . mail_from() . "\r\n"
              . "MIME-Version: 1.0\r\n"
              . "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
 
