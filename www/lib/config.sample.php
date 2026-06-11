@@ -89,6 +89,19 @@ return [
         'api_key' => '',   // paste your FRED key here (empty = disabled)
     ],
 
+    // Polygon.io (free tier — 5 requests/min, NO per-request billing) — declared/
+    // upcoming cash-dividend feed (ex-date, per-share amount, payout frequency) for
+    // the Investments "Dividend income & calendar" section (projected annual income +
+    // upcoming ex-dividend dates from current holdings). Refreshed at most ~weekly per
+    // security by cron/sync.php (staleness-gated in lib/dividends.php so the 5/min free
+    // limit is never approached). Get a free key at https://polygon.io/dashboard/keys.
+    // LEAVE EMPTY to disable (holdings still render; the dividend section shows an
+    // empty-state). NB: empty string = disabled; a non-empty placeholder is treated as
+    // a real key (the cron will call Polygon), so leave it '' until you have a real key.
+    'polygon' => [
+        'api_key' => '',   // paste your Polygon.io key here (empty = disabled)
+    ],
+
     // RentCast (free tier — 50 requests/month, with a PER-REQUEST OVERAGE FEE above
     // that) — home-value (AVM) feed for the home-value-vs-mortgage card. The hard
     // monthly cap is enforced in lib/home_value.php (the api_usage counter reserves

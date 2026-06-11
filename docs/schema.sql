@@ -216,6 +216,29 @@ CREATE TABLE security_prices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- security_dividends — declared/historical cash dividends per security (ex-date,
+-- per-share amount, payout frequency). Filled by lib/dividends.php (Polygon.io
+-- free feed); read by q_security_dividends() for the Investments "Dividend income
+-- & calendar" section (projected annual income + upcoming ex-dates). One row per
+-- (security_id, ex_date); upserted. No FK (mirrors investment_transactions — a
+-- security may not yet be in `securities`). See migration 019_security_dividends.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE security_dividends (
+  security_id      VARCHAR(64)   NOT NULL,
+  ex_date          DATE          NOT NULL,
+  cash_amount      DECIMAL(18,6) NOT NULL,
+  frequency        SMALLINT      NULL,            -- payouts/yr: 1,2,4,12,24,52 (0/NULL=unknown)
+  pay_date         DATE          NULL,
+  record_date      DATE          NULL,
+  declaration_date DATE          NULL,
+  currency         VARCHAR(8)    NOT NULL DEFAULT 'USD',
+  dividend_type    VARCHAR(16)   NULL,
+  source           VARCHAR(16)   NOT NULL DEFAULT 'polygon',
+  updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (security_id, ex_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- api_usage — per-provider, per-month outbound-request meter. The home-value
 -- feed (lib/home_value.php) reserves a slot here before every RentCast call and
 -- refuses past the monthly cap, so we can't exceed the free quota / be billed an

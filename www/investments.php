@@ -127,6 +127,42 @@ foreach ($byAccount as $aid => $g) {
     }
 }
 
+/* ---- Dividend income & calendar (Polygon feed → security_dividends) -------- */
+// Projected ANNUAL dividend income from current share counts (latest declared rate ×
+// payout frequency) + an UPCOMING ex-dividend agenda (next 90 days). Scoped to the
+// non-retirement holdings already in $holds; "today"/horizon are PHP app-TZ.
+$divs         = q_security_dividends($pdo, array_map(fn($h) => $h['security_id'] ?? null, $holds));
+$divProjTotal = 0.0;     // Σ qty × per-share annual dividend
+$divRows      = [];      // per-holding projection rows (dividend-payers only)
+$divUpcoming  = [];      // ex_date => ['pay_date'=>?, 'items'=>[[ticker,amount],…], 'total'=>f]
+$divHorizon   = date('Y-m-d', strtotime('+90 days'));
+foreach ($holds as $h) {
+    $sid = $h['security_id'] ?? null;
+    $qty = $h['quantity'] !== null ? (float)$h['quantity'] : 0.0;
+    if ($sid === null || $qty <= 0 || !isset($divs[$sid])) continue;
+    $d      = $divs[$sid];
+    $ticker = $h['ticker_symbol'] ?: ($h['security_name'] ?: '—');
+
+    if ($d['annual_ps'] !== null) {
+        $proj = $qty * $d['annual_ps'];
+        $divProjTotal += $proj;
+        $divRows[] = ['ticker' => $ticker, 'qty' => $qty,
+                      'cash' => $d['latest']['cash_amount'], 'freq' => $d['latest']['frequency'],
+                      'annual' => $proj];
+    }
+    foreach ($d['upcoming'] as $u) {
+        if ($u['ex_date'] > $divHorizon) continue;
+        $ex = $u['ex_date'];
+        if (!isset($divUpcoming[$ex])) $divUpcoming[$ex] = ['pay_date' => $u['pay_date'], 'items' => [], 'total' => 0.0];
+        $divUpcoming[$ex]['items'][] = ['ticker' => $ticker, 'amount' => $qty * $u['cash_amount']];
+        $divUpcoming[$ex]['total']  += $qty * $u['cash_amount'];
+    }
+}
+usort($divRows, fn($a, $b) => $b['annual'] <=> $a['annual']);
+ksort($divUpcoming);
+$divYield   = ($total > 0 && $divProjTotal > 0) ? round($divProjTotal / $total * 100, 2) : null;
+$hasDivData = $divRows || $divUpcoming;
+
 render_header('Investments', 'investments', ['chart' => true]);
 
 /** A holding's value change over $key (e.g. 'd30') as [abs, pct] or null. */
@@ -136,6 +172,20 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
     $abs  = ($c['current'] - $c[$key]) * $qty;
     $base = $c[$key] * $qty;
     return [$abs, $base != 0.0 ? $abs / abs($base) * 100 : null];
+}
+
+/** Friendly label for a Polygon payout frequency (payouts/yr). */
+function div_freq_label(?int $f): string
+{
+    return match ((int)$f) {
+        1  => 'annual',
+        2  => 'semi-annual',
+        4  => 'quarterly',
+        12 => 'monthly',
+        24 => 'bi-monthly',
+        52 => 'weekly',
+        default => 'periodic',
+    };
 }
 ?>
 
@@ -234,6 +284,51 @@ function hold_change(?array $c, ?float $qty, string $key): ?array
         'filter'       => ['opts' => $invAcctOpts, 'current' => $invAcct, 'action' => '/investments.php'],
     ]); ?>
     </div><!-- /.cols -->
+
+    <!-- Dividend income & calendar (projected from current holdings, Polygon feed) -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Dividend income &amp; calendar</h2>
+            <?php if ($divProjTotal > 0): ?><span class="split-value pos"><?= e(usd($divProjTotal)) ?>/yr</span><?php endif; ?>
+        </div>
+        <?php if (!$hasDivData): ?>
+            <p class="muted">Projected annual dividend income and an upcoming ex-dividend calendar will appear here once the dividend feed has data for your holdings.</p>
+        <?php else: ?>
+            <?php if ($divRows): ?>
+            <p class="muted div-proj-note">Projected forward income from current share counts<?= $divYield !== null ? ' · ≈' . e(number_format($divYield, 2)) . '% yield on ' . e(usd($total)) : '' ?>. Estimate — assumes the latest declared rate &amp; cadence continue.</p>
+            <div class="rows card">
+                <?php foreach ($divRows as $r): ?>
+                <div class="row">
+                    <span class="row-main">
+                        <span class="row-title"><?= e($r['ticker']) ?></span>
+                        <span class="row-sub"><?= e(number_format($r['qty'], 4)) ?> sh · <?= e(usd($r['cash'])) ?>/sh · <?= e(div_freq_label($r['freq'])) ?></span>
+                    </span>
+                    <span class="row-side">
+                        <span class="row-amt"><?= e(usd($r['annual'])) ?> <span class="muted">/yr</span></span>
+                    </span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+            <?php if ($divUpcoming): ?>
+            <h3 class="div-cal-head">Upcoming ex-dividend dates <span class="muted">(next 90 days)</span></h3>
+            <div class="rows card">
+                <?php foreach ($divUpcoming as $ex => $day):
+                    $tickers = implode(', ', array_map(fn($i) => $i['ticker'], $day['items'])); ?>
+                <div class="row">
+                    <span class="row-main">
+                        <span class="row-title"><?= e(date('D, M j', strtotime($ex))) ?></span>
+                        <span class="row-sub"><?= e($tickers) ?><?= $day['pay_date'] ? ' · pays ' . e(date('M j', strtotime($day['pay_date']))) : '' ?></span>
+                    </span>
+                    <span class="row-side">
+                        <span class="row-amt"><?= e(usd($day['total'])) ?></span>
+                    </span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+        <?php endif; ?>
+    </section>
 
     <!-- Holdings, grouped by account -->
     <?php $gi = 0; foreach ($byAccount as $aid => $g): $gi++;

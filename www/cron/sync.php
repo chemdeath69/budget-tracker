@@ -21,6 +21,7 @@ require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/sync.php';
 require __DIR__ . '/../lib/prices.php';
+require __DIR__ . '/../lib/dividends.php';
 require __DIR__ . '/../lib/home_value.php';
 require __DIR__ . '/../lib/fred.php';
 require __DIR__ . '/../lib/digest.php';
@@ -76,6 +77,21 @@ echo "[" . date('Y-m-d H:i:s T') . "] prices: "
    . ($pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
                 . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
                 : "skipped ({$pr['error']})") . "\n";
+
+// Refresh per-security dividend data (Polygon.io free feed → security_dividends).
+// Staleness-gated (≤weekly per security) so the nightly cost stays near zero and the
+// 5/min free limit is never approached. FREE (no per-request billing), so safe to wire
+// here. No-op without a key. In a try/catch (the S22 per-step resilience contract) so a
+// dividend-feed hiccup can never abort the cron before the digest/alert steps below.
+try {
+    $dv = dividends_refresh_if_stale($pdo);
+    echo "[" . date('Y-m-d H:i:s T') . "] dividends: "
+       . ($dv['ok'] ? "{$dv['refreshed']} refreshed / {$dv['skipped']} fresh, {$dv['stored']} row(s) across {$dv['symbols']} symbol(s)"
+                    . (empty($dv['errors']) ? '' : '; errors: ' . implode(', ', array_keys($dv['errors'])))
+                    : "skipped ({$dv['error']})") . "\n";
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] dividends: FAILED — " . $e->getMessage() . "\n";
+}
 
 // Refresh the home value (RentCast AVM) at most ~monthly. Hard-capped at 50 req/mo
 // in lib/home_value.php so an overage charge can never occur. No-op without a key

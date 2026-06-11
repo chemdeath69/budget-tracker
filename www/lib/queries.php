@@ -1327,6 +1327,63 @@ function q_price_changes(PDO $pdo, array $securityIds): array
 }
 
 /**
+ * Per-security dividend data from `security_dividends`, keyed by security_id, for the
+ * Investments "Dividend income & calendar" section. For each id returns:
+ *   'latest'   => the most recent dividend with a usable frequency (drives the annual
+ *                 projection: qty × cash_amount × frequency), or the most recent of any
+ *                 kind if none carries a frequency; null if the security has no rows.
+ *   'upcoming' => declared dividends with ex_date >= today (ASC) for the calendar agenda.
+ *   'annual_ps'=> projected annual dividend PER SHARE (cash_amount × frequency), or null.
+ * NOT VIS-scoped (these are market facts, not user data) — the ids come from
+ * already-visibility-scoped holdings, exactly like q_price_changes(). "today" is PHP
+ * app-TZ (never MySQL CURDATE()).
+ */
+function q_security_dividends(PDO $pdo, array $securityIds): array
+{
+    $securityIds = array_values(array_unique(array_filter($securityIds)));
+    if (!$securityIds) return [];
+    $in = implode(',', array_fill(0, count($securityIds), '?'));
+    $st = $pdo->prepare(
+        "SELECT security_id, ex_date, cash_amount, frequency, pay_date
+         FROM security_dividends
+         WHERE security_id IN ($in)
+         ORDER BY security_id, ex_date ASC"
+    );
+    $st->execute($securityIds);
+
+    $today = date('Y-m-d');
+    $byId = [];
+    foreach ($st->fetchAll() as $r) {
+        $byId[$r['security_id']][] = [
+            'ex_date'     => $r['ex_date'],
+            'cash_amount' => (float)$r['cash_amount'],
+            'frequency'   => $r['frequency'] !== null ? (int)$r['frequency'] : null,
+            'pay_date'    => $r['pay_date'],
+        ];
+    }
+
+    $out = [];
+    foreach ($byId as $sid => $rows) {
+        // Latest row that carries a usable (>0) frequency drives the projection; fall
+        // back to the most recent row of any kind so we can still show a per-share rate.
+        $latest = null;
+        foreach ($rows as $row) {
+            if (($row['frequency'] ?? 0) > 0) $latest = $row;   // rows are ASC → ends on newest w/ freq
+        }
+        if ($latest === null) $latest = $rows[count($rows) - 1];
+
+        $upcoming = array_values(array_filter($rows, fn($r) => $r['ex_date'] >= $today));
+
+        $annualPs = (($latest['frequency'] ?? 0) > 0)
+            ? $latest['cash_amount'] * $latest['frequency']
+            : null;
+
+        $out[$sid] = ['latest' => $latest, 'upcoming' => $upcoming, 'annual_ps' => $annualPs];
+    }
+    return $out;
+}
+
+/**
  * Portfolio value over time = Σ(current quantity × that-day's close) across the
  * given holdings, one point per trading day in `security_prices`. Closes are
  * carried forward per security so a day missing one security's bar still sums.
