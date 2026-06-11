@@ -1491,6 +1491,122 @@ function q_budgets(PDO $pdo): array
 }
 
 /**
+ * Per-budgeted-category monthly spend HISTORY for the spending.php trend (TODO #11).
+ * For each category that has a budget, returns the last $months months of actual spend
+ * plus that category's limit and a month-to-date delta (this month vs the mean of the
+ * prior 3 months). Backs the per-row mini history + "vs 3-mo avg" chip — read-only
+ * derive, no schema change (rollover is deferred).
+ *
+ * HOUSEHOLD-WIDE (NOT VIS-scoped, like q_budgets — a budget is a shared figure;
+ * excludes only `hidden`) and reuses q_budgets/q_cashflow's EXACT true-expense filters
+ * (pending=0, amount>0, ext_source NULL, transfers + CC-payments excluded) + the
+ * SPLIT_JOIN/EFF_CAT/EFF_AMT split-explosion so the numbers tie to q_budgets to the penny.
+ *
+ * ⚠️ GROUP BY the explicit EFF_CAT expression, never the bare `category` alias — once
+ * SPLIT_JOIN adds transaction_splits (which has its own `category` column) the alias
+ * silently re-binds to s.category (the S30 trap). ⚠️ All placeholders are distinct
+ * (:start, :dom, :c0…:cN) — this host runs emulation OFF and rejects a reused :name
+ * (HY093 → 500). ⚠️ The window start is PHP app-TZ anchored (never CURDATE()) so the SQL
+ * window stays in lock-step with the PHP gap-fill month list (the S24 TZ lesson).
+ *
+ * The per-month limit resolves COALESCE(effective_month override for that ym, recurring
+ * NULL-month limit) — uses the `effective_month` column as #11 asks, though today the UI
+ * only writes recurring (NULL) rows, so it's the recurring limit in practice.
+ *
+ * Returns keyed by category:
+ *   ['<CAT>' => ['months'=>[{ym,label,spent}…] oldest→newest (gap-filled),
+ *                'limit'=>float, 'this'=>MTD this month, 'avg3'=>mean prior-3 MTD]]
+ * Empty array when no budgets exist.
+ */
+function q_budget_history(PDO $pdo, int $months = 6): array
+{
+    $months = max(1, min(24, $months));
+
+    // Which categories are budgeted, and their limits (recurring NULL-month + any
+    // month-specific override). No budgets → nothing to chart.
+    $budRows = $pdo->query('SELECT category, monthly_limit, effective_month FROM budgets')->fetchAll();
+    if (!$budRows) return [];
+    $recurLimit = [];   // CAT => recurring (effective_month IS NULL) limit
+    $monthLimit = [];   // CAT => [ 'YYYY-MM' => override limit ]
+    foreach ($budRows as $b) {
+        $cat = $b['category'];
+        if ($b['effective_month'] === null) $recurLimit[$cat] = (float)$b['monthly_limit'];
+        else $monthLimit[$cat][$b['effective_month']] = (float)$b['monthly_limit'];
+    }
+    $cats = array_values(array_unique(array_merge(array_keys($recurLimit), array_keys($monthLimit))));
+    if (!$cats) return [];
+
+    // Contiguous month list (oldest→newest), anchored to the 1st of this month in app TZ.
+    $first = new DateTimeImmutable('first day of this month');
+    $list  = [];
+    for ($i = $months - 1; $i >= 0; $i--) $list[] = $first->sub(new DateInterval('P' . $i . 'M'));
+    $start = $list[0]->format('Y-m-01');
+    $dom   = (int)(new DateTimeImmutable('today'))->format('j');   // today's day-of-month
+
+    // Distinct named placeholders for the IN list (HY093-safe; mixing positional + named
+    // in one PDO statement isn't allowed, and :start/:dom are named, so name these too).
+    $inKeys = [];
+    $params = [':start' => $start, ':dom' => $dom];
+    foreach ($cats as $idx => $c) { $k = ':c' . $idx; $inKeys[] = $k; $params[$k] = $c; }
+    $inSql = implode(',', $inKeys);
+
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
+                " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS total,
+                SUM(CASE WHEN DAY(t.date) <= :dom THEN " . EFF_AMT . " ELSE 0 END) AS mtd
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         " . SPLIT_JOIN . "
+         WHERE a.visibility <> 'hidden'
+           AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND " . EFF_CAT . " IN ($inSql)
+           AND t.date >= :start
+         GROUP BY ym, " . EFF_CAT
+    );
+    $st->execute($params);
+
+    // matrix[ym][CAT] = full total (the bars) ; mtd[ym][CAT] = same-day-of-month total (the delta).
+    $matrix = []; $mtd = [];
+    foreach ($st->fetchAll() as $r) {
+        $matrix[$r['ym']][$r['category']] = (float)$r['total'];
+        $mtd[$r['ym']][$r['category']]    = (float)$r['mtd'];
+    }
+
+    $cur  = $first->format('Y-m');
+    $prev = [];
+    for ($i = 1; $i <= 3; $i++) $prev[] = $first->sub(new DateInterval('P' . $i . 'M'))->format('Y-m');
+
+    $out = [];
+    foreach ($cats as $cat) {
+        $monthsOut = [];
+        foreach ($list as $dt) {
+            $ym = $dt->format('Y-m');
+            $monthsOut[] = [
+                'ym'    => $ym,
+                'label' => $dt->format('M y'),
+                'spent' => round($matrix[$ym][$cat] ?? 0.0, 2),
+            ];
+        }
+        // Limit reference = this month's resolved limit (override else recurring; 0 if neither).
+        $limit = $monthLimit[$cat][$cur] ?? $recurLimit[$cat] ?? 0.0;
+        $this_ = $mtd[$cur][$cat] ?? 0.0;
+        $avg3  = 0.0;
+        foreach ($prev as $pm) $avg3 += $mtd[$pm][$cat] ?? 0.0;
+        $avg3 /= 3;
+        $out[$cat] = [
+            'months' => $monthsOut,
+            'limit'  => round($limit, 2),
+            'this'   => round($this_, 2),
+            'avg3'   => round($avg3, 2),
+        ];
+    }
+    return $out;
+}
+
+/**
  * The canonical Plaid Personal-Finance **primary** categories — the "tag"
  * values stored in `transactions.pfc_primary`. Used to offer budget categories
  * even before any spend exists in them. (INCOME / TRANSFER_IN are inflows and

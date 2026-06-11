@@ -531,6 +531,13 @@ a.cat-row:hover { background: var(--surface-2); }
 .budget-bar.over > span { background: var(--neg); }
 .budget-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .budget-del:active { color: var(--neg); }
+/* block-head right cluster: history-window <select> + the + Add button */
+.head-actions { display: flex; align-items: center; gap: 8px; }
+/* Budget per-row mini history (#11): month bars with the limit as a reference line. */
+.bud-spark { position: relative; display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 2px; }
+.bud-spark-bar { flex: 1 1 0; min-width: 3px; background: var(--brand); border-radius: 2px 2px 0 0; align-self: flex-end; }
+.bud-spark-bar.over { background: var(--neg); }
+.bud-spark-limit { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--line); pointer-events: none; }
 
 /* ---- Savings goals (#9) -------------------------------------------------- */
 .goal-form { display: flex; flex-direction: column; gap: 12px; }

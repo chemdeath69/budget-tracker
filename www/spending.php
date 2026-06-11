@@ -13,6 +13,22 @@ $total = array_sum(array_map(fn($r) => (float)$r['total'], $spend));
 $bud   = q_budgets($pdo);
 $catOptions = budget_category_options($pdo, $uid);
 
+// Budget-history window (?months=) for the per-row trend (TODO #11). Small fixed set.
+$months = (int)($_GET['months'] ?? 6);
+if (!in_array($months, [6, 12, 24], true)) $months = 6;
+$hist = q_budget_history($pdo, $months);
+
+// Signed % delta of $cur vs a baseline $base, rendered as a coloured chip (red = spend
+// up, green = down). Mirrors trends.php's helper.
+$deltaChip = function (float $cur, float $base): string {
+    if ($base <= 0) return '<span class="delta-chip muted">—</span>';
+    $pct = ($cur - $base) / $base * 100;
+    if (abs($pct) < 0.5) return '<span class="delta-chip muted">≈ flat</span>';
+    $cls = $pct > 0 ? 'neg' : 'pos';
+    $arr = $pct > 0 ? '▲' : '▼';
+    return '<span class="delta-chip ' . $cls . '">' . $arr . ' ' . number_format(abs($pct), 0) . '%</span>';
+};
+
 render_header('Spending & budgets', 'spending', ['chart' => true]);
 ?>
 
@@ -62,7 +78,18 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
 <section class="block">
     <div class="block-head">
         <h2>Monthly budgets</h2>
-        <button class="btn-ghost" id="add-budget-btn" type="button">+ Add</button>
+        <div class="head-actions">
+            <?php if ($bud['budgets']): ?>
+            <form method="get" class="head-form">
+                <select name="months" class="select" data-autosubmit aria-label="History window">
+                    <option value="6"<?=  $months === 6  ? ' selected' : '' ?>>Last 6 months</option>
+                    <option value="12"<?= $months === 12 ? ' selected' : '' ?>>Last 12 months</option>
+                    <option value="24"<?= $months === 24 ? ' selected' : '' ?>>Last 24 months</option>
+                </select>
+            </form>
+            <?php endif; ?>
+            <button class="btn-ghost" id="add-budget-btn" type="button">+ Add</button>
+        </div>
     </div>
 
     <form id="add-budget-form" class="card budget-form" hidden>
@@ -98,14 +125,33 @@ render_header('Spending & budgets', 'spending', ['chart' => true]);
                 'category' => $b['category'],
                 'from'     => $budFrom,
                 'to'       => $budTo,
-            ]); ?>
+            ]);
+            $h = $hist[$b['category']] ?? null; ?>
         <div class="budget-row card" data-id="<?= (int)$b['id'] ?>">
             <div class="b-head">
-                <span><a class="cat-link" href="<?= e($bHref) ?>"><?= e(pretty_cat($b['category'])) ?></a> <?= $over ? '⚠️' : '' ?></span>
+                <span><a class="cat-link" href="<?= e($bHref) ?>"><?= e(pretty_cat($b['category'])) ?></a> <?= $over ? '⚠️' : '' ?>
+                    <?php if ($h): ?><?= $deltaChip((float)$h['this'], (float)$h['avg3']) ?><?php endif; ?></span>
                 <span class="muted"><?= e(usd($b['spent'])) ?> / <?= e(usd($b['monthly_limit'])) ?>
                     <button class="budget-del" data-id="<?= (int)$b['id'] ?>" aria-label="Delete budget">✕</button></span>
             </div>
             <div class="budget-bar<?= $over ? ' over' : '' ?>"><span style="width:<?= round($pct) ?>%"></span></div>
+            <?php if ($h && $b['monthly_limit'] > 0):
+                // Mini month-bar history: bar height ∝ spend, scaled so the limit sits at a
+                // fixed reference line (70% height); a month over the limit clamps full + red.
+                $lim = (float)$b['monthly_limit']; $ref = 70; ?>
+            <div class="bud-spark" role="img"
+                 aria-label="<?= e('Monthly spend over the last ' . $months . ' months vs the ' . usd($lim) . ' limit') ?>">
+                <span class="bud-spark-limit" style="bottom:<?= $ref ?>%"></span>
+                <?php foreach ($h['months'] as $m):
+                    $sp = (float)$m['spent'];
+                    $ht = $sp <= 0 ? 0 : min(100, ($sp / $lim) * $ref);
+                    $bOver = $sp > $lim; ?>
+                <span class="bud-spark-bar<?= $bOver ? ' over' : '' ?>"
+                      style="height:<?= round(max($sp > 0 ? 3 : 0, $ht)) ?>%"
+                      title="<?= e($m['label'] . ': ' . usd($sp)) ?>"></span>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
         </div>
         <?php endforeach; endif; ?>
     </div>
