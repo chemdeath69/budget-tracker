@@ -278,7 +278,7 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .hero { background: var(--surface); }
 /* A hero card that is itself a link to its detail page (dashboard banners). */
 .hero-link { display: block; color: var(--ink); transition: border-color .12s, box-shadow .12s; }
-.hero-link:hover { border-color: var(--brand); box-shadow: var(--shadow-2, var(--shadow-1)); }
+.hero-link:hover, .spend-card:hover { border-color: var(--brand); box-shadow: var(--shadow-2, var(--shadow-1)); }
 .hero-top { display: flex; align-items: center; justify-content: space-between; }
 .hero-label { color: var(--muted); font-size: .85rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .hero-value { font-size: 2.3rem; font-weight: 750; letter-spacing: -.02em; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
@@ -316,7 +316,7 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .acct-bal { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- Spending snapshot card -------------------------------------------- */
-.spend-card { display: block; color: var(--ink); }
+.spend-card { display: block; color: var(--ink); transition: border-color .12s, box-shadow .12s; }
 .spend-total { display: flex; flex-direction: column; gap: 1px; margin-bottom: 12px; }
 .spend-amt { font-size: 1.6rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .spend-bars, .cat-list { display: flex; flex-direction: column; gap: 9px; }
