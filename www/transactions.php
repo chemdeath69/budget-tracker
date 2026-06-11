@@ -22,6 +22,8 @@ $fFrom  = trim((string)($_GET['from'] ?? ''));
 $fTo    = trim((string)($_GET['to'] ?? ''));
 $fQ     = trim((string)($_GET['q'] ?? ''));
 $fMerch = trim((string)($_GET['merchant'] ?? ''));   // exact-merchant filter (#5 leaderboard click-through)
+$fMin   = trim((string)($_GET['amin'] ?? ''));        // amount-range filter (#12b) — dollar magnitude
+$fMax   = trim((string)($_GET['amax'] ?? ''));
 $filters = array_filter([
     'account_id' => $fAcct,
     'category'   => $fCat,
@@ -29,6 +31,8 @@ $filters = array_filter([
     'merchant'   => $fMerch,
     'from'       => $fFrom,
     'to'         => $fTo,
+    'amin'       => $fMin,
+    'amax'       => $fMax,
     'q'          => $fQ,
 ], fn($v) => $v !== '');
 $hasFilters = (bool)$filters;
@@ -73,6 +77,8 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
         <?php endif; ?>
         <input type="date" name="from" class="input date-input" value="<?= e($fFrom) ?>" data-autosubmit aria-label="From date">
         <input type="date" name="to" class="input date-input" value="<?= e($fTo) ?>" data-autosubmit aria-label="To date">
+        <input type="number" step="0.01" min="0" inputmode="decimal" name="amin" class="input amt-input" value="<?= e($fMin) ?>" data-autosubmit aria-label="Minimum amount" placeholder="Min $">
+        <input type="number" step="0.01" min="0" inputmode="decimal" name="amax" class="input amt-input" value="<?= e($fMax) ?>" data-autosubmit aria-label="Maximum amount" placeholder="Max $">
         <button class="btn-ghost" type="submit">Filter</button>
         <?php if ($hasFilters): ?><a class="btn-ghost" href="/transactions.php">Clear</a><?php endif; ?>
     </div>

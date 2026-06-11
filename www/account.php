@@ -34,8 +34,11 @@ $txCat  = trim((string)($_GET['category'] ?? ''));
 $txFrom = trim((string)($_GET['from'] ?? ''));
 $txTo   = trim((string)($_GET['to'] ?? ''));
 $txQ    = trim((string)($_GET['q'] ?? ''));
+$txMin  = trim((string)($_GET['amin'] ?? ''));   // amount-range filter (#12b) — dollar magnitude
+$txMax  = trim((string)($_GET['amax'] ?? ''));
 $txFilters = array_filter([
-    'category' => $txCat, 'from' => $txFrom, 'to' => $txTo, 'q' => $txQ,
+    'category' => $txCat, 'from' => $txFrom, 'to' => $txTo,
+    'amin' => $txMin, 'amax' => $txMax, 'q' => $txQ,
 ], fn($v) => $v !== '');
 $txHasFilters = (bool)$txFilters;
 $txRowsRaw = q_transactions($pdo, $uid, $txFilters + [
@@ -341,6 +344,8 @@ render_header($acct['name'] ?: 'Account', '', [
             </select>
             <input type="date" name="from" class="input date-input" value="<?= e($txFrom) ?>" data-autosubmit aria-label="From date">
             <input type="date" name="to" class="input date-input" value="<?= e($txTo) ?>" data-autosubmit aria-label="To date">
+            <input type="number" step="0.01" min="0" inputmode="decimal" name="amin" class="input amt-input" value="<?= e($txMin) ?>" data-autosubmit aria-label="Minimum amount" placeholder="Min $">
+            <input type="number" step="0.01" min="0" inputmode="decimal" name="amax" class="input amt-input" value="<?= e($txMax) ?>" data-autosubmit aria-label="Maximum amount" placeholder="Max $">
             <button class="btn-ghost" type="submit">Filter</button>
             <?php if ($txHasFilters): ?><a class="btn-ghost" href="/account.php?account_id=<?= e(urlencode($accountId)) ?>">Clear</a><?php endif; ?>
         </div>

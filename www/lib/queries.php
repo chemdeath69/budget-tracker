@@ -1027,6 +1027,15 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
+    // Amount-range filter (spec §5.2) on the DOLLAR MAGNITUDE — `ABS(t.amount)` — because the
+    // ledger shows both inflows and outflows as positive magnitudes (sign `+`=out/`−`=in is rendered
+    // as a colour/`+`, not a minus), so "between $50 and $200" means magnitude regardless of
+    // direction. is_numeric guards a crafted non-numeric URL (else it'd coerce to 0 and over-match);
+    // is_finite additionally rejects an overflow like "1e400" → (float)INF, which MySQL coerces to 0
+    // and would silently INVERT the filter (amin=INF → matches all; amax=INF → matches none).
+    // Distinct placeholders :amin/:amax (each used once) → HY093-safe. Keep in lock-step with api/export.php.
+    if (isset($opts['amin']) && is_numeric($opts['amin']) && is_finite((float)$opts['amin'])) { $where[] = 'ABS(t.amount) >= :amin'; $params[':amin'] = (float)$opts['amin']; }
+    if (isset($opts['amax']) && is_numeric($opts['amax']) && is_finite((float)$opts['amax'])) { $where[] = 'ABS(t.amount) <= :amax'; $params[':amax'] = (float)$opts['amax']; }
     if (!empty($opts['q'])) {
         // Escape the user's own LIKE metacharacters (% _ \) so a literal '_' (common
         // in PFC tags like FOOD_AND_DRINK) or '%' isn't treated as a wildcard.

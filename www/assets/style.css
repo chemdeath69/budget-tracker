@@ -513,6 +513,9 @@ a.cat-row:hover { background: var(--surface-2); }
 .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filter-row .select { flex: 1 1 8rem; min-width: 0; }
 .date-input { width: auto; flex: 1 1 7rem; min-width: 0; color-scheme: light dark; }
+/* Amount-range inputs (#12b) — compact; the two-class selector beats `.input{width:100%}`
+   (defined later in the file) so the box doesn't stretch full-width (S25 specificity gotcha). */
+.filter-row .amt-input { flex: 1 1 5rem; min-width: 0; width: auto; }
 
 /* ---- Pager (Prev / Next) ------------------------------------------------ */
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 4px 4px; }

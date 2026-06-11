@@ -22,11 +22,17 @@ $acct = trim((string)($_GET['account_id'] ?? ''));
 $cat  = trim((string)($_GET['category'] ?? ''));
 $tag  = trim((string)($_GET['tag'] ?? ''));
 $merch = trim((string)($_GET['merchant'] ?? ''));
+$amin = trim((string)($_GET['amin'] ?? ''));   // amount-range filter (#12b) — dollar magnitude
+$amax = trim((string)($_GET['amax'] ?? ''));
 
 $where = ['(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))'];
 $params = [':uid' => $uid];
 if ($from) { $where[] = 't.date >= :from'; $params[':from'] = $from; }
 if ($to)   { $where[] = 't.date <= :to';   $params[':to']   = $to; }
+// Amount magnitude range — same ABS(t.amount) semantics + is_numeric/is_finite guard as q_transactions
+// (is_finite rejects "1e400" → INF, which MySQL would coerce to 0 and silently invert the filter).
+if ($amin !== '' && is_numeric($amin) && is_finite((float)$amin)) { $where[] = 'ABS(t.amount) >= :amin'; $params[':amin'] = (float)$amin; }
+if ($amax !== '' && is_numeric($amax) && is_finite((float)$amax)) { $where[] = 'ABS(t.amount) <= :amax'; $params[':amax'] = (float)$amax; }
 if ($acct !== '') { $where[] = 't.account_id = :acct'; $params[':acct'] = $acct; }
 if ($merch !== '') {
     // Exact merchant match (#5) — same display expression q_transactions' `merchant` opt uses,
