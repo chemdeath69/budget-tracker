@@ -726,6 +726,44 @@ a.cat-row:hover { background: var(--surface-2); }
 .assistant-send:disabled { opacity: .55; cursor: default; }
 .assistant-disclaimer { margin-top: 10px; font-size: .76rem; }
 
+/* ---- Credit reports (#28) ------------------------------------------------- */
+.file-names { font-size: .8rem; color: var(--muted); word-break: break-word; }
+.file-names:empty { display: none; }
+/* Amber state for utilization/health (the global text set is only .pos/.neg). */
+.cr-warn { color: var(--warn-ink); }
+.cr-figure { font-size: 2.1rem; font-weight: 750; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; line-height: 1.05; margin: 2px 0; }
+.cr-of { font-size: .9rem; font-weight: 600; color: var(--muted); }
+.cr-note { font-size: .8rem; }
+/* Overview grid of pull cards */
+.cr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+.cr-card { display: block; padding: 14px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface-2); color: var(--ink); transition: border-color .12s, box-shadow .12s; }
+.cr-card:hover { border-color: var(--brand); box-shadow: var(--shadow-1); }
+.cr-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cr-bureau { font-weight: 700; }
+.cr-owner { font-size: .8rem; }
+.cr-card-score { margin: 8px 0 4px; display: flex; align-items: baseline; gap: 6px; }
+.cr-score-num, .cr-util { font-size: 1.7rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.cr-card-score .muted { font-size: .76rem; }
+.cr-card-meta { font-size: .78rem; }
+/* Per-card utilization bars */
+.cr-bars { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.cr-bar-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: .9rem; }
+.cr-bar-head > span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cr-bar { height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; margin: 4px 0 3px; }
+.cr-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.cr-bar-fill.pos { background: var(--pos); }
+.cr-bar-fill.neg { background: var(--neg); }
+.cr-bar-fill.cr-warn { background: var(--warn-ink); }
+.cr-bar-sub { font-size: .78rem; }
+/* Key-value summary (age, diff) */
+.cr-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 10px; }
+.cr-kv > div { display: flex; flex-direction: column; gap: 2px; }
+.cr-kv span.muted { font-size: .78rem; }
+.cr-kv strong { font-variant-numeric: tabular-nums; }
+.cr-disc { font-size: .74rem; }
+
 /* ==========================================================================
    Desktop / wide screens (>= 1024px) — persistent sidebar + roomier content.
    Below this width the mobile-first single-column design is left untouched.

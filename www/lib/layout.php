@@ -35,6 +35,7 @@ function nav_items(): array
         ['key' => 'moneyflow',    'href' => '/moneyflow.php',    'label' => 'Money flow',    'icon' => 'sankey'],
         ['key' => 'property',     'href' => '/property.php',     'label' => 'Property',      'icon' => 'house'],
         ['key' => 'economic',     'href' => '/economic.php',     'label' => 'Economic',      'icon' => 'globe'],
+        ['key' => 'credit',       'href' => '/credit.php',       'label' => 'Credit',        'icon' => 'credit'],
         ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Category rules', 'icon' => 'rules'],
         ['key' => 'settings',     'href' => '/settings.php',     'label' => 'Settings',      'icon' => 'gear'],
     ];
@@ -63,6 +64,7 @@ function nav_icon(string $name): string
         'rules'  => '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
         'target' => '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
         'store'  => '<path d="M4 4h16l-1 5H5z"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>',
+        'credit' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';

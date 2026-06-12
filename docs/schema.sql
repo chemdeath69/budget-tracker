@@ -629,3 +629,70 @@ CREATE TABLE goals (
   PRIMARY KEY (id),
   KEY idx_goals_account (account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Credit-report import (#28, migration 021). One credit_reports row per bureau pull
+-- (user_id = whose report). Household-visible reads (NOT VIS-scoped). Sensitive free-text
+-- columns (*_enc) are libsodium-encrypted at rest (lib/crypto.php); account numbers stored
+-- as last-4 only; the raw uploaded file is discarded after parse (no raw_path). Children
+-- FK-cascade so a re-import (DELETE-then-INSERT per user_id+bureau+pulled_on) clears them.
+CREATE TABLE credit_reports (
+  id                INT           NOT NULL AUTO_INCREMENT,
+  user_id           INT           NOT NULL,            -- whose report this is
+  bureau            ENUM('equifax','experian','transunion','other') NOT NULL,
+  pulled_on         DATE          NOT NULL,
+  score             INT           NULL,                -- present only if the report carries one
+  score_model       VARCHAR(32)   NULL,
+  consumer_name_enc TEXT          NULL,                -- ENCRYPTED printed name
+  created_by        INT           NOT NULL,            -- uploader
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_credit_report (user_id, bureau, pulled_on),
+  KEY idx_credit_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE credit_tradelines (
+  id                INT           NOT NULL AUTO_INCREMENT,
+  credit_report_id  INT           NOT NULL,
+  creditor_enc      TEXT          NOT NULL,            -- ENCRYPTED creditor name
+  account_mask_enc  TEXT          NULL,                -- ENCRYPTED last-4 only
+  account_type      VARCHAR(32)   NULL,                -- revolving/installment/mortgage/auto/student/personal/collection/other
+  balance           DECIMAL(15,2) NULL,
+  credit_limit      DECIMAL(15,2) NULL,
+  high_balance      DECIMAL(15,2) NULL,
+  monthly_payment   DECIMAL(15,2) NULL,
+  past_due          DECIMAL(15,2) NULL,
+  opened_on         DATE          NULL,
+  closed_on         DATE          NULL,
+  is_open           TINYINT(1)    NULL,
+  responsibility    VARCHAR(24)   NULL,
+  status            VARCHAR(48)   NULL,
+  sort_order        INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_tl_report (credit_report_id),
+  CONSTRAINT fk_tl_report FOREIGN KEY (credit_report_id) REFERENCES credit_reports (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE credit_inquiries (
+  id                INT           NOT NULL AUTO_INCREMENT,
+  credit_report_id  INT           NOT NULL,
+  inquirer_enc      TEXT          NOT NULL,            -- ENCRYPTED inquiring company
+  inquiry_date      DATE          NULL,
+  inquiry_type      VARCHAR(16)   NULL,                -- hard / soft
+  sort_order        INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_inq_report (credit_report_id),
+  CONSTRAINT fk_inq_report FOREIGN KEY (credit_report_id) REFERENCES credit_reports (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE credit_flags (
+  id                INT           NOT NULL AUTO_INCREMENT,
+  credit_report_id  INT           NOT NULL,
+  kind              VARCHAR(32)   NOT NULL,            -- collection/public_record/late_payment/derogatory/bankruptcy/dispute/other
+  detail_enc        TEXT          NULL,                -- ENCRYPTED free-text detail
+  amount            DECIMAL(15,2) NULL,
+  flag_date         DATE          NULL,
+  sort_order        INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_flag_report (credit_report_id),
+  CONSTRAINT fk_flag_report FOREIGN KEY (credit_report_id) REFERENCES credit_reports (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

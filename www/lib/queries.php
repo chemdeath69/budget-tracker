@@ -1286,6 +1286,88 @@ function q_liabilities(PDO $pdo, int $uid, ?string $accountId = null): array
     return $st->fetchAll();
 }
 
+/* ---- Credit reports (TODO2 #28) -----------------------------------------
+ * Reports are HOUSEHOLD-VISIBLE (either signed-in user sees both people's pulls), so these
+ * reads are deliberately NOT VIS-scoped — credit_reports carries its own user_id (whose
+ * report it is) and the page labels it via owner_first_name(). The sensitive columns
+ * (*_enc) are returned ENCRYPTED; lib/credit.php decrypts them. All placeholders are
+ * distinct/positional → HY093-safe. The page gates on require_login() only.
+ */
+
+/** Every stored credit report header, newest pull first. */
+function q_credit_reports(PDO $pdo): array
+{
+    return $pdo->query(
+        "SELECT id, user_id, bureau, pulled_on, score, score_model, consumer_name_enc,
+                created_by, created_at
+         FROM credit_reports
+         ORDER BY pulled_on DESC, id DESC"
+    )->fetchAll();
+}
+
+/** One credit report header, or null. */
+function q_credit_report(PDO $pdo, int $id): ?array
+{
+    $st = $pdo->prepare(
+        "SELECT id, user_id, bureau, pulled_on, score, score_model, consumer_name_enc,
+                created_by, created_at
+         FROM credit_reports WHERE id = ? LIMIT 1"
+    );
+    $st->execute([$id]);
+    return $st->fetch() ?: null;
+}
+
+/** The most recent prior pull for the same (user, bureau) strictly before $before. */
+function q_credit_prior_report(PDO $pdo, int $userId, string $bureau, string $before): ?array
+{
+    $st = $pdo->prepare(
+        "SELECT id, pulled_on, score
+         FROM credit_reports
+         WHERE user_id = ? AND bureau = ? AND pulled_on < ?
+         ORDER BY pulled_on DESC, id DESC LIMIT 1"
+    );
+    $st->execute([$userId, $bureau, $before]);
+    return $st->fetch() ?: null;
+}
+
+/** Tradelines (accounts) for one report, in display order. Sensitive cols still encrypted. */
+function q_credit_tradelines(PDO $pdo, int $reportId): array
+{
+    $st = $pdo->prepare(
+        "SELECT id, creditor_enc, account_mask_enc, account_type, balance, credit_limit,
+                high_balance, monthly_payment, past_due, opened_on, closed_on, is_open,
+                responsibility, status
+         FROM credit_tradelines WHERE credit_report_id = ?
+         ORDER BY sort_order, id"
+    );
+    $st->execute([$reportId]);
+    return $st->fetchAll();
+}
+
+/** Inquiries for one report. inquirer_enc still encrypted. */
+function q_credit_inquiries(PDO $pdo, int $reportId): array
+{
+    $st = $pdo->prepare(
+        "SELECT id, inquirer_enc, inquiry_date, inquiry_type
+         FROM credit_inquiries WHERE credit_report_id = ?
+         ORDER BY inquiry_date DESC, id"
+    );
+    $st->execute([$reportId]);
+    return $st->fetchAll();
+}
+
+/** Derogatory flags for one report. detail_enc still encrypted. */
+function q_credit_flags(PDO $pdo, int $reportId): array
+{
+    $st = $pdo->prepare(
+        "SELECT id, kind, detail_enc, amount, flag_date
+         FROM credit_flags WHERE credit_report_id = ?
+         ORDER BY sort_order, id"
+    );
+    $st->execute([$reportId]);
+    return $st->fetchAll();
+}
+
 /** Investment holdings. Optionally scoped to one account. */
 function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
 {

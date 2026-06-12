@@ -1017,6 +1017,25 @@ function initStatementImport() {
   });
 }
 
+/* ---- Credit-report import (#28) ------------------------------------------ */
+function initCreditImport() {
+  const form = document.getElementById('credit-import-form');
+  if (!form) return;
+  const input = document.getElementById('credit-files');
+  const names = document.getElementById('credit-file-names');
+  const submit = document.getElementById('credit-import-submit');
+  if (input && names) {
+    input.addEventListener('change', () => {
+      names.textContent = input.files && input.files.length
+        ? Array.from(input.files).map(f => f.name).join(', ')
+        : '';
+    });
+  }
+  form.addEventListener('submit', () => {
+    if (submit) { submit.disabled = true; submit.textContent = 'Reading your report… (this can take ~30s)'; }
+  });
+}
+
 /* ---- AI assistant (#27) -------------------------------------------------- */
 function assistantMarkup(text) {
   // Markdown-lite → safe HTML. Escape FIRST, then apply a tiny subset (bold,
@@ -1128,4 +1147,5 @@ initTxSplits();
 initRules();
 initTxRules();
 initStatementImport();
+initCreditImport();
 initAssistant();
