@@ -796,7 +796,8 @@ function initTxSplits() {
 function openSplitEditor(btn) {
   const meta = btn.closest('.tx-meta');
   if (!meta) return;
-  const open = meta.querySelector('.split-panel');
+  const host = meta.closest('.row') || meta;   // panel renders below the whole row, full-width
+  const open = host.querySelector('.split-panel');
   if (open) { open.remove(); return; }   // toggle closed
 
   const tx = btn.dataset.tx;
@@ -812,6 +813,7 @@ function openSplitEditor(btn) {
       '<button type="button" class="btn-ghost split-add">+ part</button>' +
       '<span class="split-remainder"></span>' +
       '<button type="button" class="btn-ghost split-clear">Un-split</button>' +
+      '<button type="button" class="btn-ghost split-cancel">Cancel</button>' +
       '<button type="button" class="btn split-save">Save</button>' +
     '</div>';
   const rowsWrap = panel.querySelector('.split-rows');
@@ -858,6 +860,7 @@ function openSplitEditor(btn) {
   recalc();
 
   panel.querySelector('.split-add').addEventListener('click', () => { addRow(); recalc(); });
+  panel.querySelector('.split-cancel').addEventListener('click', () => { panel.remove(); btn.focus(); });
   panel.querySelector('.split-clear').addEventListener('click', async () => {
     const out = await postJSON('/api/account.php', { action: 'set_splits', transaction_id: tx, splits: [] });
     if (out && out.ok) location.reload(); else toast((out && out.error) || 'Could not clear splits');
@@ -869,7 +872,7 @@ function openSplitEditor(btn) {
     else { toast((out && out.error) || 'Could not save splits'); recalc(); }
   });
 
-  meta.appendChild(panel);
+  host.appendChild(panel);
 }
 
 /* ---- Category rules (#10) ------------------------------------------------ */
@@ -908,7 +911,8 @@ function initTxRules() {
 function openRuleEditor(btn) {
   const meta = btn.closest('.tx-meta');
   if (!meta) return;
-  const existing = meta.querySelector('.rule-panel');
+  const host = meta.closest('.row') || meta;     // panel renders below the whole row, full-width
+  const existing = host.querySelector('.rule-panel');
   if (existing) { existing.remove(); return; }   // toggle closed
 
   const merchant = (meta.dataset.merchant || '').trim();
@@ -947,7 +951,7 @@ function openRuleEditor(btn) {
   CATEGORY_OPTIONS.filter(c => !RULE_CAT_BLOCKED.includes(c.value)).forEach(c => { const o = new Option(c.label, c.value); if (c.value === curCat) o.selected = true; catSel.add(o); });
   if (curCat && !CATEGORY_OPTIONS.some(c => c.value === curCat)) { const o = new Option(prettyCat(curCat), curCat); o.selected = true; catSel.add(o); }
 
-  panel.querySelector('.rule-p-cancel').addEventListener('click', () => panel.remove());
+  panel.querySelector('.rule-p-cancel').addEventListener('click', () => { panel.remove(); btn.focus(); });
 
   panel.querySelector('.rule-p-save').addEventListener('click', async () => {
     const match_value = valIn.value.trim();
@@ -958,7 +962,7 @@ function openRuleEditor(btn) {
     else toast((out && out.error) || 'Could not save the rule.');
   });
 
-  meta.appendChild(panel);
+  host.appendChild(panel);
 }
 
 function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }

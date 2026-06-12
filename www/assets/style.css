@@ -457,7 +457,17 @@ a.cat-row:hover { background: var(--surface-2); }
 
 /* ---- Transaction list --------------------------------------------------- */
 .tx-day { color: var(--muted); font-size: .78rem; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; padding: 12px 4px 4px; }
-.tx-list .tx-row { padding: 11px 12px; }
+/* Allow wrapping so an expanded editor panel (rule/split — appended directly to
+   the row with flex-basis:100%) drops onto its own full-width line BELOW both
+   the vendor info and the amount, instead of being trapped in the narrower
+   .row-main column (where the rule panel shrank and the split panel overflowed
+   the amount). The amount keeps the row's default vertical centering against
+   .row-main (the data block) — and since the panel is now a sibling on its own
+   line, .row-main's height is unchanged whether or not a panel is open, so the
+   amount no longer shifts or overlaps when the editor opens. */
+.tx-list .tx-row { padding: 11px 12px; flex-wrap: wrap; }
+.tx-list .tx-row > .rule-panel,
+.tx-list .tx-row > .split-panel { flex-basis: 100%; }
 .cat-chip {
   font: inherit; font-size: .76rem; font-weight: 600; color: var(--brand);
   background: var(--brand-weak); border: 0; padding: 2px 9px; border-radius: var(--r-pill); cursor: pointer;
