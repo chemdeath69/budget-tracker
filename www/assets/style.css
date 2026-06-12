@@ -715,6 +715,20 @@ a.cat-row:hover { background: var(--surface-2); }
     gap: var(--gap);
     align-items: start;
   }
+
+  /* Category bar rows (spending/trends/moneyflow): give the amount a FIXED
+     column so the bar track ends at the same right edge on every row. With
+     `auto` (mobile default) the amount column sizes to its content — widest
+     "$3,161.43 ▲ 21,931%" vs "$0.00 ▼100%" — which shifts the 1.1fr track's
+     right edge per row, making the bars look raggedly right-aligned. Desktop
+     only: at mobile widths a fixed 9.5rem would crush the bars. */
+  .cat-row { grid-template-columns: 12px minmax(0, 1fr) 1.1fr 9.5rem; }
+  .cat-amt { white-space: nowrap; }
+  /* Trends: split the amount cell so the dollar value sits left (right after
+     the bar) and the % change chip stays right-aligned. No `gap` — the widest
+     row ("$3,161.43 ▲ 21,931%") fills the 9.5rem cell exactly, so any gap
+     would overflow it. */
+  body[data-page="trends"] .cat-amt { display: flex; justify-content: space-between; align-items: center; }
 }
 
 /* ── Upcoming bills / payment calendar (TODO #4) ─────────────────────────── */
