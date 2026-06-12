@@ -1803,6 +1803,65 @@ function q_security_prices(PDO $pdo, string $securityId, int $days = 730): array
     return $st->fetchAll();
 }
 
+/* ===========================================================================
+ * Investment return rate + benchmark (returns.php, #29)
+ * ---------------------------------------------------------------------------
+ * Reads for the money-weighted return: the VIS-scoped buy/sell LOTS over a set
+ * of accounts (the cash-flow stream), and the broad-market securities we already
+ * price (the benchmark candidates). The math lives in lib/returns.php.
+ * ======================================================================== */
+
+/**
+ * VIS-scoped buy/sell lots over an explicit account set (the accounts the calling
+ * page renders), oldest first — the cash-flow stream for the return calc. Returns
+ * security_id/trade_date/side/quantity/price/fees/amount + account_id/account_name.
+ * Distinct :uid (VIS, used once) + :a* IN-list → HY093-safe. Empty set ⇒ [].
+ */
+function q_investment_lots(PDO $pdo, int $uid, array $accountIds): array
+{
+    $accountIds = array_values(array_unique(array_filter($accountIds, fn($x) => $x !== null && $x !== '')));
+    if (!$accountIds) return [];
+    $in = []; $params = [':uid' => $uid];
+    foreach ($accountIds as $k => $aid) { $params[":a$k"] = $aid; $in[] = ":a$k"; }
+    $st = $pdo->prepare(
+        "SELECT it.security_id, it.trade_date, it.side, it.quantity, it.price, it.fees, it.amount,
+                it.account_id, " . ACCT_NAME . " AS account_name
+         FROM investment_transactions it
+         JOIN accounts a ON it.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND it.side IN ('buy','sell')
+           AND it.account_id IN (" . implode(',', $in) . ")
+         ORDER BY it.trade_date ASC, it.updated_at ASC"
+    );
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
+/**
+ * Broad-market index securities we ALREADY have price history for — the return
+ * benchmark candidates (no new feed: `security_prices` only tracks held tickers,
+ * so in practice whichever of these the household actually holds, e.g. SPY).
+ * Returns [['security_id','ticker_symbol','name','pts','first_date','last_date'], …]
+ * most-history first. NOT VIS-scoped — market data, like q_price_changes.
+ */
+function q_benchmark_candidates(PDO $pdo): array
+{
+    $tickers = ['SPY','VOO','VTI','IVV','ITOT','SCHB','VT','QQQ','DIA','AGG','BND'];
+    $in = implode(',', array_fill(0, count($tickers), '?'));
+    $st = $pdo->prepare(
+        "SELECT s.security_id, s.ticker_symbol, s.name,
+                COUNT(*) AS pts, MIN(sp.price_date) AS first_date, MAX(sp.price_date) AS last_date
+         FROM securities s
+         JOIN security_prices sp ON sp.security_id = s.security_id
+         WHERE UPPER(s.ticker_symbol) IN ($in)
+         GROUP BY s.security_id, s.ticker_symbol, s.name
+         HAVING pts >= 30
+         ORDER BY pts DESC"
+    );
+    $st->execute($tickers);
+    return $st->fetchAll();
+}
+
 /** Active recurring streams. Optionally scoped to one account. */
 function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
 {

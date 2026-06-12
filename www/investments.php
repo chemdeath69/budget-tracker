@@ -3,6 +3,7 @@ require __DIR__ . '/lib/bootstrap.php';
 require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/queries.php';
+require __DIR__ . '/lib/returns.php';
 require __DIR__ . '/lib/layout.php';
 require_login();
 
@@ -167,6 +168,35 @@ ksort($divUpcoming);
 $divYield   = ($total > 0 && $divProjTotal > 0) ? round($divProjTotal / $total * 100, 2) : null;
 $hasDivData = $divRows || $divUpcoming;
 
+/* ---- Money-weighted return + benchmark (#29) ----------------------------- */
+// Buy/sell cash flows over the accounts this page shows (non-retirement) + the
+// current market value → an annualized IRR, compared to a user-picked index we
+// already price (default SPY). Only shown where the lot history reconciles with
+// the current share count (else a missing lot would make the return wrong).
+$retAcctIds = array_keys($byAccount);
+$retLots    = $retAcctIds ? q_investment_lots($pdo, $uid, $retAcctIds) : [];
+$benchCands = []; $bench = null; $retView = ['portfolio' => ['irr' => null], 'accounts' => []];
+if ($retLots) {
+    $benchCands = q_benchmark_candidates($pdo);
+    $benchSel   = strtoupper(trim((string)($_GET['bench'] ?? '')));
+    $benchPick  = null;
+    foreach ($benchCands as $bc) { if (strtoupper((string)$bc['ticker_symbol']) === $benchSel) { $benchPick = $bc; break; } }
+    if ($benchPick === null && $benchCands) {        // default: SPY, else the most-history candidate
+        foreach ($benchCands as $bc) { if (strtoupper((string)$bc['ticker_symbol']) === 'SPY') { $benchPick = $bc; break; } }
+        if ($benchPick === null) $benchPick = $benchCands[0];
+    }
+    if ($benchPick) {
+        [$bAsOf, $bLatest] = ret_bench_lookup(q_security_prices($pdo, $benchPick['security_id'], 4000));
+        if ($bLatest > 0) {
+            $bench = ['asof' => $bAsOf, 'latest' => $bLatest,
+                      'ticker' => strtoupper((string)$benchPick['ticker_symbol']), 'name' => $benchPick['name']];
+        }
+    }
+    $retView = build_investment_returns($holds, $retLots, $bench, date('Y-m-d'));
+}
+$ret    = $retView['portfolio'];
+$hasRet = $ret['irr'] !== null;
+
 render_header('Investments', 'investments', ['chart' => true]);
 
 /** A holding's value change over $key (e.g. 'd30') as [abs, pct] or null. */
@@ -232,6 +262,80 @@ function div_freq_label(?int $f): string
             </div>
             <?php endforeach; ?>
         </div>
+    </section>
+    <?php endif; ?>
+
+    <?php /* ---- Return vs benchmark (#29) ---- */ ?>
+    <?php if ($retLots): ?>
+    <section class="block">
+        <div class="block-head">
+            <h2>Return vs benchmark</h2>
+            <?php if ($hasRet && count($benchCands) > 1): ?>
+            <form method="get" class="head-form">
+                <select name="bench" class="select" data-autosubmit aria-label="Benchmark index">
+                    <?php foreach ($benchCands as $bc): $tk = strtoupper((string)$bc['ticker_symbol']); ?>
+                        <option value="<?= e($tk) ?>"<?= ($bench && $bench['ticker'] === $tk) ? ' selected' : '' ?>><?= e($tk) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
+            <?php endif; ?>
+        </div>
+        <?php if ($hasRet):
+            $up     = $ret['irr'] >= 0;
+            $bTk    = $bench['ticker'] ?? null;
+            $bIrr   = $ret['bench_irr'];
+            $spread = ($bIrr !== null) ? $ret['irr'] - $bIrr : null; ?>
+        <section class="card hero">
+            <div class="hero-top">
+                <span class="hero-label">Your annualized return</span>
+                <?php if ($spread !== null): $beat = $spread >= 0; ?>
+                    <span class="delta <?= $beat ? 'up' : 'down' ?>"><?= $beat ? '▲' : '▼' ?> <?= e(number_format(abs($spread) * 100, 1)) ?> pp<span class="delta-sub">vs <?= e($bTk) ?></span></span>
+                <?php endif; ?>
+            </div>
+            <div class="hero-value <?= $up ? '' : 'neg' ?>"><?= e(ret_pct($ret['irr'])) ?></div>
+            <div class="hero-split tri">
+                <div class="split-cell">
+                    <span class="split-label">You</span>
+                    <span class="split-value <?= $up ? 'pos' : 'neg' ?>"><?= e(ret_pct($ret['irr'])) ?></span>
+                </div>
+                <div class="split-cell">
+                    <span class="split-label"><?= $bTk ? e($bTk) : 'Index' ?></span>
+                    <span class="split-value"><?= $bIrr !== null ? e(ret_pct($bIrr)) : '—' ?></span>
+                </div>
+                <div class="split-cell">
+                    <span class="split-label">Difference</span>
+                    <span class="split-value <?= $spread === null ? '' : ($spread >= 0 ? 'pos' : 'neg') ?>"><?= $spread === null ? '—' : e(($spread >= 0 ? '+' : '−') . number_format(abs($spread) * 100, 1) . ' pp') ?></span>
+                </div>
+            </div>
+            <p class="muted ret-note" style="margin-top:.9rem">
+                Money-weighted (annualized IRR)<?php if ($ret['start']): ?> since <?= e(date('M j, Y', strtotime($ret['start']))) ?><?php endif; ?> · invested <?= e(usd($ret['invested'])) ?> · now worth <?= e(usd($ret['mkt_value'])) ?>.
+                <?php if ($bench && $bIrr !== null): ?> <?= e($bTk) ?> = the same contributions placed in <?= e($bTk) ?> over the same dates.<?php elseif ($benchCands && $bench && $bIrr === null): ?> <?= e($bTk) ?> comparison unavailable — the benchmark's price history doesn't cover your full window.<?php elseif (!$benchCands): ?> No index benchmark yet (we compare against a broad-market fund you hold, e.g. SPY).<?php endif; ?>
+            </p>
+            <?php if (($ret['excl_count'] ?? 0) > 0): ?>
+            <p class="muted ret-note">Excludes <?= (int)$ret['excl_count'] ?> holding<?= $ret['excl_count'] > 1 ? 's' : '' ?> (<?= e(usd($ret['excl_value'])) ?>) without a complete buy/sell history on file.</p>
+            <?php endif; ?>
+        </section>
+
+        <?php if (count($retView['accounts']) > 1): ?>
+        <div class="card">
+            <div class="ret-acct ret-acct-head">
+                <span class="ret-name muted">Account</span>
+                <span class="ret-mine muted">You</span>
+                <span class="ret-bench"><?= $bench ? e($bench['ticker']) : '—' ?></span>
+            </div>
+            <?php foreach ($retView['accounts'] as $a): $au = $a['irr'] >= 0; ?>
+            <div class="ret-acct">
+                <span class="ret-name"><a href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>"><?= e($a['account_name']) ?></a></span>
+                <span class="ret-mine <?= $au ? 'ret-pos' : 'ret-neg' ?>"><?= e(ret_pct($a['irr'])) ?></span>
+                <span class="ret-bench"><?= $a['bench_irr'] !== null ? e(ret_pct($a['bench_irr'])) : '—' ?></span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+        <?php else: ?>
+        <div class="card"><p class="muted">We can't compute a reliable return yet — your recorded buy/sell history doesn't reconcile with the current share counts (a statement or transaction is likely missing). Once the full lot history is on file, an annualized return vs an index appears here.</p></div>
+        <?php endif; ?>
     </section>
     <?php endif; ?>
 
