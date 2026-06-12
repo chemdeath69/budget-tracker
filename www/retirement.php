@@ -56,7 +56,7 @@ function ret_rate_note(array $view): string
         case 'derived':  return $pct . ' — derived from ' . $view['derived']['pairs']
             . ' period' . ($view['derived']['pairs'] === 1 ? '' : 's')
             . ' of history';
-        default:         return $pct . ' — default (add more statements to derive your own)';
+        default:         return $pct . ' — default (derives from ≥6 months of account history)';
     }
 }
 

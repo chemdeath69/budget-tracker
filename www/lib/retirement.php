@@ -9,8 +9,9 @@ declare(strict_types=1);
  * projection settings (retirement_settings), then derives:
  *   - the combined current total + per-account cards (with staleness),
  *   - a combined value-over-time series and a contributions series,
- *   - a growth rate DERIVED from statement history (time-weighted), with the
- *     settings override / default as fallback,
+ *   - a growth rate DERIVED from balance history (time-weighted) — manual 401(k)
+ *     statements AND/OR Plaid retirement accounts' (quarterly-resampled) daily
+ *     balance history, pooled — with the settings override / default as fallback,
  *   - a year-by-year projection to the target retirement year.
  *
  * Pure read + derive (uses the q_* helpers in queries.php, which enforce
@@ -27,25 +28,90 @@ function ret_period_key(string $date): string
 }
 
 /**
- * Time-weighted annualized growth rate derived from each account's consecutive
- * statements, pooled across accounts. For each pair the period's contributions are
- * removed so deposits don't read as market growth. Returns
- *   ['rate'=>?float, 'pairs'=>int, 'span'=>float]  (rate is null until there's
- *   at least one valid pair spanning ≥ ~0.5 years).
+ * Resample a date→balance map down to ~quarterly observations. Plaid retirement
+ * accounts carry a DAILY balance history; feeding day-spaced points to the growth
+ * derivation would annualize single-day noise into absurd rates (`pow(1+r, 365)`),
+ * so we coarsen to roughly the same quarterly cadence as the manual 401(k)
+ * statements before deriving. We step ~a quarter at a time FROM the earliest
+ * observation (rather than bucketing by calendar quarter) so the full available
+ * span is used and every pair is ~a quarter long. The most recent observation
+ * (today's balance) is always the final point — extending the last pair rather than
+ * appending a tiny, noise-amplifying one. Returns a date-ascending list of
+ * ['date'=>'Y-m-d','balance'=>float].
  */
-function ret_derive_growth(array $byAccount): array
+function ret_resample_quarterly(array $map): array
+{
+    if (!$map) return [];
+    ksort($map);
+    $step  = 75 * 86400; // ~a quarter; keeps pairs near the manual statement cadence
+    $picked = [];
+    $lastTs = null;
+    foreach ($map as $d => $bal) {
+        $ts = strtotime((string)$d);
+        if ($ts === false) continue;
+        if ($lastTs === null || ($ts - $lastTs) >= $step) {
+            $picked[] = ['date' => (string)$d, 'balance' => (float)$bal];
+            $lastTs = $ts;
+        }
+    }
+    // Anchor the series on the most recent observation. If the tail is shorter than a
+    // step, replace the last pick (lengthening that final pair) instead of adding a
+    // short one; otherwise append it.
+    $dates    = array_keys($map);
+    $lastDate = (string)$dates[count($dates) - 1];
+    if ($picked && $picked[count($picked) - 1]['date'] !== $lastDate) {
+        $tailTs = strtotime($lastDate);
+        $prevTs = strtotime($picked[count($picked) - 1]['date']);
+        $point  = ['date' => $lastDate, 'balance' => (float)$map[$lastDate]];
+        if ($tailTs !== false && $prevTs !== false && ($tailTs - $prevTs) >= $step) {
+            $picked[] = $point;
+        } else {
+            $picked[count($picked) - 1] = $point;
+        }
+    }
+    return $picked;
+}
+
+/**
+ * Time-weighted annualized growth rate derived from each account's balance
+ * observations, pooled across accounts. Works for BOTH manual 401(k)s (quarterly
+ * statements) AND Plaid retirement accounts (quarterly-resampled daily balance
+ * history) — and any combination — since every account contributes its consecutive
+ * pairs to the same pool. For each pair the contributions DEPOSITED in that interval
+ * are removed first so deposits don't read as market growth.
+ *
+ * $accountSeries: list of [
+ *   'points'   => [['date'=>'Y-m-d','balance'=>float], …]  (date-ascending, ≥2),
+ *   'contribs' => [['date'=>'Y-m-d','amount'=>float], …]   (amount > 0 = deposit),
+ * ].
+ * Returns ['rate'=>?float,'pairs'=>int,'span'=>float] — rate is null until there's
+ * at least one valid pair and the pooled span is ≥ ~0.5 years.
+ */
+function ret_derive_growth(array $accountSeries): array
 {
     $sumW = 0.0; $sumWR = 0.0; $pairs = 0; $span = 0.0;
-    foreach ($byAccount as $rows) {
-        $n = count($rows);
+    foreach ($accountSeries as $acct) {
+        $pts      = $acct['points'] ?? [];
+        $contribs = $acct['contribs'] ?? [];
+        $n = count($pts);
         for ($k = 1; $k < $n; $k++) {
-            $start = (float)$rows[$k - 1]['balance'];
+            $start = (float)$pts[$k - 1]['balance'];
             if ($start <= 0) continue;
-            $contrib = (float)($rows[$k]['employee_contrib'] ?? 0) + (float)($rows[$k]['employer_contrib'] ?? 0);
-            $growth  = (float)$rows[$k]['balance'] - $start - $contrib;
-            $ret     = $growth / $start;
+            $d0 = strtotime((string)$pts[$k - 1]['date']);
+            $d1 = strtotime((string)$pts[$k]['date']);
+            if ($d0 === false || $d1 === false) continue;
+            // Contributions deposited in (d0, d1] — strictly after the start point, up
+            // to and including the end point — so each deposit is counted in exactly one
+            // pair (and the manual path stays identical: the end statement's contribution).
+            $contrib = 0.0;
+            foreach ($contribs as $c) {
+                $cd = strtotime((string)$c['date']);
+                if ($cd !== false && $cd > $d0 && $cd <= $d1) $contrib += (float)$c['amount'];
+            }
+            $growth = (float)$pts[$k]['balance'] - $start - $contrib;
+            $ret    = $growth / $start;
             if ((1 + $ret) <= 0) continue; // avoid fractional power of a negative base
-            $dt = (strtotime((string)$rows[$k]['statement_date']) - strtotime((string)$rows[$k - 1]['statement_date'])) / 86400 / 365.25;
+            $dt = ($d1 - $d0) / 86400 / 365.25;
             if ($dt <= 0) continue;
             $annual = pow(1 + $ret, 1 / $dt) - 1;
             $sumW  += $dt;
@@ -185,6 +251,7 @@ function build_retirement_view(PDO $pdo, int $uid): array
     foreach ($cards as $c) {
         if (empty($c['manual'])) $plaidAcctIds[] = (string)$c['account']['account_id'];
     }
+    $plaidContribByAcct = []; // account_id => [['date'=>,'amount'=>], …] — feeds the growth derivation
     if ($plaidAcctIds) {
         // All contribution rows (not one page); stored amount − = money in → positive deposit.
         foreach (q_investment_activity($pdo, $uid, 'contributions', $plaidAcctIds, 100000, 0) as $r) {
@@ -192,6 +259,7 @@ function build_retirement_view(PDO $pdo, int $uid): array
             if ($amt <= 0) continue;
             $ts = strtotime((string)$r['tdate']);
             if ($ts === false) continue;
+            $plaidContribByAcct[(string)$r['account_id']][] = ['date' => (string)$r['tdate'], 'amount' => $amt];
             $bucket = stripos((string)$r['title'], 'employer') !== false ? 'er' : 'ee';
             $pk = ret_period_key((string)$r['tdate']);
             if (!isset($contribByPeriod[$pk])) $contribByPeriod[$pk] = ['ee' => 0.0, 'er' => 0.0];
@@ -205,7 +273,28 @@ function build_retirement_view(PDO $pdo, int $uid): array
     }
 
     // --- growth rate: override ?? derived ?? default --------------------------
-    $derived = ret_derive_growth($byAccount);
+    // Derive from each account's balance observations + the contributions deposited
+    // between them — manual 401(k)s from their quarterly statements, Plaid retirement
+    // accounts from their (quarterly-resampled) daily balance history; pooled, so any
+    // mix of the two contributes. Each account needs ≥2 observations spanning real time.
+    $growthSeries = [];
+    foreach ($accounts as $a) {
+        $aid    = $a['account_id'];
+        $manual = ($a['manual_type'] ?? '') === 'retirement_401k';
+        if ($manual) {
+            $pts = []; $contribs = [];
+            foreach ($byAccount[$aid] ?? [] as $s) {
+                $pts[]      = ['date' => (string)$s['statement_date'], 'balance' => (float)$s['balance']];
+                $contribs[] = ['date'   => (string)$s['statement_date'],
+                               'amount' => (float)($s['employee_contrib'] ?? 0) + (float)($s['employer_contrib'] ?? 0)];
+            }
+        } else {
+            $pts      = ret_resample_quarterly($acctMap[$aid] ?? []);
+            $contribs = $plaidContribByAcct[(string)$aid] ?? [];
+        }
+        if (count($pts) >= 2) $growthSeries[] = ['points' => $pts, 'contribs' => $contribs];
+    }
+    $derived = ret_derive_growth($growthSeries);
     if ($settings['growth_rate_override'] !== null) {
         $rate = $settings['growth_rate_override']; $rateBasis = 'override';
     } elseif ($derived['rate'] !== null) {
