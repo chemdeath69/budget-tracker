@@ -370,6 +370,9 @@ a.cat-row:hover { background: var(--surface-2); }
 .cat-link:hover { text-decoration: underline; }
 .row-title a { color: inherit; text-decoration: none; }
 .row-title a:hover { text-decoration: underline; }
+/* Account name in a transaction row's sub-line links to that account (Session 49). */
+.row-sub a { color: inherit; text-decoration: none; }
+.row-sub a:hover { text-decoration: underline; }
 /* Spending trends (Session 23): muted "Other" bucket, non-clickable aggregate
    row, and the vs-baseline delta chip (red = spending up, green = down). */
 .cat-swatch.other { background: var(--muted); }

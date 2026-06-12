@@ -130,7 +130,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
                     <span class="row-title"><?php if (!empty($t['logo_url'])): ?><img class="merchant-logo" src="<?= e($t['logo_url']) ?>" alt="" loading="lazy"><?php endif; ?><?php if ($merchant !== '—'): ?><a href="/transactions.php?merchant=<?= rawurlencode($merchant) ?>&amp;from=<?= e($merchFrom) ?>"><?= e($merchant) ?></a><?php else: ?><?= e($merchant) ?><?php endif; ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                     <span class="row-sub">
                         <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
-                        <span class="muted">· <?= e($acctLabel) ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>
+                        <span class="muted">· <?php if (!empty($t['account_id']) && $acctLabel !== ''): ?><a href="/account.php?account_id=<?= rawurlencode($t['account_id']) ?>"><?= e($acctLabel) ?></a><?php else: ?><?= e($acctLabel) ?><?php endif; ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>
                     </span>
                     <?= render_tx_meta($t) ?>
                 </span>
