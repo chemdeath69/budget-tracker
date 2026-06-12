@@ -712,7 +712,10 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
     $st = $pdo->prepare(
         "SELECT DATE_FORMAT(t.date, '%Y-%m') AS ym,
                 SUM(CASE WHEN t.amount > 0 THEN " . EFF_AMT . " ELSE 0 END)  AS expense,
-                SUM(CASE WHEN t.amount < 0 THEN -" . EFF_AMT . " ELSE 0 END) AS income
+                -- Income = depository/investment inflows only. A loan/credit account's
+                -- amount<0 is a debt payment or refund (inverted sign), not income —
+                -- without this the mortgage payment + card refunds leaked into income.
+                SUM(CASE WHEN t.amount < 0 AND a.type NOT IN ('loan','credit') THEN -" . EFF_AMT . " ELSE 0 END) AS income
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
@@ -905,6 +908,13 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
     $end   = $first->add(new DateInterval('P1M'))->format('Y-m-01');
 
     // ---- Income (money in): amount < 0, grouped by payer ---------------------
+    // Restrict to NON-liability accounts: on a depository account amount<0 is a
+    // deposit (real income), but on a loan/credit account the sign is inverted —
+    // amount<0 means a payment toward the debt or a refund, NOT household income
+    // (e.g. the mortgage account's "Mortgage Payment" −$3,300, or a card refund).
+    // Counting those as income overstated both income and the savings rate; they
+    // belong nowhere in the income→spending flow (the mortgage already shows in
+    // net worth / Property). The symmetric companion to the CC-payment exclusion.
     $si = $pdo->prepare(
         "SELECT COALESCE(NULLIF(t.merchant_name, ''), t.name) AS payer,
                 SUM(-(" . EFF_AMT . ")) AS amount
@@ -913,6 +923,7 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount < 0 AND t.ext_source IS NULL
+           AND a.type NOT IN ('loan','credit')
            AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start AND t.date < :end
