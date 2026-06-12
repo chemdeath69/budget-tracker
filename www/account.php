@@ -54,6 +54,26 @@ $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
 $holds   = $isInvest ? q_holdings($pdo, $uid, $accountId) : [];
 $errored = ($acct['item_status'] ?? '') === 'error' || !empty($acct['error_code']);
 
+// Investment activity for this account (#18). A Plaid brokerage / retirement account
+// stores its activity in investment_transactions (NOT the transactions table, which is
+// empty for it), so the regular Transactions list below would otherwise show nothing.
+// Scope q_investment_activity() to THIS single account, mirroring retirement.php.
+$invScope   = $isInvest ? [$accountId] : [];
+$dPage      = page_num('dpage');   // dividends & interest
+$itPage     = page_num('itpage');  // trades (distinct from the tx 'txpage')
+$cPage      = page_num('cpage');   // contributions
+$incomeRaw  = $invScope ? q_investment_activity($pdo, $uid, 'income', $invScope, PAGE_SIZE + 1, page_offset($dPage)) : [];
+$incomeNext = count($incomeRaw) > PAGE_SIZE;
+$income     = array_slice($incomeRaw, 0, PAGE_SIZE);
+$tradesRaw  = $invScope ? q_investment_activity($pdo, $uid, 'trades', $invScope, PAGE_SIZE + 1, page_offset($itPage)) : [];
+$tradesNext = count($tradesRaw) > PAGE_SIZE;
+$trades     = array_slice($tradesRaw, 0, PAGE_SIZE);
+$contribRaw = $invScope ? q_investment_activity($pdo, $uid, 'contributions', $invScope, PAGE_SIZE + 1, page_offset($cPage)) : [];
+$contribNext = count($contribRaw) > PAGE_SIZE;
+$contribs   = array_slice($contribRaw, 0, PAGE_SIZE);
+$incomeTotal  = $invScope ? -q_investment_activity_total($pdo, $uid, 'income', $invScope) : 0.0;
+$contribTotal = $invScope ? -q_investment_activity_total($pdo, $uid, 'contributions', $invScope) : 0.0;
+
 $docPage = page_num('docpage');
 $manualCfg = null; $mdocs = []; $taxes = []; $docHasNext = false;
 if ($manual) {
@@ -169,7 +189,7 @@ render_header($acct['name'] ?: 'Account', '', [
 <?php endforeach; ?>
 
 <!-- Holdings -->
-<?php if ($isInvest && !is_retirement($acct)): ?>
+<?php if ($isInvest): ?>
 <section class="card">
     <h2>Holdings</h2>
     <?php if (!$holds): ?>
@@ -322,9 +342,43 @@ render_header($acct['name'] ?: 'Account', '', [
 <?php endif; ?>
 
 </div><!-- /.col summary -->
-<div class="col"><!-- transactions -->
+<div class="col"><!-- transactions / investment activity -->
 
-<!-- Transactions for this account -->
+<!-- Investment activity (brokerage / retirement accounts store activity in
+     investment_transactions, not the transactions table) -->
+<?php if ($isInvest): ?>
+    <?php render_investment_activity('Dividends & interest', $income, [
+        'head_right'   => $incomeTotal > 0 ? '<span class="split-value pos">' . e(usd($incomeTotal)) . '</span>' : '',
+        'page'         => $dPage,
+        'has_next'     => $incomeNext,
+        'pager_key'    => 'dpage',
+        'pager_params' => ['account_id' => $accountId] + ($itPage > 1 ? ['itpage' => $itPage] : []) + ($cPage > 1 ? ['cpage' => $cPage] : []),
+        'empty'        => 'No dividend or interest activity in the synced window.',
+    ]); ?>
+    <?php if ($trades || $itPage > 1): ?>
+    <?php render_investment_activity('Recent trades', $trades, [
+        'head_right'   => $trades ? '<span class="count-pill">' . count($trades) . '</span>' : '',
+        'page'         => $itPage,
+        'has_next'     => $tradesNext,
+        'pager_key'    => 'itpage',
+        'pager_params' => ['account_id' => $accountId] + ($dPage > 1 ? ['dpage' => $dPage] : []) + ($cPage > 1 ? ['cpage' => $cPage] : []),
+        'empty'        => 'No trades in the synced window.',
+    ]); ?>
+    <?php endif; ?>
+    <?php if ($contribs || $cPage > 1): ?>
+    <?php render_investment_activity('Recent contributions', $contribs, [
+        'head_right'   => $contribTotal > 0 ? '<span class="split-value pos">' . e(usd($contribTotal)) . '</span>' : '',
+        'page'         => $cPage,
+        'has_next'     => $contribNext,
+        'pager_key'    => 'cpage',
+        'pager_params' => ['account_id' => $accountId] + ($dPage > 1 ? ['dpage' => $dPage] : []) + ($itPage > 1 ? ['itpage' => $itPage] : []),
+        'empty'        => 'No contributions in the synced window.',
+    ]); ?>
+    <?php endif; ?>
+<?php endif; ?>
+
+<!-- Transactions for this account (hidden for brokerages with no cash transactions) -->
+<?php if (!$isInvest || $txns || $txHasFilters): ?>
 <section class="block">
     <div class="block-head">
         <h2>Transactions</h2>
@@ -371,8 +425,9 @@ render_header($acct['name'] ?: 'Account', '', [
     </div>
     <?php render_pager($txPage, $txHasNext, ['account_id' => $accountId] + $txFilters + ($docPage > 1 ? ['docpage' => $docPage] : []), 'txpage'); ?>
 </section>
+<?php endif; ?>
 
-</div><!-- /.col transactions -->
+</div><!-- /.col transactions / investment activity -->
 </div><!-- /.cols aside -->
 
 <script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
