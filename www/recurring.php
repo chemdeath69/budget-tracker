@@ -20,19 +20,23 @@ render_header('Recurring', 'recurring');
 
 function recurring_rows(array $rows, array $logos): void
 {
+    // Click-through window for the merchant link: today − 90 days (PHP app-TZ date,
+    // never MySQL CURDATE — S24 trap), matching the transactions.php #5 idiom.
+    $merchFrom = date('Y-m-d', strtotime('-90 days'));
     foreach ($rows as $r):
         $amt = abs((float)$r['average_amount']);
         $inflow = $r['direction'] === 'inflow';
         $acct = ($r['account_name'] ?: '') . ($r['mask'] ? ' ••' . $r['mask'] : '');
+        $name = $r['merchant_name'] ?: ($r['description'] ?: '—');
         $hay  = strtolower(($r['merchant_name'] ?: ($r['description'] ?: '')) . ' ' . pretty_cat($r['category_primary'] ?: '') . ' ' . $acct);
         $logo = $r['merchant_name'] ? ($logos[strtolower($r['merchant_name'])] ?? '') : ''; ?>
         <div class="row" data-search="<?= e($hay) ?>">
             <span class="row-main">
-                <span class="row-title"><?php if ($logo): ?><img class="merchant-logo" src="<?= e($logo) ?>" alt="" loading="lazy"><?php endif; ?><?= e($r['merchant_name'] ?: ($r['description'] ?: '—')) ?></span>
+                <span class="row-title"><?php if ($logo): ?><img class="merchant-logo" src="<?= e($logo) ?>" alt="" loading="lazy"><?php endif; ?><?php if ($name !== '—'): ?><a href="/transactions.php?merchant=<?= rawurlencode($name) ?>&amp;from=<?= e($merchFrom) ?>"><?= e($name) ?></a><?php else: ?><?= e($name) ?><?php endif; ?></span>
                 <span class="row-sub">
                     <?= e(pretty_cat($r['frequency'] ?: '')) ?>
                     <?php if ($r['category_primary']): ?>· <?= e(pretty_cat($r['category_primary'])) ?><?php endif; ?>
-                    · <?= e($acct) ?><?= owner_suffix($r['owner_id'] ?? null) ?>
+                    · <?php if (!empty($r['account_id']) && $acct !== ''): ?><a href="/account.php?account_id=<?= rawurlencode($r['account_id']) ?>"><?= e($acct) ?></a><?php else: ?><?= e($acct) ?><?php endif; ?><?= owner_suffix($r['owner_id'] ?? null) ?>
                 </span>
             </span>
             <span class="row-amt <?= $inflow ? 'pos' : '' ?>"><?= ($inflow ? '+' : '') . e(usd($amt)) ?></span>

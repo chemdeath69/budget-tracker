@@ -1695,7 +1695,31 @@ function q_recurring(PDO $pdo, int $uid, ?string $accountId = null): array
          ORDER BY r.direction, r.average_amount DESC"
     );
     $st->execute($params);
-    return $st->fetchAll();
+    $rows = $st->fetchAll();
+
+    // De-duplicate streams that represent the SAME real-world series. Two causes:
+    //   (a) Plaid RE-ISSUES a stream's id — the superseded one is deactivated at sync
+    //       time (sync_recurring's reconciliation pass), so it shouldn't reach here; and
+    //   (b) Plaid can return TWO stream_ids for ONE series in a single response (e.g. two
+    //       byte-identical "Interest Paid" streams, same last_date + amount) — those both
+    //       stay active and (a) can't catch them. Collapse rows sharing display-name +
+    //       account + direction + frequency + amount, keeping the most recent last_date,
+    //       so a genuine Plaid double-emission can't surface as a duplicate row. Distinct
+    //       series (e.g. Amazon $32.38/mo vs $14.77) differ on amount/freq and are kept.
+    //       Preserves the SQL ordering (first occurrence holds its slot).
+    $slot = [];
+    $out  = [];
+    foreach ($rows as $r) {
+        $key = strtolower(($r['merchant_name'] ?: ($r['description'] ?: '')) . '|' . $r['account_id']
+             . '|' . $r['direction'] . '|' . ($r['frequency'] ?? '') . '|' . $r['average_amount']);
+        if (!isset($slot[$key])) {
+            $slot[$key] = count($out);
+            $out[] = $r;
+        } elseif (($r['last_date'] ?? '') > ($out[$slot[$key]]['last_date'] ?? '')) {
+            $out[$slot[$key]] = $r; // keep the live (later last_date) twin in the same slot
+        }
+    }
+    return $out;
 }
 
 /**

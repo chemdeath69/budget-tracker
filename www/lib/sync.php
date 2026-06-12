@@ -418,7 +418,9 @@ function sync_recurring(PDO $pdo, string $itemId, string $token): void
              is_active=VALUES(is_active), status=VALUES(status),
              category_primary=VALUES(category_primary), raw=VALUES(raw)'
     );
-    $store = function (array $s, string $dir) use ($up) {
+    $seen = [];
+    $store = function (array $s, string $dir) use ($up, &$seen) {
+        $seen[] = $s['stream_id'];
         $up->execute([
             ':sid'   => $s['stream_id'],
             ':acct'  => $s['account_id'],
@@ -437,6 +439,29 @@ function sync_recurring(PDO $pdo, string $itemId, string $token): void
     };
     foreach ($res['inflow_streams'] ?? [] as $s)  $store($s, 'inflow');
     foreach ($res['outflow_streams'] ?? [] as $s) $store($s, 'outflow');
+
+    // Reconcile: Plaid's response is the AUTHORITATIVE current set of streams for these
+    // accounts. Plaid periodically RE-ISSUES a stream's id — the old id simply stops
+    // appearing in the response (it is NOT returned again as is_active=false), so an
+    // upsert-only sync would leave the superseded stream lingering at is_active=1 forever
+    // and recurring.php / bills.php would show it as a duplicate of its replacement.
+    // Deactivate any active stream of THESE accounts that was absent from this response.
+    // (Positional placeholders — no named-placeholder reuse, so HY093-safe with native
+    //  prepares; account_ids are scoped to this item so other items are untouched.)
+    $acctPh = implode(',', array_fill(0, count($accountIds), '?'));
+    if ($seen) {
+        $seenPh = implode(',', array_fill(0, count($seen), '?'));
+        $pdo->prepare(
+            "UPDATE recurring_streams SET is_active = 0
+              WHERE account_id IN ($acctPh) AND is_active = 1
+                AND stream_id NOT IN ($seenPh)"
+        )->execute(array_merge($accountIds, $seen));
+    } else {
+        // Plaid returned no streams at all for these accounts → none are current.
+        $pdo->prepare(
+            "UPDATE recurring_streams SET is_active = 0 WHERE account_id IN ($acctPh) AND is_active = 1"
+        )->execute($accountIds);
+    }
 }
 
 /**
