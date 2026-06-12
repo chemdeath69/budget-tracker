@@ -113,6 +113,9 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
     <section class="block">
         <div class="rows tx-list">
             <?php
+            // Click-through window for the merchant link: today − 90 days (PHP app-TZ date,
+            // never MySQL CURDATE — S24 trap), matching the #5 leaderboard idiom.
+            $merchFrom = date('Y-m-d', strtotime('-90 days'));
             $lastDate = null;
             foreach ($txns as $t):
                 $merchant = $t['merchant_name'] ?: ($t['name'] ?: '—');
@@ -124,7 +127,7 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
             <?php endif; ?>
             <div class="row tx-row">
                 <span class="row-main">
-                    <span class="row-title"><?php if (!empty($t['logo_url'])): ?><img class="merchant-logo" src="<?= e($t['logo_url']) ?>" alt="" loading="lazy"><?php endif; ?><?= e($merchant) ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
+                    <span class="row-title"><?php if (!empty($t['logo_url'])): ?><img class="merchant-logo" src="<?= e($t['logo_url']) ?>" alt="" loading="lazy"><?php endif; ?><?php if ($merchant !== '—'): ?><a href="/transactions.php?merchant=<?= rawurlencode($merchant) ?>&amp;from=<?= e($merchFrom) ?>"><?= e($merchant) ?></a><?php else: ?><?= e($merchant) ?><?php endif; ?><?= $t['pending'] ? ' <span class="mini-tag">pending</span>' : '' ?></span>
                     <span class="row-sub">
                         <button type="button" class="cat-chip" data-tx="<?= e($t['transaction_id']) ?>"><?= $t['category'] ? e(pretty_cat($t['category'])) : 'Set category' ?></button>
                         <span class="muted">· <?= e($acctLabel) ?><?= owner_suffix($t['owner_id'] ?? null) ?></span>
