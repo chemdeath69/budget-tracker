@@ -170,6 +170,40 @@ function build_retirement_view(PDO $pdo, int $uid): array
         if (strtotime((string)$s['statement_date']) >= $cutoff) $ttmContrib += $ee + $er;
     }
 
+    // Fold in Plaid-synced contributions (e.g. Betterment payroll/IRA deposits) so the
+    // YTD / quarterly / trailing-12-month figures reflect them too. Manual 401(k)s carry
+    // contributions in retirement_statements, but Plaid retirement accounts have none — so
+    // without this the "Contributed YTD" hero, the contributions-by-quarter chart and the
+    // projection's annual-contribution input would all under-count (showing $0 for a
+    // Plaid-only account). Plaid tags every deposit with subtype 'contribution' (no
+    // structured employee/employer split), but its free-text name distinguishes an
+    // "Employer Contribution" from a payroll one — so we route a deposit whose name
+    // mentions "employer" to the employer-match bucket, else to the employee bucket.
+    // Balances already include these deposits, so we touch only the contribution
+    // accumulators, never $total / the value series.
+    $plaidAcctIds = [];
+    foreach ($cards as $c) {
+        if (empty($c['manual'])) $plaidAcctIds[] = (string)$c['account']['account_id'];
+    }
+    if ($plaidAcctIds) {
+        // All contribution rows (not one page); stored amount − = money in → positive deposit.
+        foreach (q_investment_activity($pdo, $uid, 'contributions', $plaidAcctIds, 100000, 0) as $r) {
+            $amt = -(float)$r['amount'];
+            if ($amt <= 0) continue;
+            $ts = strtotime((string)$r['tdate']);
+            if ($ts === false) continue;
+            $bucket = stripos((string)$r['title'], 'employer') !== false ? 'er' : 'ee';
+            $pk = ret_period_key((string)$r['tdate']);
+            if (!isset($contribByPeriod[$pk])) $contribByPeriod[$pk] = ['ee' => 0.0, 'er' => 0.0];
+            $contribByPeriod[$pk][$bucket] += $amt;
+            if ((int)date('Y', $ts) === $curYear) {
+                if ($bucket === 'er') $ytdEr += $amt; else $ytdEe += $amt;
+            }
+            if ($ts >= $cutoff) $ttmContrib += $amt;
+        }
+        ksort($contribByPeriod);
+    }
+
     // --- growth rate: override ?? derived ?? default --------------------------
     $derived = ret_derive_growth($byAccount);
     if ($settings['growth_rate_override'] !== null) {
