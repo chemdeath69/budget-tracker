@@ -967,6 +967,56 @@ function openRuleEditor(btn) {
 
 function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
 
+/* Statement photo-import (Session 55, #25): thumbnail previews with per-page remove,
+   and a "Reading…" submit state (the extraction call takes ~10-30s). */
+function initStatementImport() {
+  const form = document.getElementById('import-form');
+  if (!form) return;
+  const input = document.getElementById('import-files');
+  const previews = document.getElementById('import-previews');
+  const submit = document.getElementById('import-submit');
+  if (!input || !previews) return;
+
+  // The file input is immutable, so we keep our own list and rebuild a DataTransfer.
+  let files = [];
+  const MAX = 6;
+
+  function render() {
+    previews.innerHTML = '';
+    files.forEach((f, i) => {
+      const cell = document.createElement('div');
+      cell.className = 'file-thumb';
+      const img = document.createElement('img');
+      img.alt = f.name;
+      img.src = URL.createObjectURL(f);
+      img.onload = () => URL.revokeObjectURL(img.src);
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'file-thumb-x'; x.textContent = '×';
+      x.setAttribute('aria-label', 'Remove page'); x.title = 'Remove page';
+      x.addEventListener('click', () => { files.splice(i, 1); sync(); });
+      cell.appendChild(img); cell.appendChild(x);
+      const n = document.createElement('span'); n.className = 'file-thumb-n'; n.textContent = 'Page ' + (i + 1);
+      cell.appendChild(n);
+      previews.appendChild(cell);
+    });
+  }
+  function sync() {
+    const dt = new DataTransfer();
+    files.slice(0, MAX).forEach(f => dt.items.add(f));
+    input.files = dt.files;
+    render();
+  }
+  input.addEventListener('change', () => {
+    for (const f of input.files) {
+      if (f.type.startsWith('image/') && files.length < MAX) files.push(f);
+    }
+    sync();
+  });
+  form.addEventListener('submit', () => {
+    if (submit) { submit.disabled = true; submit.textContent = 'Reading your statement… (~20s)'; }
+  });
+}
+
 /* ---- Boot ---------------------------------------------------------------- */
 initDrawer();
 initCharts();
@@ -986,3 +1036,4 @@ initTxTags();
 initTxSplits();
 initRules();
 initTxRules();
+initStatementImport();

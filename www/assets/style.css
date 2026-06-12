@@ -653,6 +653,19 @@ a.cat-row:hover { background: var(--surface-2); }
   padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--r-pill);
   background: var(--surface-2); color: var(--ink); cursor: pointer; }
 .upload-hint { font-size: .8rem; margin-top: 2px; }
+
+/* Statement photo-import (Session 55, #25) — page thumbnails + review heads */
+.file-previews { display: flex; flex-wrap: wrap; gap: 10px; }
+.file-previews:empty { display: none; }
+.file-thumb { position: relative; width: 84px; }
+.file-thumb img { width: 84px; height: 84px; object-fit: cover; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: var(--surface-2); display: block; }
+.file-thumb-x { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; line-height: 1;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink);
+  font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.file-thumb-n { display: block; font-size: .72rem; color: var(--muted); text-align: center; margin-top: 3px; }
+.review-head { margin: 16px 0 6px; font-size: .85rem; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--muted); }
 .balance-asof { font-size: .8rem; margin-top: 12px; }
 .tax-year + .tax-year { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .tax-year-head { margin-bottom: 4px; }

@@ -19,17 +19,19 @@ $chgAbs   = $prev !== null ? $total - $prev : null;
 $chgPct   = ($prev !== null && $prev != 0.0) ? $chgAbs / abs($prev) * 100 : null;
 $proj     = $view['projection'];
 
-/* ---- Investment activity for the Plaid retirement brokerages shown here (#18) ----
+/* ---- Investment activity for the retirement accounts shown here (#18, #25) ----
  * Dividends/interest + trades come from q_investment_activity() scoped to THIS page's
- * (non-manual) retirement accounts — e.g. Betterment. Manual 401(k)s contribute
- * nothing (their statements live in retirement_statements, not the investment feeds). */
+ * retirement accounts: Plaid brokerages (e.g. Betterment) AND manual 401(k)s whose
+ * statement import (Session 55, #25) wrote dividend/capital-gain/fee rows tagged
+ * ext_source='manual_ret'. A manual account with no imported activity simply
+ * contributes no rows. */
 $invAcct     = trim((string)($_GET['iacct'] ?? ''));
 $rdPage      = page_num('dpage');
 $rtPage      = page_num('tpage');
 $rcPage      = page_num('cpage');
 $retAcctOpts = [];
 foreach ($view['cards'] as $c) {
-    if (empty($c['manual'])) $retAcctOpts[(string)$c['account']['account_id']] = $c['account']['name'] ?: 'Account';
+    $retAcctOpts[(string)$c['account']['account_id']] = $c['account']['name'] ?: 'Account';
 }
 $retScope = ($invAcct !== '' && isset($retAcctOpts[$invAcct])) ? [$invAcct] : array_keys($retAcctOpts);
 
@@ -236,7 +238,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
                     <?php if ($manual && $owner): ?><a class="btn-ghost sm" href="/retirement_statement.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Add statement</a><?php endif; ?>
                 </span>
             </div>
-            <?php if (!$manual && $c['holdings']): ?>
+            <?php if ($c['holdings']): ?>
             <div class="rows" style="margin-top:.6rem;border-top:1px solid var(--line)">
                 <?php foreach ($c['holdings'] as $h):
                     $sec  = ($h['ticker_symbol'] ? $h['ticker_symbol'] . ' — ' : '') . ($h['security_name'] ?: '—');

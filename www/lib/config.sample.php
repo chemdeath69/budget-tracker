@@ -111,6 +111,16 @@ return [
         'api_key' => '',   // paste your RentCast key here (empty = disabled)
     ],
 
+    // Anthropic (Claude) API — vision OCR that reads a manual 401(k) statement photo
+    // and pre-fills the statement form (retirement_statement.php "Import from photo").
+    // Pay-as-you-go prepaid credits (~$0.20/yr at a quarterly cadence); NOT covered by
+    // a Claude Code / Claude.ai subscription. Get a key at https://console.anthropic.com
+    // (API keys) and load $5 of credits (Billing). LEAVE EMPTY to disable the importer.
+    'anthropic' => [
+        'api_key' => '',   // paste your Anthropic API key (sk-ant-…) here (empty = disabled)
+        'model'   => 'claude-sonnet-4-6',  // vision model (Sonnet — most accurate on dense statement tables; ~$0.50/yr)
+    ],
+
     // The property to value with RentCast (refreshed ~monthly by cron/sync.php) and
     // show against the linked mortgage balance on the dashboard. Use the format
     // "Street, City, State, Zip". LEAVE EMPTY to disable the home-value feature.

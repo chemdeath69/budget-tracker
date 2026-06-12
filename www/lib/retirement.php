@@ -150,8 +150,9 @@ function build_retirement_view(PDO $pdo, int $uid): array
     $byAccount = [];
     foreach ($statements as $s) $byAccount[$s['account_id']][] = $s;
 
-    // Holdings for the Plaid retirement accounts, grouped by account. Holdings that
-    // round to $0 (e.g. Plaid's cash placeholder security) are suppressed by default.
+    // Holdings for the retirement accounts, grouped by account — Plaid brokerages AND
+    // (Session 55, #25) manual 401(k)s whose statement import wrote per-fund holdings.
+    // Holdings that round to $0 (e.g. Plaid's cash placeholder security) are suppressed.
     $holdByAccount = [];
     foreach (q_holdings($pdo, $uid) as $h) {
         if (!is_retirement_account($h)) continue;
@@ -200,7 +201,7 @@ function build_retirement_view(PDO $pdo, int $uid): array
             'last_date'  => $lastReal,
             'stale_days' => $staleDays,
             'count'      => count($byAccount[$aid] ?? []),
-            'holdings'   => $manual ? [] : ($holdByAccount[$aid] ?? []),
+            'holdings'   => $holdByAccount[$aid] ?? [],
         ];
     }
 

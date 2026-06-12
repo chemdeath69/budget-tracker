@@ -1285,9 +1285,13 @@ function q_holdings(PDO $pdo, int $uid, ?string $accountId = null): array
  * Investment activity (dividends/interest OR trades), UNIONing the two feeds:
  *   - MANUAL (Webull): brokerage cash rows in `transactions` (ext_source IS NOT NULL),
  *     classified by `pfc_primary`.
- *   - PLAID (Session 34/#18): rows in `investment_transactions` (ext_source='plaid'),
- *     classified by type/subtype/side.
- * VIS-scoped per viewing user. $kind ∈ 'income' | 'trades'. Amount keeps the stored
+ *   - PLAID (Session 34/#18) + MANUAL-401(k) imports (Session 55/#25): rows in
+ *     `investment_transactions` (ext_source IN ('plaid','manual_ret')), classified by
+ *     type/subtype/side. The manual-401(k) statement importer (lib/statement_import.php)
+ *     writes dividend/capital-gain/fee lines tagged ext_source='manual_ret'; the income
+ *     predicate matches '%capital%' so a fund's capital-gain distribution shows alongside
+ *     dividends/interest.
+ * VIS-scoped per viewing user. $kind ∈ 'income' | 'trades' | 'contributions'. Amount keeps the stored
  * sign (+ = money out, − = money in); the caller renders − as a green inflow.
  *
  * Scoped to an explicit $accountIds set — the accounts the CALLING PAGE renders — so
@@ -1356,7 +1360,7 @@ function inv_activity_union(int $uid, string $kind, array $accountIds): array
         $pKind = "(it.type = 'cash' AND it.subtype LIKE '%contribution%')";
     } else { // 'income' — dividends + interest
         $mKind = "t.pfc_primary IN ('INCOME_DIVIDENDS','INCOME_INTEREST')";
-        $pKind = "(it.type = 'cash' AND (it.subtype LIKE '%dividend%' OR it.subtype LIKE '%interest%'))";
+        $pKind = "(it.type = 'cash' AND (it.subtype LIKE '%dividend%' OR it.subtype LIKE '%interest%' OR it.subtype LIKE '%capital%'))";
     }
     $visM = str_replace(':uid', ':uid_m', VIS);
     $visP = str_replace(':uid', ':uid_p', VIS);
@@ -1384,7 +1388,7 @@ function inv_activity_union(int $uid, string $kind, array $accountIds): array
          JOIN accounts a ON it.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
          LEFT JOIN securities s ON it.security_id = s.security_id
-         WHERE $visP AND it.ext_source = 'plaid'
+         WHERE $visP AND it.ext_source IN ('plaid', 'manual_ret')
            AND it.account_id IN (" . implode(',', $pIn) . ")
            AND $pKind";
 
