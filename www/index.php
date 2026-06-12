@@ -33,7 +33,7 @@ $billsSoon  = bill_occurrences(q_liabilities($pdo, $uid), q_recurring($pdo, $uid
                                new DateTimeImmutable('today'), (new DateTimeImmutable('today'))->add(new DateInterval('P14D')));
 $billsTotal = 0.0;
 foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
-$goals    = q_goals($pdo);                                  // savings-goals teaser (TODO #9)
+$goals    = q_goals($pdo, $uid);                            // savings-goals teaser (TODO #9)
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 $lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)

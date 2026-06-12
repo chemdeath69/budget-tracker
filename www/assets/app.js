@@ -1017,6 +1017,97 @@ function initStatementImport() {
   });
 }
 
+/* ---- AI assistant (#27) -------------------------------------------------- */
+function assistantMarkup(text) {
+  // Markdown-lite → safe HTML. Escape FIRST, then apply a tiny subset (bold,
+  // bullet lists, paragraphs) so a model reply can never inject markup.
+  const esc = s => s.replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const lines = esc(text).split(/\r?\n/);
+  let html = '', inList = false;
+  const inline = s => s
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  for (let raw of lines) {
+    const line = raw.trim();
+    const m = line.match(/^[-*•]\s+(.*)$/);
+    if (m) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + inline(m[1]) + '</li>';
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      if (line) html += '<p>' + inline(line) + '</p>';
+    }
+  }
+  if (inList) html += '</ul>';
+  return html || '<p></p>';
+}
+
+function initAssistant() {
+  const form = $('#assistant-form');
+  if (!form) return;
+  const thread   = $('#assistant-thread');
+  const input    = $('#assistant-input');
+  const send     = $('#assistant-send');
+  const starters = $('#assistant-starters');
+  const history  = [];      // [{role, content}] — visible text turns only
+  let busy = false;
+
+  function bubble(role, html, cls) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-' + role + (cls ? ' ' + cls : '');
+    el.innerHTML = html;
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  }
+
+  async function ask(text) {
+    text = (text || '').trim();
+    if (!text || busy) return;
+    busy = true;
+    send.disabled = true;
+    if (starters) starters.hidden = true;
+    bubble('user', assistantMarkup(text));
+    history.push({ role: 'user', content: text });
+    input.value = '';
+    autoGrow();
+    const thinking = bubble('assistant', '<span class="dots"><span></span><span></span><span></span></span>', 'thinking');
+
+    try {
+      const res = await postJSON('/api/assistant.php', { messages: history });
+      thinking.remove();
+      if (res && res.ok && res.reply) {
+        bubble('assistant', assistantMarkup(res.reply));
+        history.push({ role: 'assistant', content: res.reply });
+      } else {
+        bubble('assistant', assistantMarkup((res && res.error) || 'Sorry, I could not answer that.'), 'error');
+      }
+    } catch (e) {
+      thinking.remove();
+      bubble('assistant', assistantMarkup('Sorry — something went wrong. Please try again.'), 'error');
+    } finally {
+      busy = false;
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  form.addEventListener('submit', e => { e.preventDefault(); ask(input.value); });
+  input.addEventListener('input', autoGrow);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(input.value); }
+  });
+  if (starters) {
+    starters.querySelectorAll('.starter-chip[data-q]').forEach(chip =>
+      chip.addEventListener('click', () => ask(chip.getAttribute('data-q'))));
+  }
+}
+
 /* ---- Boot ---------------------------------------------------------------- */
 initDrawer();
 initCharts();
@@ -1037,3 +1128,4 @@ initTxSplits();
 initRules();
 initTxRules();
 initStatementImport();
+initAssistant();

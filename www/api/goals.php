@@ -27,7 +27,7 @@ $uid    = (int)current_user_id();
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    echo json_encode(q_goals($pdo), JSON_UNESCAPED_SLASHES);
+    echo json_encode(q_goals($pdo, $uid), JSON_UNESCAPED_SLASHES);
     exit;
 }
 

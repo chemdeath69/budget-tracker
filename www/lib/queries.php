@@ -1202,36 +1202,64 @@ function q_category_rules(PDO $pdo): array
 }
 
 /**
- * Savings goals (#9). Household-shared — deliberately NOT VIS-scoped (one shared set, like
- * q_budgets / q_category_rules). A goal tied to an account derives its progress from that
- * account's live balance_current (LEFT JOIN, so a stale account_id just yields NULL → 0); a
- * manual goal uses its stored current_amount. Derived fields (current/pct/remaining/reached)
- * are computed in PHP. No bind params → no repeated-placeholder (HY093) risk; keep it that way.
+ * Savings goals (#9). The goal SET is household-shared (both users manage the same goals, like
+ * q_budgets / q_category_rules), but a goal TIED to an account exposes that account's name +
+ * live balance as its progress — so the per-account detail is **VIS-scoped to $uid**: if the
+ * viewer can't see the tied account (it's another user's `private`, or any `hidden` account),
+ * the goal still shows (name + target are shared) but its **account name + balance are masked**
+ * — `account_name='(private account)'`, owner suffix suppressed, and current/pct/remaining
+ * nulled — so a non-owner can never read a private account's balance via a goal. A manual goal
+ * uses its stored current_amount and is never masked. The reused VIS clause binds :uid once →
+ * no repeated-placeholder (HY093) risk; keep it that way.
  */
-function q_goals(PDO $pdo): array
+function q_goals(PDO $pdo, int $uid): array
 {
     $sql = "SELECT g.id, g.name, g.target_amount, g.account_id, g.current_amount, g.created_by,
                    " . ACCT_NAME . " AS account_name, a.balance_current AS account_balance,
+                   a.account_id AS tied_acct_id, (" . VIS . ") AS acct_visible,
                    i.user_id AS owner_id
             FROM goals g
             LEFT JOIN accounts a ON g.account_id = a.account_id
             LEFT JOIN items i ON a.item_id = i.item_id
             ORDER BY g.created_at ASC, g.id ASC";
-    $rows = $pdo->query($sql)->fetchAll();
+    $st = $pdo->prepare($sql);
+    $st->execute([':uid' => $uid]);
+    $rows = $st->fetchAll();
     foreach ($rows as &$g) {
-        $target  = (float)$g['target_amount'];
-        $tied    = $g['account_id'] !== null && $g['account_id'] !== '';
-        $current = $tied ? (float)($g['account_balance'] ?? 0) : (float)($g['current_amount'] ?? 0);
-        $g['current']   = round($current, 2);
-        $g['target']    = round($target, 2);
-        $g['tied']      = $tied;
-        $g['pct']       = $target > 0 ? min(100, max(0, $current / $target * 100)) : 0;
-        $g['remaining'] = round(max(0, $target - $current), 2);
-        $g['reached']   = $current >= $target && $target > 0;
-        // A tied goal whose account vanished (re-link/removal) has a NULL account_name.
-        if ($tied && ($g['account_name'] === null || $g['account_name'] === '')) {
-            $g['account_name'] = '(account unavailable)';
+        $target      = (float)$g['target_amount'];
+        $tied        = $g['account_id'] !== null && $g['account_id'] !== '';
+        $acctExists  = $g['tied_acct_id'] !== null;          // the LEFT JOIN matched a row
+        $acctVisible = (int)$g['acct_visible'] === 1;        // …and it's VIS-visible to $uid
+
+        if ($tied && $acctExists && !$acctVisible) {
+            // Tied to an account this viewer can't see (another user's private, or hidden):
+            // keep the shared goal + target, but reveal NOTHING about the account — no name,
+            // no owner, no balance-derived progress.
+            $g['account_name']   = '(private account)';
+            $g['owner_id']       = null;     // suppress the "· OwnerName" suffix
+            $g['account_balance']= null;     // never serialise the private balance (api/goals.php echoes the row)
+            $g['current']        = null;
+            $g['target']         = round($target, 2);
+            $g['tied']           = true;
+            $g['pct']            = null;
+            $g['remaining']      = null;
+            $g['reached']        = false;
+            $g['private_hidden'] = true;
+        } else {
+            $current = $tied ? (float)($g['account_balance'] ?? 0) : (float)($g['current_amount'] ?? 0);
+            $g['current']   = round($current, 2);
+            $g['target']    = round($target, 2);
+            $g['tied']      = $tied;
+            $g['pct']       = $target > 0 ? min(100, max(0, $current / $target * 100)) : 0;
+            $g['remaining'] = round(max(0, $target - $current), 2);
+            $g['reached']   = $current >= $target && $target > 0;
+            $g['private_hidden'] = false;
+            // A tied goal whose account vanished (re-link/removal) has a NULL account_name.
+            if ($tied && ($g['account_name'] === null || $g['account_name'] === '')) {
+                $g['account_name'] = '(account unavailable)';
+            }
         }
+        unset($g['tied_acct_id'], $g['acct_visible']);   // internal helper columns
     }
     unset($g);
     return $rows;

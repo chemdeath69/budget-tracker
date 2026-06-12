@@ -8,7 +8,7 @@ require_login();
 
 $pdo   = db();
 $uid   = current_user_id();
-$goals = q_goals($pdo);
+$goals = q_goals($pdo, $uid);
 
 // Account picker: visible asset accounts only (a savings goal tracks an asset balance, not a
 // credit card / loan). q_accounts is VIS-scoped, so a user only ties to accounts they can see.
@@ -75,13 +75,16 @@ render_header('Savings goals', 'goals', ['narrow' => true]);
         <?php if (!$goals): ?>
             <p class="muted" id="goals-empty">No goals yet. Add one to track progress toward a savings target.</p>
         <?php else: foreach ($goals as $g):
-            $tied = $g['tied'];
-            $src  = $tied ? 'acct:' . $g['account_id'] : 'manual'; ?>
+            $tied   = $g['tied'];
+            // A goal tied to an account this viewer can't see (another user's private/hidden):
+            // mask everything about the account and don't leak its id into the edit form.
+            $hidden = !empty($g['private_hidden']);
+            $src    = ($tied && !$hidden) ? 'acct:' . $g['account_id'] : 'manual'; ?>
         <div class="budget-row card" data-id="<?= (int)$g['id'] ?>"
              data-name="<?= e($g['name']) ?>"
              data-target="<?= e((string)$g['target']) ?>"
              data-source="<?= e($src) ?>"
-             data-current="<?= e((string)$g['current']) ?>">
+             data-current="<?= e($hidden ? '' : (string)$g['current']) ?>">
             <div class="b-head">
                 <span>
                     <?= e($g['name']) ?>
@@ -92,7 +95,7 @@ render_header('Savings goals', 'goals', ['narrow' => true]);
                     <?php endif; ?>
                 </span>
                 <span class="muted"><?= e(usd($g['current'])) ?> / <?= e(usd($g['target'])) ?>
-                    <button class="goal-edit" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Edit goal">✎</button>
+                    <?php if (!$hidden): ?><button class="goal-edit" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Edit goal">✎</button><?php endif; ?>
                     <button class="goal-del" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Delete goal">✕</button></span>
             </div>
             <div class="budget-bar<?= $g['reached'] ? ' reached' : '' ?>"><span style="width:<?= round($g['pct']) ?>%"></span></div>

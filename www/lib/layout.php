@@ -20,6 +20,7 @@ function nav_items(): array
         // Ordered by how often a user is likely to visit: daily-use pages first,
         // periodic financial views next, analytics below, rare config pages last.
         ['key' => 'dashboard',    'href' => '/index.php',        'label' => 'Dashboard',     'icon' => 'home'],
+        ['key' => 'assistant',    'href' => '/assistant.php',    'label' => 'Assistant',     'icon' => 'chat'],
         ['key' => 'transactions', 'href' => '/transactions.php', 'label' => 'Transactions',  'icon' => 'list'],
         ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart'],
         ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar'],
@@ -51,6 +52,7 @@ function nav_icon(string $name): string
         'repeat' => '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
         'flow'   => '<path d="M7 21V5"/><path d="M3 9l4-4 4 4"/><path d="M17 3v16"/><path d="M13 15l4 4 4-4"/>',
         'sankey' => '<path d="M4 4v16"/><path d="M4 8h6a4 4 0 0 1 4 4 4 4 0 0 0 4 4h2"/><path d="M4 16h6a4 4 0 0 0 4-4 4 4 0 0 1 4-4h2"/>',
+        'chat'   => '<path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.9-5.5A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/>',
         'invest' => '<path d="M3 3v18h18"/><path d="M7 14l3-3 3 2 5-6"/>',
         'gear'   => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 1.7V1a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 4.6a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
         'bank'   => '<path d="M3 10l9-6 9 6"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 21h18"/>',
