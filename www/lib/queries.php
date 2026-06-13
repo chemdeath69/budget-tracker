@@ -1388,42 +1388,65 @@ function normalize_rule_value(string $raw): string
 }
 
 /**
- * The household category-rule list (#10) for the management page. NOT VIS-scoped —
- * `category_rules` is a shared household vocabulary (like `tags`/`budgets`), not
- * per-account data. Each row carries a `match_count` (how many transactions the rule
- * currently matches) so the owner can see a rule's reach; the count reuses the exact
- * RULE_MATCH predicate (`t` = transactions, `cr` = the rule row) so it can't drift from
- * what RULE_CAT actually applies. The count is global (it's an impact indicator, a bare
- * number — no account detail is exposed).
+ * The household category-rule list (#10) for the management page. The rule ROWS are
+ * household-shared (both users manage the same rules, like `tags`/`budgets`) — every rule is
+ * returned to every viewer. But the per-rule **`match_count` is VIS-scoped to `$uid`** (Session
+ * 64 follow-up): it counts only the transactions THIS viewer can see, so a rule whose matches
+ * live on the other user's `private`/`hidden` account reads `0 matches` for them — a household-wide
+ * count would otherwise leak how many of the other user's private transactions exist. The count
+ * reuses the exact RULE_MATCH predicate (`t`=transactions, `cr`=the rule row) plus the VIS clause,
+ * so it can't drift from what RULE_CAT actually applies to this viewer. VIS appears once → single
+ * `:uid` bind → HY093-safe.
  */
-function q_category_rules(PDO $pdo): array
+function q_category_rules(PDO $pdo, int $uid): array
 {
     $sql = "SELECT cr.id, cr.match_type, cr.match_value, cr.category, cr.priority, cr.created_by,
-                   (SELECT COUNT(*) FROM transactions t WHERE " . RULE_MATCH . ") AS match_count
+                   (SELECT COUNT(*) FROM transactions t
+                      JOIN accounts a ON t.account_id = a.account_id
+                      JOIN items i ON a.item_id = i.item_id
+                      WHERE " . VIS . " AND " . RULE_MATCH . ") AS match_count
             FROM category_rules cr
             ORDER BY cr.match_type, cr.match_value";
-    return $pdo->query($sql)->fetchAll();
+    $st = $pdo->prepare($sql);
+    $st->execute([':uid' => $uid]);
+    return $st->fetchAll();
 }
 
 /**
- * The household custom-category list (migration 024) for the management UI. NOT VIS-scoped
- * (a shared vocabulary, like q_category_rules / tags / budgets) and DEFENSIVE (no table yet
- * → []). Each row carries the four reference counts (transactions / rules / budgets / splits)
- * so the management page can show a category's reach and the delete confirmation can quote
- * the impact. The counts are bare numbers (no account detail) — no leak. No binds → HY093-safe.
+ * The household custom-category list (migration 024) for the management UI. The category ROWS are
+ * household-shared (every viewer sees every category) and DEFENSIVE (no table yet → []). Each row
+ * carries reference counts so the page can show a category's reach + the delete confirmation can
+ * quote the impact. **The two transaction-derived counts (`used_tx`, `used_splits`) are VIS-scoped
+ * to `$uid`** (Session 64 follow-up) — they count only what THIS viewer can see, so a category whose
+ * transactions live on the other user's `private`/`hidden` account reads `0` for them (a household-wide
+ * count would leak how many of the other user's private transactions exist). `used_rules` / `used_budgets`
+ * stay household-wide on purpose — rules and budgets are themselves shared vocabulary shown to everyone,
+ * so counting them exposes nothing per-account. ⚠️ VIS appears in BOTH transaction subqueries → bind
+ * DISTINCT `:uid_t`/`:uid_s` (HY093 — a reused named placeholder 500s under emulation-off).
  */
-function q_custom_categories(PDO $pdo): array
+function q_custom_categories(PDO $pdo, int $uid): array
 {
+    $visTx = str_replace(':uid', ':uid_t', VIS);
+    $visSp = str_replace(':uid', ':uid_s', VIS);
     try {
-        return $pdo->query(
+        $st = $pdo->prepare(
             "SELECT cc.id, cc.tag, cc.label, cc.exclude_from_spending,
-                    (SELECT COUNT(*) FROM transactions t       WHERE t.category_override = cc.tag) AS used_tx,
-                    (SELECT COUNT(*) FROM category_rules cr     WHERE cr.category = cc.tag)         AS used_rules,
-                    (SELECT COUNT(*) FROM budgets b             WHERE b.category = cc.tag)          AS used_budgets,
-                    (SELECT COUNT(*) FROM transaction_splits s  WHERE s.category = cc.tag)          AS used_splits
+                    (SELECT COUNT(*) FROM transactions t
+                       JOIN accounts a ON t.account_id = a.account_id
+                       JOIN items i ON a.item_id = i.item_id
+                       WHERE " . $visTx . " AND t.category_override = cc.tag)               AS used_tx,
+                    (SELECT COUNT(*) FROM category_rules cr     WHERE cr.category = cc.tag) AS used_rules,
+                    (SELECT COUNT(*) FROM budgets b             WHERE b.category = cc.tag)  AS used_budgets,
+                    (SELECT COUNT(*) FROM transaction_splits s
+                       JOIN transactions t ON t.transaction_id = s.transaction_id
+                       JOIN accounts a ON t.account_id = a.account_id
+                       JOIN items i ON a.item_id = i.item_id
+                       WHERE " . $visSp . " AND s.category = cc.tag)                        AS used_splits
              FROM custom_categories cc
              ORDER BY cc.label"
-        )->fetchAll();
+        );
+        $st->execute([':uid_t' => $uid, ':uid_s' => $uid]);
+        return $st->fetchAll();
     } catch (Throwable $e) {
         return [];
     }

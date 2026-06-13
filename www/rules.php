@@ -11,8 +11,8 @@ $uid = current_user_id();
 
 // Household-shared rules + the category picker (minus transfer/income targets — a rule
 // must not silently drop spend from the true-expense reads; see RULE_CAT_BLOCKED).
-$rules   = q_category_rules($pdo);
-$custom  = q_custom_categories($pdo);
+$rules   = q_category_rules($pdo, $uid);
+$custom  = q_custom_categories($pdo, $uid);
 $catOpts = array_values(array_filter(
     transaction_category_options($pdo, $uid),
     fn($o) => !in_array($o['value'], RULE_CAT_BLOCKED, true)
