@@ -914,6 +914,46 @@ function q_spending_plan(PDO $pdo): array
 }
 
 /**
+ * Per-cash-account interest income over the trailing $days window (VIS-scoped) + the
+ * earliest observed transaction date per account, for the savings-rate estimate (TODO2 #38).
+ * Interest = Plaid-categorized INCOME_INTEREST_EARNED credits (amount < 0 = money in →
+ * magnitude is -amount), summed only inside the window; first_tx is MIN(t.date) over ALL
+ * the account's non-pending rows (any category) so the assembler can bound the
+ * annualization span. Scoped to depository (checking/savings) accounts. Returns
+ *   [account_id => ['interest' => float, 'first_tx' => 'Y-m-d'|null]].
+ * HY093-safe: VIS's single :uid + a distinct :start (each used once). Pass an app-TZ
+ * window (computed here via date(), never CURDATE() — the S24 TZ trap). The APY MATH
+ * lives in lib/apy.php, not here.
+ */
+function q_account_interest(PDO $pdo, int $uid, int $days = 365): array
+{
+    $start = date('Y-m-d', strtotime('-' . max(1, $days) . ' days'));
+    $st = $pdo->prepare(
+        "SELECT a.account_id,
+                SUM(CASE WHEN t.pfc_detailed = 'INCOME_INTEREST_EARNED'
+                          AND t.amount < 0 AND t.date >= :start
+                         THEN -t.amount ELSE 0 END) AS interest,
+                MIN(t.date) AS first_tx
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . " AND a.type = 'depository' AND t.pending = 0
+         GROUP BY a.account_id"
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->execute();
+    $out = [];
+    foreach ($st->fetchAll() as $r) {
+        $out[(string)$r['account_id']] = [
+            'interest' => (float)$r['interest'],
+            'first_tx' => $r['first_tx'] !== null ? (string)$r['first_tx'] : null,
+        ];
+    }
+    return $out;
+}
+
+/**
  * Allocation target mix (Session 62, TODO2 #32). Household-shared, **NOT VIS-scoped** — one set
  * of target percentages per asset class (like spending_plan / alert_settings). Returns
  * [asset_class => target_pct]; **defensive** (missing table pre-migration-023 / transient → []).

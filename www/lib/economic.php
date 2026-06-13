@@ -14,10 +14,11 @@ declare(strict_types=1);
  * Safe with no FRED data: returns has_data=false and the page renders an empty-state.
  */
 
-require_once __DIR__ . '/queries.php';        // q_fred_*, q_networth, q_accounts, q_stats, account_group
+require_once __DIR__ . '/queries.php';        // q_fred_*, q_networth, q_accounts, q_stats, account_group, q_account_interest
 require_once __DIR__ . '/fred.php';            // FRED_SERIES, fred_real_series, fred_real_factor
 require_once __DIR__ . '/home_value.php';      // hv_zip_from_address (needed by build_property_view)
 require_once __DIR__ . '/property_view.php';   // build_property_view (for the refi block)
+require_once __DIR__ . '/apy.php';             // build_apy_view (savings-rate benchmark, #38)
 
 /**
  * Latest year-over-year CPI inflation from the cached series, or null.
@@ -89,26 +90,27 @@ function build_economic_view(PDO $pdo, int $uid): array
     $pv = build_property_view($pdo, $uid);
     if ($pv) $refi = $pv['refi'] ?? null;
 
-    // --- Savings-rate context -------------------------------------------------
+    // --- Savings-rate benchmark (#38) -----------------------------------------
+    // Each cash account's effective APY estimated from the interest its bank credited,
+    // vs the FDIC national savings rate (SNDR) + a top-high-yield proxy (Fed funds).
     $savings = null;
-    $cash = 0.0;
-    foreach ($accounts as $a) {
-        if (in_array(account_group($a), ['checking', 'savings'], true)) {
-            $cash += (float)($a['balance_current'] ?? 0);
-        }
-    }
-    $t10 = q_fred_latest($pdo, 'DGS10');
-    $ff  = q_fred_latest($pdo, 'FEDFUNDS');
-    if ($cash > 0 && ($t10 || $ff)) {
-        $bench = $ff ?: $t10;   // Fed-funds tracks short cash yields better than the 10-yr
-        $savings = [
-            'cash'            => round($cash, 2),
-            't10'             => $t10,
-            'fedfunds'        => $ff,
-            'bench_label'     => $ff ? 'Fed Funds rate' : '10-yr Treasury',
-            'bench_rate'      => $bench ? (float)$bench['value'] : null,
-            'annual_at_bench' => $bench ? round($cash * (float)$bench['value'] / 100, 2) : null,
-        ];
+    $cashAccounts = array_values(array_filter(
+        $accounts,
+        fn($a) => in_array(account_group($a), ['checking', 'savings'], true)
+    ));
+    if ($cashAccounts) {
+        $sndr     = q_fred_latest($pdo, 'SNDR');       // FDIC national savings rate
+        $ff       = q_fred_latest($pdo, 'FEDFUNDS');   // top-high-yield proxy
+        $interest = q_account_interest($pdo, $uid, APY_WINDOW_DAYS);
+        $savings  = build_apy_view(
+            $cashAccounts,
+            $interest,
+            $sndr ? (float)$sndr['value'] : null,
+            $ff   ? (float)$ff['value']   : null,
+            date('Y-m-d')
+        );
+        $savings['national_as_of'] = $sndr['date'] ?? null;
+        $savings['top_as_of']      = $ff['date'] ?? null;
     }
 
     return [

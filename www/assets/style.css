@@ -129,7 +129,7 @@ body.menu-open .drawer { transform: translateX(0); }
 .drawer-email { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 6px; border-radius: var(--r-sm); }
 .drawer-close svg { width: 20px; height: 20px; }
-.drawer-nav { list-style: none; margin: 8px 0; padding: 0 10px; flex: 1; overflow-y: auto; }
+.drawer-nav { list-style: none; margin: 8px 0; padding: 0 10px calc(10px + env(safe-area-inset-bottom)); flex: 1; overflow-y: auto; }
 .drawer-nav a, .drawer-action {
   display: flex; align-items: center; gap: 14px; padding: 12px 12px;
   border-radius: var(--r); color: var(--ink); font-weight: 550;
@@ -139,7 +139,7 @@ body.menu-open .drawer { transform: translateX(0); }
 .ic { display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); flex: none; }
 .drawer-nav a.active .ic { color: var(--brand); }
 .ic svg { width: 22px; height: 22px; }
-.drawer-foot { border-top: 1px solid var(--line); padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
+.drawer-sep { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .drawer-action { color: var(--ink-2); }
 
 /* ---- Screen / layout ---------------------------------------------------- */
@@ -642,6 +642,17 @@ a.cat-row:hover { background: var(--surface-2); }
              margin-right: 7px; border-radius: var(--r-pill); background: var(--surface-2);
              color: var(--ink-2); font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .row-amt-sub { display: block; font-size: .74rem; font-weight: 500; }
+
+/* ---- Savings rate benchmark (#38) --------------------------------------- */
+.apy-list { display: flex; flex-direction: column; margin-top: 14px; }
+.apy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px;
+           padding: 9px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.apy-row:last-child { border-bottom: 0; }
+.apy-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.apy-bal { text-align: right; white-space: nowrap; }
+.apy-rate { color: var(--muted); font-size: .85rem; }
+.apy-could { text-align: right; font-size: .85rem; white-space: nowrap; }
+.apy-est { color: var(--muted); font-size: .72rem; }
 
 .goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }

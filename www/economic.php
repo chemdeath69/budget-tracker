@@ -105,30 +105,57 @@ render_header('Economic', 'economic', ['chart' => true, 'narrow' => true]);
 </section>
 <?php endif; ?>
 
-<!-- Insight: savings-rate context -->
-<?php if ($sv): ?>
+<!-- Insight: savings-rate benchmark (#38) -->
+<?php if ($sv && $sv['has_accounts']): ?>
 <section class="block">
-    <div class="block-head"><h2>Cash vs benchmark</h2><span class="muted">idle checking + savings</span></div>
+    <div class="block-head"><h2>Savings rate</h2><span class="muted">your cash vs the market</span></div>
     <div class="card">
         <div class="hero-split tri">
             <div class="split-cell">
-                <span class="split-label">Idle cash</span>
-                <span class="split-value"><?= e(usd($sv['cash'])) ?></span>
+                <span class="split-label">National average</span>
+                <span class="split-value"><?= $sv['national_rate'] === null ? '—' : e(number_format($sv['national_rate'], 2)) . '%' ?></span>
             </div>
             <div class="split-cell">
-                <span class="split-label"><?= e($sv['bench_label']) ?></span>
-                <span class="split-value"><?= $sv['bench_rate'] === null ? '—' : e(number_format($sv['bench_rate'], 2)) . '%' ?></span>
+                <span class="split-label">Top high-yield</span>
+                <span class="split-value"><?= $sv['top_rate'] === null ? '—' : e(number_format($sv['top_rate'], 2)) . '%' ?></span>
             </div>
             <div class="split-cell">
-                <span class="split-label">≈ per year</span>
-                <span class="split-value pos"><?= $sv['annual_at_bench'] === null ? '—' : e(usd($sv['annual_at_bench'])) ?></span>
+                <span class="split-label">You could earn</span>
+                <span class="split-value pos"><?= ($sv['opportunity'] === null || $sv['opportunity'] < 1) ? '—' : '+' . e(usd($sv['opportunity'])) . '/yr' ?></span>
             </div>
         </div>
-        <p class="muted chart-cap">Your idle cash could earn roughly
-            <?= $sv['annual_at_bench'] === null ? '—' : '<strong>' . e(usd($sv['annual_at_bench'])) . '/yr</strong>' ?>
-            at the <?= e(strtolower($sv['bench_label'])) ?><?php if ($sv['t10']): ?>
-            (10-yr Treasury: <?= e(number_format((float)$sv['t10']['value'], 2)) ?>%)<?php endif; ?> —
-            a rough risk-free comparison, not advice.</p>
+        <?php if ($sv['opportunity'] !== null && $sv['opportunity'] >= 1): ?>
+            <p class="refi-note pos">▲ Some of your cash is earning less than a competitive high-yield account.
+                Moving it could earn about <strong><?= e(usd($sv['opportunity'])) ?>/yr</strong> more — see the
+                per-account breakdown below.</p>
+        <?php elseif ($sv['has_estimate']): ?>
+            <p class="refi-note muted">Your cash is already earning about as much as a top-yield account — nice.</p>
+        <?php endif; ?>
+        <?php if ($sv['blended_rate'] !== null): ?>
+            <p class="muted chart-cap">Your cash currently earns about
+                <strong><?= e(number_format($sv['blended_rate'], 2)) ?>%</strong> blended across your accounts.</p>
+        <?php endif; ?>
+
+        <?php if ($sv['accounts']): ?>
+        <div class="apy-list">
+            <?php foreach ($sv['accounts'] as $row): ?>
+            <div class="apy-row">
+                <span class="apy-name"><?= e($row['name']) ?><?= owner_suffix($row['owner_id']) ?></span>
+                <span class="apy-bal"><?= e(usd($row['balance'])) ?></span>
+                <span class="apy-rate"><?php if ($row['rate'] === null): ?>—<?php else: ?><?= e(number_format($row['rate'], 2)) ?>%<?php if ($row['confidence'] === 'low'): ?><span class="apy-est"> est</span><?php endif; ?><?php endif; ?></span>
+                <span class="apy-could"><?php if ($row['could_earn'] !== null && $row['could_earn'] >= 1): ?><span class="pos">+<?= e(usd($row['could_earn'])) ?>/yr</span><?php else: ?>—<?php endif; ?></span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <p class="muted chart-cap">Your rate is estimated from the interest your bank actually credited over
+            the last 12 months, measured against your current balance — an approximation, not your bank's
+            stated APY (a one-off bonus or a balance that moved a lot will skew it; <em>est</em> = limited
+            history). National average is the FDIC national savings rate<?php if (!empty($sv['national_as_of'])): ?>
+            (<?= e($fdate($sv['national_as_of'])) ?>)<?php endif; ?>; top high-yield uses the Fed-funds rate as
+            a proxy for a competitive online savings account. Keep enough cash liquid for spending — a rough
+            comparison, not advice.</p>
     </div>
 </section>
 <?php endif; ?>

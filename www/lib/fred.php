@@ -9,6 +9,7 @@ declare(strict_types=1);
  *   - mortgage rate vs the market / refi        → MORTGAGE30US (30-yr fixed avg, %, weekly)
  *   - savings-rate context                      → DGS10 (10-yr Treasury, %, daily)
  *                                                 FEDFUNDS (Fed Funds rate, %, monthly)
+ *   - savings-rate benchmark (#38)              → SNDR (FDIC national savings rate, %, monthly)
  *
  * Provider: FRED (https://fred.stlouisfed.org/docs/api/fred/). FREE — generous rate
  * limit (120 req/min) and NO per-request billing, unlike RentCast. The HTTP layer is
@@ -43,6 +44,7 @@ const FRED_SERIES = [
     'MORTGAGE30US' => ['label' => '30-Year Fixed Mortgage Rate', 'unit' => 'pct',   'kind' => 'mortgage'],
     'DGS10'        => ['label' => '10-Year Treasury Yield',      'unit' => 'pct',   'kind' => 'rates'],
     'FEDFUNDS'     => ['label' => 'Federal Funds Rate',          'unit' => 'pct',   'kind' => 'rates'],
+    'SNDR'         => ['label' => 'National Savings Rate (FDIC)','unit' => 'pct',   'kind' => 'rates'],
 ];
 
 /** Configured FRED API key, or '' if the economic feed is disabled. */
