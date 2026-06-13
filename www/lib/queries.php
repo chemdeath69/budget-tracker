@@ -748,6 +748,38 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
 }
 
 /**
+ * Average daily TRUE-EXPENSE over the trailing $days days (VIS-scoped) — the
+ * discretionary-spend baseline for the forward-looking cash-flow forecast (TODO2 #30).
+ *
+ * Reuses the EXACT true-expense filter set + SPLIT_JOIN/EFF_AMT/EFF_CAT that q_cashflow /
+ * q_spending use (outflows only; excludes pending, ext_source, internal transfers and
+ * credit-card payments) so the figure ties to those pages. Window start is PHP-app-TZ
+ * anchored (never CURDATE() — S24 trap) and bound as :start; the only other placeholder
+ * is VIS's single :uid → HY093-safe. SQL sums the spend; PHP divides by $days, so the
+ * result is a flat $/day rate (0.0 with no spend in the window).
+ */
+function q_avg_daily_spend(PDO $pdo, int $uid, int $days = 90): float
+{
+    $days  = max(1, min(365, $days));
+    $start = (new DateTimeImmutable('today'))->sub(new DateInterval('P' . $days . 'D'))->format('Y-m-d');
+    $st = $pdo->prepare(
+        "SELECT COALESCE(SUM(" . EFF_AMT . "), 0) AS total
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start"
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->execute();
+    return (float)$st->fetchColumn() / $days;
+}
+
+/**
  * Spending by category across the last $months calendar months (oldest→newest),
  * gap-filled, plus current-month-vs-history deltas — backs the Spending-trends page.
  *

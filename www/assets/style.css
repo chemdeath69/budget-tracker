@@ -861,4 +861,5 @@ a.cat-row:hover { background: var(--surface-2); }
 .bill-kind { font-size: .72rem; font-weight: 650; padding: 1px 7px; border-radius: var(--r-pill); }
 .bill-kind-liability { color: var(--brand); background: var(--brand-weak); }
 .bill-kind-recurring { color: var(--warn-ink); background: var(--warn-bg); }
+.bill-kind-income { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .bills-more { display: inline-block; margin-top: 8px; }

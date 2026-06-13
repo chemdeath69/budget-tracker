@@ -29,10 +29,17 @@ $cf6      = q_cashflow($pdo, $uid, 6);         // compact cash-flow teaser (last
 $cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null; // savings rate
 // Upcoming bills teaser (next 14 days) — liabilities + projected recurring (TODO #4).
 require_once __DIR__ . '/lib/bills.php';
-$billsSoon  = bill_occurrences(q_liabilities($pdo, $uid), q_recurring($pdo, $uid),
+$liab = q_liabilities($pdo, $uid);
+$recur = q_recurring($pdo, $uid);
+$billsSoon  = bill_occurrences($liab, $recur,
                                new DateTimeImmutable('today'), (new DateTimeImmutable('today'))->add(new DateInterval('P14D')));
 $billsTotal = 0.0;
 foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
+// Cash-flow forecast teaser (next 30 days) — projected checking+savings low (TODO2 #30).
+require_once __DIR__ . '/lib/forecast.php';
+$fcTeaser = forecast_build($accounts, $liab, $recur, q_avg_daily_spend($pdo, $uid, 90), 30, new DateTimeImmutable('today'));
+$fcHasCash = false;
+foreach ($accounts as $a) { if (in_array(account_group($a), FORECAST_CASH_GROUPS, true)) { $fcHasCash = true; break; } }
 $goals    = q_goals($pdo, $uid);                            // savings-goals teaser (TODO #9)
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
@@ -227,6 +234,28 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <a class="block-link bills-more" href="/bills.php">+<?= count($billsSoon) - 4 ?> more ›</a>
             <?php endif; ?>
         </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($fcHasCash): ?>
+    <!-- Cash-flow forecast teaser (next 30 days) → full forecast.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Cash forecast</h2>
+            <a class="block-link" href="/forecast.php">Next 30 days ›</a>
+        </div>
+        <a class="card spend-card" href="/forecast.php">
+            <div class="spend-total">
+                <span class="spend-amt <?= $fcTeaser['goes_negative'] ? 'neg' : '' ?>">
+                    <?= ($fcTeaser['min_balance'] < 0 ? '−' : '') . e(usd(abs($fcTeaser['min_balance']))) ?>
+                </span>
+                <span class="muted">projected low · around <?= e((new DateTimeImmutable($fcTeaser['min_date']))->format('M j')) ?></span>
+            </div>
+            <div class="cf-mini">
+                <span class="muted"><?= e(usd($fcTeaser['start_balance'])) ?> today</span>
+                <span class="<?= $fcTeaser['end_balance'] < $fcTeaser['start_balance'] ? 'neg' : 'pos' ?>"><?= e(usd($fcTeaser['end_balance'])) ?> in 30 days</span>
+            </div>
+        </a>
     </section>
     <?php endif; ?>
 
