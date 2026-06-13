@@ -670,6 +670,23 @@ a.cat-row:hover { background: var(--surface-2); }
 .rule-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 2px 4px; flex: none; }
 .rule-del:active { color: var(--neg); }
 
+/* Custom-category management (migration 024) — Categories & rules page */
+.cat-form { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.cat-form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cat-form-row .input { flex: 1 1 14rem; min-width: 0; }
+.cat-form-excl { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--ink-2); cursor: pointer; }
+.catmgr-list { display: flex; flex-direction: column; margin-top: 14px; border-top: 1px solid var(--line); }
+.catmgr-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+.catmgr-row:last-child { border-bottom: 0; }
+.catmgr-name { font-weight: 650; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.catmgr-tag { font-size: .68rem; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--surface-2); padding: 2px 8px; border-radius: var(--r-pill); flex: none; }
+.catmgr-uses { font-size: .78rem; margin-left: auto; flex: none; }
+.catmgr-excl { display: inline-flex; align-items: center; flex: none; }
+.catmgr-rename { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; font-size: .8rem; padding: 3px 10px; border-radius: var(--r-pill); flex: none; }
+.catmgr-rename:active { color: var(--brand); }
+.catmgr-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.15rem; line-height: 1; padding: 2px 4px; flex: none; }
+.catmgr-del:active { color: var(--neg); }
+
 /* Inline quick-rule editor (render_tx_meta "+ rule") */
 .rule-panel { flex-basis: 100%; margin-top: 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); display: flex; flex-direction: column; gap: 8px; }
 .rule-panel-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

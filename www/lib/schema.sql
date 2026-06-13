@@ -615,6 +615,22 @@ CREATE TABLE category_rules (
   UNIQUE KEY uq_rule (match_type, match_value)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Custom (user-defined) categories (migration 024). Household-shared first-class categories
+-- beyond the 16 built-in Plaid PFC tags. `tag` is the canonical code stored in
+-- category_override / category_rules.category / transaction_splits.category / budgets.category
+-- (so EFF_CAT resolves it unchanged); `label` is the display text; exclude_from_spending=1
+-- drops the category from the true-expense reads like a transfer (expense_exclude_clause()).
+CREATE TABLE custom_categories (
+  id                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tag                   VARCHAR(96)  NOT NULL,           -- canonical code, UPPER [A-Z0-9_]
+  label                 VARCHAR(96)  NOT NULL,           -- display text the user typed
+  exclude_from_spending TINYINT(1)   NOT NULL DEFAULT 0, -- 1 = treat like a transfer (drop from spend math)
+  created_by            INT UNSIGNED NULL,
+  created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_tag (tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Savings goals (#9, migration 017). Household-shared. A goal is either tied to an account
 -- (account_id SET → progress = that account's live balance_current) or manual (account_id NULL
 -- → progress = current_amount). Progress is derived at READ time in q_goals() (queries.php).

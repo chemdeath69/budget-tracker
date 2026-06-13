@@ -437,6 +437,9 @@ function openCatPicker(chip) {
   });
   // Preserve a custom category that isn't in the canonical list.
   if (currentTag && !matched) { const o = new Option(prettyCat(currentTag), currentTag); o.selected = true; sel.add(o); }
+  // Create a brand-new custom category inline, then assign it.
+  const NEW_CAT = '__new__';
+  sel.add(new Option('＋ New category…', NEW_CAT));
 
   chip.replaceWith(sel);
 
@@ -445,7 +448,20 @@ function openCatPicker(chip) {
 
   sel.addEventListener('change', async () => {
     if (done) return; done = true;
-    const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: tx, category: sel.value });
+    let category = sel.value;
+    if (category === NEW_CAT) {
+      const label = (window.prompt('New category name') || '').trim();
+      if (!label) { if (sel.isConnected) sel.replaceWith(makeCatChip(tx, currentTag)); return; }
+      const created = await postJSON('/api/categories.php', { action: 'add', label });
+      if (!created || !created.ok) {
+        toast((created && created.error) || 'Could not create the category.');
+        if (sel.isConnected) sel.replaceWith(makeCatChip(tx, currentTag));
+        return;
+      }
+      category = created.category.tag;
+      CATEGORY_OPTIONS.push({ value: created.category.tag, label: created.category.label });   // available to later pickers this load
+    }
+    const out = await postJSON('/api/account.php', { action: 'recategorize', transaction_id: tx, category });
     if (sel.isConnected) sel.replaceWith(makeCatChip(tx, out && out.ok ? out.category : currentTag));
   });
   // Dismissed without choosing → put the original chip back (delay lets a
@@ -977,7 +993,61 @@ function openRuleEditor(btn) {
   host.appendChild(panel);
 }
 
-function prettyCat(c) { return String(c || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, m => m.toUpperCase()); }
+/* Custom categories management (migration 024) on the Categories & rules page. Add form +
+   per-row "not spending" toggle / rename / delete → api/categories.php → reload so the
+   pickers, spending math and counts refresh. No-op on pages without these elements. */
+function initCategories() {
+  const form = $('#add-category-form');
+  if (form) {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const label = $('#cat-label').value.trim();
+      const exclude_from_spending = $('#cat-exclude').checked ? 1 : 0;
+      if (!label) { toast('Enter a category name.'); return; }
+      const out = await postJSON('/api/categories.php', { action: 'add', label, exclude_from_spending });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not add the category.');
+    });
+  }
+  $$('.catmgr-exclude[data-id]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      cb.disabled = true;
+      const out = await postJSON('/api/categories.php', { action: 'update', id: Number(cb.dataset.id), exclude_from_spending: cb.checked ? 1 : 0 });
+      cb.disabled = false;
+      if (out && out.ok) location.reload();
+      else { cb.checked = !cb.checked; toast((out && out.error) || 'Could not update the category.'); }
+    });
+  });
+  $$('.catmgr-rename[data-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cur = btn.dataset.label || '';
+      const label = (window.prompt('Rename this category', cur) || '').trim();
+      if (!label || label === cur) return;
+      const out = await postJSON('/api/categories.php', { action: 'update', id: Number(btn.dataset.id), label });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not rename the category.');
+    });
+  });
+  $$('.catmgr-del[data-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uses = Number(btn.dataset.uses || 0);
+      const msg = uses > 0
+        ? 'Delete “' + btn.dataset.label + '”? ' + uses + ' item' + (uses === 1 ? '' : 's') + ' using it will revert to their default category.'
+        : 'Delete “' + btn.dataset.label + '”?';
+      if (!window.confirm(msg)) return;
+      const out = await postJSON('/api/categories.php', { action: 'delete', id: Number(btn.dataset.id) });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not delete the category.');
+    });
+  });
+}
+
+function prettyCat(c) {
+  c = String(c || '');
+  const opt = CATEGORY_OPTIONS.find(o => o.value === c);   // custom categories carry a stored label
+  if (opt) return opt.label;
+  return c.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+}
 
 /* Statement photo-import (Session 55, #25): thumbnail previews with per-page remove,
    and a "Reading…" submit state (the extraction call takes ~10-30s). */
@@ -1159,6 +1229,7 @@ initTxTags();
 initTxSplits();
 initRules();
 initTxRules();
+initCategories();
 initStatementImport();
 initCreditImport();
 initAssistant();

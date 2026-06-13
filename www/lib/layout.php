@@ -40,7 +40,7 @@ function nav_items(): array
         ['key' => 'property',     'href' => '/property.php',     'label' => 'Property',      'icon' => 'house'],
         ['key' => 'economic',     'href' => '/economic.php',     'label' => 'Economic',      'icon' => 'globe'],
         ['key' => 'credit',       'href' => '/credit.php',       'label' => 'Credit',        'icon' => 'credit'],
-        ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Category rules', 'icon' => 'rules'],
+        ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Categories & rules', 'icon' => 'rules'],
         ['key' => 'settings',     'href' => '/settings.php',     'label' => 'Settings',      'icon' => 'gear'],
     ];
 }

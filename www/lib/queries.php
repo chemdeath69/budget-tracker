@@ -101,6 +101,89 @@ const EFF_AMT    = "(CASE WHEN s.id IS NULL THEN t.amount ELSE s.amount END)";
  */
 const RULE_CAT_BLOCKED = ['TRANSFER_IN', 'TRANSFER_OUT', 'INCOME'];
 
+/* ---- Custom (user-defined) categories (migration 024) -------------------------
+ * A custom category is a household-shared, first-class entity (`custom_categories`):
+ * a stable `tag` (the code stored in category_override/category_rules/transaction_splits/
+ * budgets — so EFF_CAT resolves it unchanged), a display `label`, and an
+ * `exclude_from_spending` flag that makes it behave like TRANSFER_IN/OUT in the
+ * true-expense reads. All helpers here are NOT VIS-scoped (one global vocabulary, like
+ * category_rules / tags / budgets) and DEFENSIVE (missing table pre-migration → []).
+ */
+
+/** [TAG => ['label'=>string, 'exclude'=>bool]] for every custom category. Static-cached
+ *  (one query per request); powers category_options(), pretty_cat() and the exclude list. */
+function custom_category_map(PDO $pdo): array
+{
+    static $map = null;
+    if ($map !== null) return $map;
+    $map = [];
+    try {
+        foreach ($pdo->query("SELECT tag, label, exclude_from_spending FROM custom_categories") as $r) {
+            $map[(string)$r['tag']] = [
+                'label'   => (string)$r['label'],
+                'exclude' => (int)$r['exclude_from_spending'] === 1,
+            ];
+        }
+    } catch (Throwable $e) {
+        $map = [];   // table not migrated yet, or transient — degrade to "no custom categories"
+    }
+    return $map;
+}
+
+/** Tags of custom categories flagged exclude_from_spending. Defensively re-filtered to
+ *  [A-Z0-9_] so expense_exclude_clause() can inline them as quoted SQL literals safely. */
+function category_excluded_tags(PDO $pdo): array
+{
+    $out = [];
+    foreach (custom_category_map($pdo) as $tag => $meta) {
+        if (!empty($meta['exclude']) && preg_match('/^[A-Z0-9_]+$/', $tag)) $out[] = $tag;
+    }
+    return $out;
+}
+
+/**
+ * The "exclude these categories" predicate for the true-expense aggregations. Returns a
+ * ready-to-INLINE SQL fragment `EFF_CAT NOT IN ('TRANSFER_IN','TRANSFER_OUT', …customs)`.
+ *
+ * The default $base reproduces the historical transfer exclusion, so the 12 spend
+ * aggregations that already excluded transfers just swap their literal `EFF_CAT NOT IN
+ * ('TRANSFER_IN','TRANSFER_OUT')` for `expense_exclude_clause($pdo)` — behaviour is
+ * byte-identical when no custom category is flagged. Pass $base = [] for a read that
+ * does NOT exclude transfers (q_spending / q_spending_total) so only the flagged customs
+ * drop out; with an empty final list it returns `1=1` (an empty SQL `IN ()` is a syntax error).
+ *
+ * No placeholders: TRANSFER_IN/OUT are static literals and the custom tags are guaranteed
+ * [A-Z0-9_] (normalize_category_tag() + category_excluded_tags() re-filter), so inlining
+ * carries no injection surface and keeps every consumer HY093-safe (no per-query binds).
+ * EFF_CAT itself binds nothing (it references joined columns), so repeating it here is free.
+ *
+ * NOTE: in q_cashflow / q_money_flow this clause sits in the shared WHERE that feeds BOTH the
+ * income (amount<0) and expense (amount>0) branches, so a flagged exclude_from_spending category
+ * is dropped from income too — intentional and consistent with how TRANSFER_IN/OUT already behave
+ * there (a "Reimbursable"/internal bucket is neither spend nor income).
+ */
+function expense_exclude_clause(PDO $pdo, array $base = ['TRANSFER_IN', 'TRANSFER_OUT']): string
+{
+    $tags = array_merge($base, category_excluded_tags($pdo));
+    if (!$tags) return '1=1';
+    $list = implode(',', array_map(fn($t) => "'" . $t . "'", $tags));
+    return EFF_CAT . " NOT IN (" . $list . ")";
+}
+
+/**
+ * Derive a canonical category tag from a user-typed label: UPPER, every non-alphanumeric
+ * run → a single `_`, trimmed — so it matches the PFC-code shape and the [A-Z0-9_] guarantee
+ * expense_exclude_clause() relies on. e.g. "Pet Care" → PET_CARE, "AT&T Fees" → AT_T_FEES.
+ * Returns '' for empty/garbage input (callers reject ''); capped at 96 (the column width).
+ */
+function normalize_category_tag(string $label): string
+{
+    $v = function_exists('mb_strtoupper') ? mb_strtoupper(trim($label)) : strtoupper(trim($label));
+    $v = preg_replace('/[^A-Z0-9]+/', '_', $v);
+    $v = trim((string)$v, '_');
+    return function_exists('mb_substr') ? mb_substr($v, 0, 96) : substr($v, 0, 96);
+}
+
 /**
  * Plaid investment `subtype` values we treat as retirement accounts (lowercased).
  * Used by is_retirement_account() + q_retirement_accounts() so Plaid-linked IRAs /
@@ -455,6 +538,7 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND " . expense_exclude_clause($pdo, []) . "
          GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
@@ -487,7 +571,7 @@ function q_top_merchants(PDO $pdo, int $uid, int $days = 90, int $limit = 20): a
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
            AND COALESCE(NULLIF(t.merchant_name, ''), t.name) IS NOT NULL
@@ -523,16 +607,21 @@ function merchant_logo_map(PDO $pdo): array
     return $map;
 }
 
-/** Total outflow over the last $days days (for headline figures). */
+/** Total outflow over the last $days days (for headline figures). Split-aware (SUM(EFF_AMT)
+ *  over SPLIT_JOIN — identical to the parent total when there are no splits) and drops any
+ *  custom category flagged exclude_from_spending so the dashboard headline matches q_spending;
+ *  transfers are NOT excluded here (base []), preserving the historical headline scope. */
 function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 {
     $st = $pdo->prepare(
-        "SELECT COALESCE(SUM(t.amount), 0)
+        "SELECT COALESCE(SUM(" . EFF_AMT . "), 0)
          FROM transactions t
          JOIN accounts a ON t.account_id = a.account_id
          JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND t.date >= (CURDATE() - INTERVAL :d DAY)"
+           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND " . expense_exclude_clause($pdo, [])
     );
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
     $st->bindValue(':d', $days, PDO::PARAM_INT);
@@ -562,7 +651,7 @@ function q_digest_spending(PDO $pdo, int $days = 7): array
          " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
          GROUP BY " . EFF_CAT . "
@@ -644,7 +733,7 @@ function q_spend_anomalies(PDO $pdo): array
          " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
          GROUP BY ym, " . EFF_CAT
@@ -721,7 +810,7 @@ function q_cashflow(PDO $pdo, int $uid, int $months = 12): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
          GROUP BY ym"
@@ -769,7 +858,7 @@ function q_avg_daily_spend(PDO $pdo, int $uid, int $days = 90): float
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start"
     );
@@ -795,7 +884,7 @@ function q_true_expense_total(PDO $pdo, int $uid, string $start, string $end): f
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start AND t.date < :end"
     );
@@ -909,7 +998,7 @@ function q_spending_trend(PDO $pdo, int $uid, int $months = 12): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start
          GROUP BY ym, " . EFF_CAT
@@ -1039,7 +1128,7 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount < 0 AND t.ext_source IS NULL
            AND a.type NOT IN ('loan','credit')
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start AND t.date < :end
          GROUP BY COALESCE(NULLIF(t.merchant_name, ''), t.name)
@@ -1061,7 +1150,7 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND t.date >= :start AND t.date < :end
          GROUP BY " . EFF_CAT . "
@@ -1314,6 +1403,30 @@ function q_category_rules(PDO $pdo): array
             FROM category_rules cr
             ORDER BY cr.match_type, cr.match_value";
     return $pdo->query($sql)->fetchAll();
+}
+
+/**
+ * The household custom-category list (migration 024) for the management UI. NOT VIS-scoped
+ * (a shared vocabulary, like q_category_rules / tags / budgets) and DEFENSIVE (no table yet
+ * → []). Each row carries the four reference counts (transactions / rules / budgets / splits)
+ * so the management page can show a category's reach and the delete confirmation can quote
+ * the impact. The counts are bare numbers (no account detail) — no leak. No binds → HY093-safe.
+ */
+function q_custom_categories(PDO $pdo): array
+{
+    try {
+        return $pdo->query(
+            "SELECT cc.id, cc.tag, cc.label, cc.exclude_from_spending,
+                    (SELECT COUNT(*) FROM transactions t       WHERE t.category_override = cc.tag) AS used_tx,
+                    (SELECT COUNT(*) FROM category_rules cr     WHERE cr.category = cc.tag)         AS used_rules,
+                    (SELECT COUNT(*) FROM budgets b             WHERE b.category = cc.tag)          AS used_budgets,
+                    (SELECT COUNT(*) FROM transaction_splits s  WHERE s.category = cc.tag)          AS used_splits
+             FROM custom_categories cc
+             ORDER BY cc.label"
+        )->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 /**
@@ -2086,7 +2199,7 @@ function q_budgets(PDO $pdo): array
            -- over-count and fire a false budget-exceeded alert). 3-arg COALESCE so
            -- a NULL category isn't dropped by `NULL NOT IN (...)`. Splits (#8) drive
            -- the spend via EFF_CAT/EFF_AMT, so a budgeted split category counts here.
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND DATE_FORMAT(t.date, '%Y-%m') = :m
          GROUP BY " . EFF_CAT
@@ -2175,7 +2288,7 @@ function q_budget_carryover(PDO $pdo, array $rollCats, array $recurLimit, array 
          " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND " . EFF_CAT . " IN (" . implode(',', $inKeys) . ")
            AND t.date >= :start AND t.date < :curstart
@@ -2275,7 +2388,7 @@ function q_budget_history(PDO $pdo, int $months = 6): array
          " . SPLIT_JOIN . "
          WHERE a.visibility <> 'hidden'
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
            AND " . EFF_CAT . " IN ($inSql)
            AND t.date >= :start
@@ -2341,8 +2454,12 @@ function pfc_primary_categories(): array
  * Build a category picker option list: the canonical Plaid primary categories
  * (minus $exclude) unioned with any category that actually appears in the
  * household's visible transactions (covers custom overrides set via
- * recategorize, plus UNCATEGORIZED). When $outflowOnly the data scan is limited
- * to spend (amount > 0, non-manual) so it mirrors the spending list.
+ * recategorize, plus UNCATEGORIZED) AND every first-class custom category from the
+ * custom_categories table (migration 024 — so a freshly-created one shows in the picker
+ * before any transaction uses it). When $outflowOnly the data scan is limited to spend
+ * (amount > 0, non-manual) so it mirrors the spending list, AND every custom category
+ * flagged exclude_from_spending is removed (a non-spending bucket like "Reimbursable"
+ * has no place in the budget picker — like INCOME/TRANSFER_IN).
  * Returns [['value' => TAG, 'label' => 'Friendly Name'], ...] sorted by label.
  */
 function category_options(PDO $pdo, int $uid, array $exclude = [], bool $outflowOnly = false): array
@@ -2358,6 +2475,15 @@ function category_options(PDO $pdo, int $uid, array $exclude = [], bool $outflow
     $st->execute([':uid' => $uid]);
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $c) {
         if ((string)$c !== '') $cats[$c] = true;
+    }
+
+    // First-class custom categories (appear even before any transaction uses them).
+    foreach (array_keys(custom_category_map($pdo)) as $tag) {
+        if (!in_array($tag, $exclude, true)) $cats[$tag] = true;
+    }
+    // Budget/spending picker: a non-spending custom category must not be budgetable.
+    if ($outflowOnly) {
+        foreach (category_excluded_tags($pdo) as $t) unset($cats[$t]);
     }
 
     $opts = [];
@@ -2383,11 +2509,18 @@ function transaction_category_options(PDO $pdo, int $uid): array
 
 /* ---- small presentation helpers (server-side) ---------------------------- */
 
-/** "FOOD_AND_DRINK" -> "Food And Drink". */
+/** "FOOD_AND_DRINK" -> "Food And Drink". A custom category (migration 024) renders with
+ *  its stored label (preserves user fidelity that the underscore-titlecase would lose, e.g.
+ *  "AT&T Fees"); the custom_category_map() lookup is static-cached (one query/request) and
+ *  defensive (no table → fallback), so this stays cheap and safe everywhere it's called. */
 function pretty_cat(?string $c): string
 {
     $c = (string)$c;
     if ($c === '') return '';
+    if (function_exists('db')) {
+        $map = custom_category_map(db());
+        if (isset($map[$c])) return $map[$c]['label'];
+    }
     return ucwords(strtolower(str_replace('_', ' ', $c)));
 }
 
