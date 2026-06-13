@@ -620,6 +620,29 @@ a.cat-row:hover { background: var(--surface-2); }
 .alloc-rebal-row:last-child { border-bottom: 0; }
 .alloc-list .class-select { font-size: .85rem; padding: 2px 6px; max-width: 11rem; }
 .stack-form .alloc-target-input { max-width: 8rem; }
+
+/* ---- Debt payoff planner (#33) ------------------------------------------ */
+.debt-controls { display: flex; flex-direction: column; gap: 14px; }
+.debt-controls .debt-extra-input { max-width: 10rem; }
+.debt-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-block; padding: 5px 12px; border-radius: var(--r-pill); border: 1px solid var(--line);
+        background: var(--surface-2); color: var(--ink-2); font-size: .85rem; font-weight: 600;
+        text-decoration: none; font-variant-numeric: tabular-nums; }
+.chip:hover { border-color: var(--brand); }
+.chip.chip-on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.debt-toggle { display: inline-flex; align-items: center; gap: 9px; font-size: .9rem; font-weight: 600; color: var(--ink-2); }
+.debt-strat { padding: 16px; }
+.debt-strat-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.debt-strat-head h3 { margin: 0; }
+.debt-strat-tag { font-size: .76rem; font-weight: 600; }
+.debt-strat-free { display: flex; flex-direction: column; gap: 1px; margin: 10px 0 4px; }
+.debt-strat-date { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.debt-strat-note { margin-top: 12px; }
+.debt-rank { display: inline-flex; align-items: center; justify-content: center; width: 1.4em; height: 1.4em;
+             margin-right: 7px; border-radius: var(--r-pill); background: var(--surface-2);
+             color: var(--ink-2); font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.row-amt-sub { display: block; font-size: .74rem; font-weight: 500; }
+
 .goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .goal-edit:active { color: var(--brand); }

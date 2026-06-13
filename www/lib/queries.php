@@ -1401,6 +1401,31 @@ function q_liabilities(PDO $pdo, int $uid, ?string $accountId = null): array
     return $st->fetchAll();
 }
 
+/**
+ * Debt payoff planner source (TODO2 #33). Every VIS-visible credit/loan account with its
+ * LEFT-JOINed Plaid `liabilities` detail (APR / minimum / last payment / type) — so EVERY debt
+ * shows, and the ones the bank doesn't report APR/payment detail for are flagged (not dropped),
+ * unlike q_liabilities which only returns accounts that HAVE a liabilities row. VIS-scoped
+ * (single `:uid` bind → HY093-safe). Selects a.subtype so the mortgage toggle can identify it.
+ * lib/debt.php normalizes + simulates; balances are filtered to > 0 there.
+ */
+function q_debts(PDO $pdo, int $uid): array
+{
+    $st = $pdo->prepare(
+        "SELECT " . ACCT_NAME . " AS account_name, a.account_id, a.mask, a.type, a.subtype,
+                a.balance_current, i.user_id AS owner_id,
+                l.liability_type, l.apr_percentage, l.outstanding_balance,
+                l.minimum_payment_amount, l.last_payment_amount
+         FROM accounts a
+         JOIN items i ON a.item_id = i.item_id
+         LEFT JOIN liabilities l ON l.account_id = a.account_id
+         WHERE " . VIS . " AND a.type IN ('credit', 'loan')
+         ORDER BY a.name"
+    );
+    $st->execute([':uid' => $uid]);
+    return $st->fetchAll();
+}
+
 /* ---- Credit reports (TODO2 #28) -----------------------------------------
  * Reports are HOUSEHOLD-VISIBLE (either signed-in user sees both people's pulls), so these
  * reads are deliberately NOT VIS-scoped — credit_reports carries its own user_id (whose

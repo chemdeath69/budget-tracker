@@ -29,6 +29,7 @@ function nav_items(): array
         ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast'],
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
         ['key' => 'goals',        'href' => '/goals.php',        'label' => 'Savings goals', 'icon' => 'target'],
+        ['key' => 'debt',         'href' => '/debt.php',         'label' => 'Debt payoff',   'icon' => 'debt'],
         ['key' => 'investments',  'href' => '/investments.php',  'label' => 'Investments',   'icon' => 'invest'],
         ['key' => 'allocation',   'href' => '/allocation.php',   'label' => 'Allocation',    'icon' => 'pie'],
         ['key' => 'retirement',   'href' => '/retirement.php',   'label' => 'Retirement',    'icon' => 'nest'],
@@ -71,6 +72,7 @@ function nav_icon(string $name): string
         'store'  => '<path d="M4 4h16l-1 5H5z"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>',
         'credit' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
         'wallet' => '<path d="M3 7a2 2 0 0 1 2-2h12v4"/><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M21 11h-4a2 2 0 0 0 0 4h4"/>',
+        'debt'   => '<rect x="4" y="5" width="4" height="15" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16" y="14" width="4" height="6" rx="1"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';

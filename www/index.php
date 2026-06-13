@@ -48,6 +48,9 @@ $stsSpent  = q_true_expense_total($pdo, $uid,
                                   $stsToday->add(new DateInterval('P1D'))->format('Y-m-d'));
 $sts = safe_to_spend_build($recur, $liab, (float)q_spending_plan($pdo)['monthly_savings_target'], $stsSpent, $stsToday);
 $goals    = q_goals($pdo, $uid);                            // savings-goals teaser (TODO #9)
+// Debt payoff teaser (avalanche, no extra, mortgage excluded) — TODO2 #33.
+require_once __DIR__ . '/lib/debt.php';
+$debtPlan = build_debt_plan(q_debts($pdo, $uid), 0.0, false);
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 $lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
@@ -307,6 +310,32 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             <a class="block-link" href="/goals.php">+<?= count($goals) - 3 ?> more ›</a>
             <?php endif; ?>
         </div>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($debtPlan['debts']): $da = $debtPlan['scenarios']['avalanche']; ?>
+    <!-- Debt payoff teaser (avalanche, mortgage excluded) → full debt.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Debt payoff</h2>
+            <a class="block-link" href="/debt.php">Plan it ›</a>
+        </div>
+        <a class="card spend-card" href="/debt.php">
+            <div class="spend-total">
+                <span class="spend-amt"><?= e(usd($debtPlan['total'])) ?></span>
+                <span class="muted"><?= count($debtPlan['debts']) ?> debt<?= count($debtPlan['debts']) === 1 ? '' : 's' ?><?= $debtPlan['has_mortgage'] ? ' · excl. mortgage' : '' ?></span>
+            </div>
+            <div class="cf-mini">
+                <?php if ($da['infeasible']): ?>
+                    <span class="muted">add an extra payment to build a plan</span>
+                <?php else: ?>
+                    <span class="muted">avalanche · debt-free <?= e((new DateTimeImmutable('first day of this month'))->modify('+' . $da['months'] . ' months')->format('M Y')) ?></span>
+                    <?php if (!empty($da['interest_saved'])): ?>
+                        <span class="pos"><?= e(usd($da['interest_saved'])) ?> saved</span>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </a>
     </section>
     <?php endif; ?>
 
