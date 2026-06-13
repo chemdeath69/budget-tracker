@@ -369,12 +369,13 @@ function render_header(string $title, string $active = '', array $opts = []): vo
                 </a>
             </li>
             <?php endforeach; ?>
+            <li class="drawer-sep">
+                <a href="/link.php" class="drawer-action"><span class="ic"><?= nav_icon('bank') ?></span><span>Link a bank</span></a>
+            </li>
+            <li>
+                <a href="/logout.php" class="drawer-action"><span class="ic"><?= nav_icon('logout') ?></span><span>Sign out</span></a>
+            </li>
         </ul>
-
-        <div class="drawer-foot">
-            <a href="/link.php" class="drawer-action"><span class="ic"><?= nav_icon('bank') ?></span><span>Link a bank</span></a>
-            <a href="/logout.php" class="drawer-action"><span class="ic"><?= nav_icon('logout') ?></span><span>Sign out</span></a>
-        </div>
     </nav>
 
     <main class="screen<?= !empty($opts['narrow']) ? ' narrow' : '' ?>" id="main">
