@@ -654,6 +654,24 @@ a.cat-row:hover { background: var(--surface-2); }
 .apy-could { text-align: right; font-size: .85rem; white-space: nowrap; }
 .apy-est { color: var(--muted); font-size: .72rem; }
 
+/* ---- Peer / benchmark spending comparison (#37) ------------------------- */
+.peer-sel-label { font-size: .82rem; }
+.peer-list { display: flex; flex-direction: column; gap: 16px; }
+.peer-row { font-variant-numeric: tabular-nums; }
+.peer-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.peer-cat { font-weight: 600; }
+.peer-bar { position: relative; height: 14px; background: var(--track); border-radius: var(--r-pill); overflow: hidden; }
+.peer-bar-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: var(--r-pill); transition: width .3s; }
+.peer-bar-fill.over { background: var(--neg); }
+.peer-bar-fill.under { background: var(--pos); }
+.peer-bar-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .7; }
+.peer-figs { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; font-size: .82rem; margin-top: 6px; }
+.peer-figs strong { color: var(--ink); font-weight: 600; }
+.peer-mo { opacity: .8; }
+.peer-note { font-size: .76rem; margin: 5px 0 0; line-height: 1.4; }
+.peer-caveats ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; font-size: .82rem; line-height: 1.45; }
+.peer-caveats strong { color: var(--ink); font-weight: 600; }
+
 .goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .goal-edit:active { color: var(--brand); }

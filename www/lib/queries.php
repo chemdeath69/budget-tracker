@@ -954,6 +954,63 @@ function q_account_interest(PDO $pdo, int $uid, int $days = 365): array
 }
 
 /**
+ * Per-category true-expense totals over a half-open [start,end) window — backs the
+ * peer-spend comparison (TODO2 #37). Pass a COMPLETE-months window (e.g. the last 12
+ * full calendar months, excluding the partial current month) so the per-category sums
+ * annualize cleanly. Reuses the EXACT true-expense definition + SPLIT_JOIN/EFF_CAT/EFF_AMT
+ * as every other spend read (so it ties to q_cashflow/q_spending_trend), VIS-scoped.
+ *
+ * Returns ['cats' => [EFF_CAT => total], 'months_observed' => int] where months_observed
+ * = the count of DISTINCT calendar months in the window that actually carry true-expense
+ * spend — the honest annualization divisor in lib/peers.php (so one big charge in a short
+ * history can't read as a year-round habit, and a freshly-linked household isn't annualized
+ * off a single month). HY093-safe: two prepared statements, each binds VIS's :uid once +
+ * a distinct :start/:end. Compute the window in PHP app-TZ (never CURDATE() — the S24 trap).
+ * The comparison MATH lives in lib/peers.php, not here.
+ */
+function q_peer_category_spend(PDO $pdo, int $uid, string $start, string $end): array
+{
+    $st = $pdo->prepare(
+        "SELECT " . EFF_CAT . " AS category, SUM(" . EFF_AMT . ") AS total
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . expense_exclude_clause($pdo) . "
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start AND t.date < :end
+         GROUP BY " . EFF_CAT
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->bindValue(':end', $end);
+    $st->execute();
+    $cats = [];
+    foreach ($st->fetchAll() as $r) {
+        $cats[(string)$r['category']] = (float)$r['total'];
+    }
+
+    $cn = $pdo->prepare(
+        "SELECT COUNT(DISTINCT DATE_FORMAT(t.date, '%Y-%m')) AS m
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . expense_exclude_clause($pdo) . "
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start AND t.date < :end"
+    );
+    $cn->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $cn->bindValue(':start', $start);
+    $cn->bindValue(':end', $end);
+    $cn->execute();
+
+    return ['cats' => $cats, 'months_observed' => (int)$cn->fetchColumn()];
+}
+
+/**
  * Allocation target mix (Session 62, TODO2 #32). Household-shared, **NOT VIS-scoped** — one set
  * of target percentages per asset class (like spending_plan / alert_settings). Returns
  * [asset_class => target_pct]; **defensive** (missing table pre-migration-023 / transient → []).
