@@ -392,6 +392,9 @@ a.cat-row:hover { background: var(--surface-2); }
 .cat-swatch.pos { background: var(--pos); }
 .cat-swatch.neg { background: var(--neg); }
 .cat-row.is-static { padding: 4px 6px; margin: -4px -6px; }
+/* Credit-mix legend (credit.php): swatch · type (count) · balance — no bar column,
+   so a 3-col grid (the 2-class selector beats the base + desktop .cat-row 4-col grids). */
+.cr-mix-list .cat-row { grid-template-columns: 12px minmax(0, 1fr) auto; }
 .delta-chip { font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; margin-left: 6px; }
 .delta-chip.pos { color: var(--pos); }
 .delta-chip.neg { color: var(--neg); }

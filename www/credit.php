@@ -189,11 +189,11 @@ foreach (flash_take() as $fl) {
                 <canvas data-chart="doughnut" data-src="mix-data" aria-label="Credit mix by account type"></canvas>
             </div>
             <script type="application/json" id="mix-data"><?= json_encode($mixData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-            <div class="cat-list">
-            <?php foreach (['revolving' => 'Revolving', 'installment' => 'Installment', 'mortgage' => 'Mortgage'] as $bk => $bl):
+            <div class="cat-list cr-mix-list">
+            <?php $i = 0; foreach (['revolving' => 'Revolving', 'installment' => 'Installment', 'mortgage' => 'Mortgage'] as $bk => $bl):
                 $m = $mix['buckets'][$bk]; if ($m['count'] === 0) continue; ?>
-                <div class="cat-row"><span><?= e($bl) ?> <span class="muted">(<?= (int)$m['count'] ?>)</span></span><span><?= usd($m['balance']) ?></span></div>
-            <?php endforeach; ?>
+                <div class="cat-row"><span class="cat-swatch" style="--i:<?= $i ?>"></span><span class="cat-name"><?= e($bl) ?> <span class="muted">(<?= (int)$m['count'] ?>)</span></span><span class="cat-amt"><?= usd($m['balance']) ?></span></div>
+            <?php $i++; endforeach; ?>
             </div>
             <p class="muted cr-note"><?= (int)$mix['distinct'] ?> of 3 account types — a varied mix helps.</p>
         <?php else: ?>
