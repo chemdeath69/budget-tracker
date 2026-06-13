@@ -209,6 +209,84 @@ render_header('Retirement', 'retirement', ['chart' => true]);
         <?php endif; ?>
     </section>
 
+    <!-- Probability of success (Monte Carlo, #36) -->
+    <?php $mc = $view['monte_carlo']; if ($mc && $mc['years'] >= 1): ?>
+    <section class="block">
+        <div class="block-head">
+            <h2>Probability of success</h2>
+            <span class="muted"><?= number_format($mc['runs']) ?> simulations</span>
+        </div>
+        <section class="hero card">
+            <?php if ($mc['success_pct'] !== null):
+                $sp = (float)$mc['success_pct'];
+                $spClass = $sp >= 70 ? 'pos' : ($sp >= 50 ? '' : 'neg');
+                // A 2,000-run sim can't honestly assert literal certainty — cap a ≥99.5% read at ">99%".
+                $spLabel = $sp >= 99.5 ? '&gt;99' : e(number_format($sp, 0)); ?>
+                <div class="hero-top">
+                    <span class="hero-label">Chance of reaching <?= e(usd($mc['target'])) ?> by <?= e((string)$proj['target_year']) ?></span>
+                </div>
+                <div class="hero-value <?= $spClass ?>"><?= $spLabel ?>%</div>
+                <div class="mc-track"><span class="<?= $spClass ?>" style="width:<?= round(min(100, max(1, $sp))) ?>%"></span></div>
+            <?php else: ?>
+                <div class="hero-top"><span class="hero-label">Range of outcomes by <?= e((string)$proj['target_year']) ?></span></div>
+                <div class="hero-value"><?= e(usd($mc['end_median'])) ?> <span class="muted" style="font-size:.5em">median</span></div>
+                <p class="muted" style="margin:.4rem 0 0">Set a <a href="/retirement_settings.php">target amount</a> to see your probability of reaching it.</p>
+            <?php endif; ?>
+
+            <?php
+            $b      = $mc['bands'];
+            $labels = array_map(fn($r) => (string)$r['year'], $b);
+            // Fan chart: a faint 10th–90th band, a darker 25th–75th band, a solid median
+            // line, the straight-line (deterministic) projection for comparison, + the target.
+            // Each band is a lower edge (no fill) + an upper edge that fills DOWN to the lower
+            // edge's dataset index (multiline fillTo); indices match this series order.
+            $series = [
+                ['label' => '10th pct',  'values' => array_map(fn($r) => $r['p10'], $b), 'color' => 'brand', 'faint' => true, 'legend' => false],
+                ['label' => '10th–90th percentile', 'values' => array_map(fn($r) => $r['p90'], $b), 'color' => 'brand', 'faint' => true, 'fillTo' => 0],
+                ['label' => '25th pct',  'values' => array_map(fn($r) => $r['p25'], $b), 'color' => 'brand', 'faint' => true, 'legend' => false],
+                ['label' => '25th–75th percentile', 'values' => array_map(fn($r) => $r['p75'], $b), 'color' => 'brand', 'faint' => true, 'fillTo' => 2],
+                ['label' => 'Median outcome', 'values' => array_map(fn($r) => $r['p50'], $b), 'color' => 'brand'],
+            ];
+            if ($proj && $proj['series']) {
+                $series[] = ['label' => 'Straight-line', 'values' => array_map(fn($p) => $p['value'], $proj['series']), 'color' => 'muted', 'dashed' => true];
+            }
+            if ($mc['target'] !== null) {
+                $series[] = ['label' => 'Target', 'values' => array_fill(0, count($b), (float)$mc['target']), 'color' => 'pos', 'dashed' => true];
+            }
+            ?>
+            <div class="chart-wrap" style="height:260px;margin-top:1rem">
+                <canvas data-chart="multiline" data-src="ret-mc-data"></canvas>
+            </div>
+            <script type="application/json" id="ret-mc-data"><?= json_encode([
+                'labels' => $labels,
+                'series' => $series,
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+
+            <div class="kv-grid" style="margin-top:1rem">
+                <div><span class="muted">Pessimistic (10th)</span><strong><?= e(usd($mc['end_low'])) ?></strong></div>
+                <div><span class="muted">Median (50th)</span><strong><?= e(usd($mc['end_median'])) ?></strong></div>
+                <div><span class="muted">Optimistic (90th)</span><strong><?= e(usd($mc['end_high'])) ?></strong></div>
+                <div><span class="muted">Median in today's $</span><strong><?= e(usd($mc['median_real'])) ?></strong></div>
+            </div>
+            <p class="chart-cap" style="margin-top:.8rem">
+                <?= number_format($mc['runs']) ?> runs over <?= (int)$mc['years'] ?> year<?= $mc['years'] === 1 ? '' : 's' ?>,
+                drawing each year's return from a normal distribution: average
+                <strong><?= e(number_format($mc['mean'] * 100, 1)) ?>%</strong>
+                (<?= e($view['rate_basis']) ?>), volatility
+                <strong><?= e(number_format($mc['volatility'] * 100, 1)) ?>%</strong><?= $mc['vol_is_default'] ? ' (default)' : '' ?>.
+                Today's-$ figure deflates by ≈<?= e(number_format($mc['inflation'] * 100, 1)) ?>% inflation.
+                <?php if ($mc['target'] !== null): ?>The success figure measures your target as a
+                <strong>future (nominal)</strong> amount — <?= e(usd($mc['target'])) ?> by
+                <?= e((string)$proj['target_year']) ?> ≈ <?= e(usd($mc['target_real'])) ?> in today's dollars
+                (enter a higher target if you mean today's purchasing power).<?php endif; ?>
+                Volatility drag means the straight-line projection sits above the median outcome.
+                An estimate, not financial advice — set your assumptions on the
+                <a href="/retirement_settings.php">Assumptions</a> page.
+            </p>
+        </section>
+    </section>
+    <?php endif; ?>
+
     <!-- Accounts -->
     <section class="block">
         <div class="block-head"><h2>Your retirement accounts</h2><span class="count-pill"><?= count($accounts) ?></span></div>

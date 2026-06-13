@@ -494,6 +494,7 @@ CREATE TABLE retirement_settings (
   annual_contribution DECIMAL(15,2) NULL,             -- expected ongoing; NULL = derive
   growth_rate_override DECIMAL(6,4)  NULL,            -- e.g. 0.0700; NULL = derive from history
   growth_default      DECIMAL(6,4)  NOT NULL DEFAULT 0.0600,
+  return_volatility   DECIMAL(6,4)  NULL,                -- e.g. 0.1300; NULL = bundled default (Monte Carlo #36)
   target_amount       DECIMAL(18,2) NULL,
   updated_by          INT UNSIGNED  NULL,
   updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

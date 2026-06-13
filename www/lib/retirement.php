@@ -139,6 +139,145 @@ function ret_project(float $p, float $r, float $c, int $startYear, int $n): arra
     return $out;
 }
 
+// --- Monte Carlo (TODO2 #36) -------------------------------------------------
+// Upgrades the single-rate deterministic projection (ret_project) to a probabilistic
+// simulation: each year's return is a random draw from Normal(mean, volatility), run
+// many times, so the page can say "78% chance of reaching your target" + show a
+// percentile fan of outcomes. mean = the same growth rate the deterministic line uses
+// (override/derived/default); volatility is an owner-set assumption (the ~quarter of
+// account history is far too short to derive one) defaulting to RET_DEFAULT_VOLATILITY.
+
+const RET_MC_RUNS          = 2000;    // simulation paths — plenty for stable percentiles, ~ms in PHP
+const RET_DEFAULT_VOLATILITY = 0.13;  // annual std-dev of returns (equity-heavy long-horizon default)
+const RET_DEFAULT_INFLATION  = 0.025; // fallback CPI inflation when FRED has no data (today's-$ caveat)
+const RET_MC_RETURN_FLOOR  = -0.95;   // a single year can't lose >95% (guards a fat-tailed draw)
+const RET_MC_SEED          = 0x9E3779B9; // fixed seed → the chart is reproducible across page loads
+
+/**
+ * Deterministic [0,1) generator (xorshift32) so the simulation renders identically on
+ * every page load and is reproducible under test — and, by using its OWN state, it never
+ * touches PHP's global mt_rand() seed. Returns a closure; call it for each draw.
+ */
+function ret_mc_prng(int $seed): callable
+{
+    $state = $seed & 0xFFFFFFFF;
+    if ($state === 0) $state = 0x9E3779B9;
+    return function () use (&$state): float {
+        $x = $state;
+        $x ^= ($x << 13) & 0xFFFFFFFF;
+        $x ^= ($x >> 17);
+        $x ^= ($x << 5)  & 0xFFFFFFFF;
+        $x &= 0xFFFFFFFF;
+        $state = $x;
+        return $x / 4294967296.0; // 2^32
+    };
+}
+
+/** One Normal(mean, sd) draw via Box–Muller from the uniform generator $next. */
+function ret_mc_normal(callable $next, float $mean, float $sd): float
+{
+    $u1 = $next();
+    $u2 = $next();
+    if ($u1 < 1e-12) $u1 = 1e-12;            // avoid log(0)
+    $z = sqrt(-2.0 * log($u1)) * cos(2.0 * M_PI * $u2);
+    return $mean + $sd * $z;
+}
+
+/** Linear-interpolated percentile of an ASCENDING-sorted numeric array. */
+function ret_percentile(array $sortedAsc, float $p): float
+{
+    $n = count($sortedAsc);
+    if ($n === 0) return 0.0;
+    if ($n === 1) return (float)$sortedAsc[0];
+    $rank = ($p / 100) * ($n - 1);
+    $lo = (int)floor($rank);
+    $hi = (int)ceil($rank);
+    if ($lo === $hi) return (float)$sortedAsc[$lo];
+    return (float)$sortedAsc[$lo] + ((float)$sortedAsc[$hi] - (float)$sortedAsc[$lo]) * ($rank - $lo);
+}
+
+/**
+ * Run the simulation. Compounds $p0 forward $n years; each year applies a random return
+ * ~Normal($mean,$vol) then adds $contrib (matching ret_project's year-end contribution
+ * order). Returns per-year percentile bands (for the fan chart), the probability of
+ * finishing ≥ $target (null if no target), and the 10th/50th/90th end values.
+ */
+function ret_monte_carlo(float $p0, float $mean, float $vol, float $contrib, int $startYear, int $n, ?float $target, int $runs = RET_MC_RUNS): array
+{
+    $n    = max(0, $n);
+    $runs = max(1, $runs);
+    $byYear = [];
+    for ($y = 0; $y <= $n; $y++) $byYear[$y] = [];
+
+    $next = ret_mc_prng(RET_MC_SEED);
+    for ($r = 0; $r < $runs; $r++) {
+        $v = $p0;
+        $byYear[0][] = $v;
+        for ($y = 1; $y <= $n; $y++) {
+            $ret = ret_mc_normal($next, $mean, $vol);
+            if ($ret < RET_MC_RETURN_FLOOR) $ret = RET_MC_RETURN_FLOOR;
+            $v = $v * (1 + $ret) + $contrib;
+            if ($v < 0) $v = 0.0;
+            $byYear[$y][] = $v;
+        }
+    }
+
+    $bands = [];
+    $finalsSorted = [];
+    foreach ($byYear as $y => $vals) {
+        sort($vals);
+        if ($y === $n) $finalsSorted = $vals;
+        $bands[] = [
+            'year' => $startYear + $y,
+            'p10'  => round(ret_percentile($vals, 10), 2),
+            'p25'  => round(ret_percentile($vals, 25), 2),
+            'p50'  => round(ret_percentile($vals, 50), 2),
+            'p75'  => round(ret_percentile($vals, 75), 2),
+            'p90'  => round(ret_percentile($vals, 90), 2),
+        ];
+    }
+
+    $success = null;
+    if ($target !== null && $target > 0 && $finalsSorted) {
+        $cnt = 0;
+        foreach ($finalsSorted as $fv) if ($fv >= $target) $cnt++;
+        $success = round($cnt / count($finalsSorted) * 100, 1);
+    }
+    $last = $bands[$n];
+    return [
+        'runs'        => $runs,
+        'years'       => $n,
+        'mean'        => $mean,
+        'bands'       => $bands,
+        'success_pct' => $success,
+        'end_low'     => $last['p10'],
+        'end_median'  => $last['p50'],
+        'end_high'    => $last['p90'],
+    ];
+}
+
+/**
+ * Annual CPI inflation assumption for the today's-dollars caveat: the latest year-over-year
+ * CPI-U change from the FRED feed we already pull, clamped to a sane band; falls back to
+ * RET_DEFAULT_INFLATION when FRED data is unavailable.
+ */
+function ret_inflation_assumption(PDO $pdo): float
+{
+    if (function_exists('q_fred_history')) {
+        $hist = q_fred_history($pdo, 'CPIAUCSL', 0); // ascending, monthly
+        $n = count($hist);
+        if ($n >= 13) {
+            $latest  = (float)$hist[$n - 1]['value'];
+            $yearAgo = (float)$hist[$n - 13]['value'];
+            if ($yearAgo > 0) {
+                $yoy = ($latest - $yearAgo) / $yearAgo;
+                if ($yoy >= 0 && $yoy <= 0.15) return round($yoy, 4);
+            }
+        }
+    }
+    return RET_DEFAULT_INFLATION;
+}
+
 /** Assemble everything the Retirement page needs. */
 function build_retirement_view(PDO $pdo, int $uid): array
 {
@@ -329,6 +468,30 @@ function build_retirement_view(PDO $pdo, int $uid): array
         ];
     }
 
+    // --- Monte Carlo (probability of success + outcome fan) (#36) -------------
+    // Built only when there's a projection (a target year set). mean = the deterministic
+    // rate; volatility = the owner's setting or the bundled default. The simulation runs
+    // in NOMINAL dollars (so the success % is vs the target the owner actually entered);
+    // the median is also restated in today's dollars using FRED CPI inflation as context.
+    $monteCarlo = null;
+    if ($projection !== null) {
+        $volSet = $settings['return_volatility'];
+        $volIsDefault = ($volSet === null || $volSet <= 0);
+        $vol  = $volIsDefault ? RET_DEFAULT_VOLATILITY : $volSet;
+        $infl = ret_inflation_assumption($pdo);
+        $n    = $projection['years'];
+        $sim  = ret_monte_carlo($total, $rate, $vol, $annualContribUsed, $curYear, $n, $settings['target_amount'], RET_MC_RUNS);
+        $realFactor = pow(1 + $infl, -$n); // nominal → today's dollars over the horizon
+        $monteCarlo = $sim + [
+            'volatility'     => $vol,
+            'vol_is_default' => $volIsDefault,
+            'inflation'      => $infl,
+            'median_real'    => round($sim['end_median'] * $realFactor, 2),
+            'target'         => $settings['target_amount'],
+            'target_real'    => $settings['target_amount'] !== null ? round($settings['target_amount'] * $realFactor, 2) : null,
+        ];
+    }
+
     return [
         'accounts'      => $accounts,
         'cards'         => $cards,
@@ -342,6 +505,7 @@ function build_retirement_view(PDO $pdo, int $uid): array
         'rate_basis'    => $rateBasis,
         'settings'      => $settings,
         'projection'    => $projection,
+        'monte_carlo'   => $monteCarlo,
         'cur_year'      => $curYear,
     ];
 }

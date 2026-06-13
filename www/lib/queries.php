@@ -3176,7 +3176,7 @@ function q_retirement_settings(PDO $pdo): array
 {
     $row = $pdo->query(
         "SELECT retirement_year, annual_contribution, growth_rate_override,
-                growth_default, target_amount
+                growth_default, return_volatility, target_amount
          FROM retirement_settings WHERE id = 1"
     )->fetch();
     return [
@@ -3187,6 +3187,8 @@ function q_retirement_settings(PDO $pdo): array
         'growth_rate_override' => isset($row['growth_rate_override']) && $row['growth_rate_override'] !== null
                                     ? (float)$row['growth_rate_override'] : null,
         'growth_default'       => isset($row['growth_default']) ? (float)$row['growth_default'] : 0.06,
+        'return_volatility'    => isset($row['return_volatility']) && $row['return_volatility'] !== null
+                                    ? (float)$row['return_volatility'] : null,
         'target_amount'        => isset($row['target_amount']) && $row['target_amount'] !== null
                                     ? (float)$row['target_amount'] : null,
     ];

@@ -39,20 +39,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $target    = rs_num($_POST['target_amount'] ?? '');
     $ovrPct    = rs_num($_POST['growth_rate_override'] ?? '');   // percent
     $defPct    = rs_num($_POST['growth_default'] ?? '');         // percent
+    $volPct    = rs_num($_POST['return_volatility'] ?? '');      // percent (Monte Carlo #36)
     $override  = $ovrPct !== null ? round($ovrPct / 100, 4) : null;
     $default   = $defPct !== null ? round($defPct / 100, 4) : 0.06;
+    // Blank or out-of-band (≤0 / absurdly high) volatility → NULL = use the bundled default.
+    $volatility = ($volPct !== null && $volPct > 0 && $volPct <= 100) ? round($volPct / 100, 4) : null;
 
     try {
         $pdo->prepare(
             'INSERT INTO retirement_settings
-                (id, retirement_year, annual_contribution, growth_rate_override, growth_default, target_amount, updated_by)
-             VALUES (1,:y,:a,:o,:d,:t,:by)
+                (id, retirement_year, annual_contribution, growth_rate_override, growth_default, return_volatility, target_amount, updated_by)
+             VALUES (1,:y,:a,:o,:d,:v,:t,:by)
              ON DUPLICATE KEY UPDATE
                 retirement_year=VALUES(retirement_year), annual_contribution=VALUES(annual_contribution),
                 growth_rate_override=VALUES(growth_rate_override), growth_default=VALUES(growth_default),
+                return_volatility=VALUES(return_volatility),
                 target_amount=VALUES(target_amount), updated_by=VALUES(updated_by), updated_at=CURRENT_TIMESTAMP'
         )->execute([
-            ':y' => $year, ':a' => $annual, ':o' => $override, ':d' => $default, ':t' => $target, ':by' => $uid,
+            ':y' => $year, ':a' => $annual, ':o' => $override, ':d' => $default, ':v' => $volatility, ':t' => $target, ':by' => $uid,
         ]);
     } catch (Throwable $e) {
         error_log('retirement_settings error: ' . $e->getMessage());
@@ -68,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $s = q_retirement_settings($pdo);
 $ovrVal = $s['growth_rate_override'] !== null ? rtrim(rtrim(number_format($s['growth_rate_override'] * 100, 2), '0'), '.') : '';
 $defVal = rtrim(rtrim(number_format($s['growth_default'] * 100, 2), '0'), '.');
+$volVal = $s['return_volatility'] !== null ? rtrim(rtrim(number_format($s['return_volatility'] * 100, 2), '0'), '.') : '';
 
 render_header('Projection assumptions', 'retirement', ['back' => '/retirement.php', 'narrow' => true]);
 ?>
@@ -105,6 +110,11 @@ render_header('Projection assumptions', 'retirement', ['back' => '/retirement.ph
             <span class="field-label">Default growth rate % <span class="muted">(used until history is available)</span></span>
             <input class="input" type="text" inputmode="decimal" name="growth_default"
                    value="<?= e($defVal) ?>" placeholder="6">
+        </label>
+        <label class="field">
+            <span class="field-label">Expected volatility % <span class="muted">(blank = default 13 — drives the success-probability spread)</span></span>
+            <input class="input" type="text" inputmode="decimal" name="return_volatility"
+                   value="<?= e($volVal) ?>" placeholder="13">
         </label>
         <label class="field">
             <span class="field-label">Target amount <span class="muted">(optional retirement number)</span></span>

@@ -325,6 +325,13 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .spend-cat { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spend-track, .cat-track { height: 8px; background: var(--track); border-radius: var(--r-pill); overflow: hidden; }
 .spend-track > span, .cat-track > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
+/* Retirement Monte Carlo success bar (#36) — colour follows the success band. */
+.mc-track { height: 10px; background: var(--track); border-radius: var(--r-pill); overflow: hidden; margin-top: .6rem; }
+.mc-track > span { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
+.mc-track > span.pos { background: var(--pos); }
+.mc-track > span.neg { background: var(--neg); }
+.hero-value.pos { color: var(--pos); }
+.hero-value.neg { color: var(--neg); }
 .spend-val { font-weight: 650; font-variant-numeric: tabular-nums; }
 
 /* ---- Charts ------------------------------------------------------------- */
