@@ -24,6 +24,7 @@ function nav_items(): array
         ['key' => 'transactions', 'href' => '/transactions.php', 'label' => 'Transactions',  'icon' => 'list'],
         ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart'],
         ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar'],
+        ['key' => 'safetospend',  'href' => '/safe_to_spend.php', 'label' => 'Safe to spend', 'icon' => 'wallet'],
         ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow'],
         ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast'],
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
@@ -67,6 +68,7 @@ function nav_icon(string $name): string
         'target' => '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
         'store'  => '<path d="M4 4h16l-1 5H5z"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>',
         'credit' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
+        'wallet' => '<path d="M3 7a2 2 0 0 1 2-2h12v4"/><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M21 11h-4a2 2 0 0 0 0 4h4"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';

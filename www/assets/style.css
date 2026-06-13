@@ -590,6 +590,16 @@ a.cat-row:hover { background: var(--surface-2); }
 .goal-tag { font-weight: 500; font-size: .82rem; margin-left: 6px; }
 .goal-foot { margin: 0; font-size: .82rem; }
 .budget-bar.reached > span { background: var(--pos); }
+
+/* Safe to spend (#31) — the spending-plan breakdown lines on safe_to_spend.php. */
+.sts-breakdown { display: flex; flex-direction: column; margin-top: 8px; }
+.sts-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.sts-line:last-child { border-bottom: 0; }
+.sts-line .sts-label { color: var(--muted); }
+.sts-line .sts-label a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line); }
+.sts-line .sts-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sts-line.sts-total { border-top: 1px solid var(--line); margin-top: 2px; font-weight: 600; }
+.sts-line.sts-total .sts-label { color: var(--ink); }
 .goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .goal-edit:active { color: var(--brand); }

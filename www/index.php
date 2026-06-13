@@ -40,6 +40,13 @@ require_once __DIR__ . '/lib/forecast.php';
 $fcTeaser = forecast_build($accounts, $liab, $recur, q_avg_daily_spend($pdo, $uid, 90), 30, new DateTimeImmutable('today'));
 $fcHasCash = false;
 foreach ($accounts as $a) { if (in_array(account_group($a), FORECAST_CASH_GROUPS, true)) { $fcHasCash = true; break; } }
+// "Safe to spend" teaser (this month) — income − committed bills − savings target − spent (TODO2 #31).
+require_once __DIR__ . '/lib/safe_to_spend.php';
+$stsToday  = new DateTimeImmutable('today');
+$stsSpent  = q_true_expense_total($pdo, $uid,
+                                  $stsToday->modify('first day of this month')->format('Y-m-d'),
+                                  $stsToday->add(new DateInterval('P1D'))->format('Y-m-d'));
+$sts = safe_to_spend_build($recur, $liab, (float)q_spending_plan($pdo)['monthly_savings_target'], $stsSpent, $stsToday);
 $goals    = q_goals($pdo, $uid);                            // savings-goals teaser (TODO #9)
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
@@ -258,6 +265,26 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
         </a>
     </section>
     <?php endif; ?>
+
+    <!-- Safe-to-spend teaser (this month) → full safe_to_spend.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Safe to spend</h2>
+            <a class="block-link" href="/safe_to_spend.php"><?= e($sts['month_label']) ?> ›</a>
+        </div>
+        <a class="card spend-card" href="/safe_to_spend.php">
+            <div class="spend-total">
+                <span class="spend-amt <?= $sts['over'] ? 'neg' : '' ?>">
+                    <?= ($sts['safe'] < 0 ? '−' : '') . e(usd(abs($sts['safe']))) ?>
+                </span>
+                <span class="muted">left to spend this month</span>
+            </div>
+            <div class="cf-mini">
+                <span class="muted"><?= e(usd($sts['plan'])) ?> free to spend</span>
+                <span class="muted"><?= e(usd($sts['spent'])) ?> spent so far</span>
+            </div>
+        </a>
+    </section>
 
     <?php if ($goals): ?>
     <!-- Savings goals teaser → full goals.php -->

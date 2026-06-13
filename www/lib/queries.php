@@ -780,6 +780,51 @@ function q_avg_daily_spend(PDO $pdo, int $uid, int $days = 90): float
 }
 
 /**
+ * Total TRUE-EXPENSE over a half-open date window [$start, $end) (Y-m-d), VIS-scoped.
+ * Reuses the EXACT q_avg_daily_spend / q_cashflow true-expense filter set + SPLIT_JOIN/EFF_AMT/EFF_CAT
+ * so it reconciles with those reads. Used by the "Safe to spend" plan (#31) for the month-to-date
+ * discretionary spend. HY093-safe: VIS's single :uid + distinct :start/:end. Pass an app-TZ window
+ * (never CURDATE() — the S24 TZ trap).
+ */
+function q_true_expense_total(PDO $pdo, int $uid, string $start, string $end): float
+{
+    $st = $pdo->prepare(
+        "SELECT COALESCE(SUM(" . EFF_AMT . "), 0) AS total
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
+           AND " . EFF_CAT . " NOT IN ('TRANSFER_IN','TRANSFER_OUT')
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
+           AND t.date >= :start AND t.date < :end"
+    );
+    $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+    $st->bindValue(':start', $start);
+    $st->bindValue(':end', $end);
+    $st->execute();
+    return (float)$st->fetchColumn();
+}
+
+/**
+ * The household "Safe to spend" settings — the single shared spending_plan row (id=1).
+ * Deliberately NOT VIS-scoped (one global household value, like q_alert_settings). Defensive:
+ * a missing table/row (pre-migration-022) or transient error returns the 0 default. Returns
+ * ['monthly_savings_target' => float]. Consumed by safe_to_spend.php + the index.php teaser.
+ */
+function q_spending_plan(PDO $pdo): array
+{
+    $target = 0.0;
+    try {
+        $v = $pdo->query("SELECT monthly_savings_target FROM spending_plan WHERE id = 1")->fetchColumn();
+        if ($v !== false && $v !== null) $target = (float)$v;
+    } catch (Throwable $e) {
+        // table missing (pre-migration) or transient — fall through to the default.
+    }
+    return ['monthly_savings_target' => max(0.0, $target)];
+}
+
+/**
  * Spending by category across the last $months calendar months (oldest→newest),
  * gap-filled, plus current-month-vs-history deltas — backs the Spending-trends page.
  *

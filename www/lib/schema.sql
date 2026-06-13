@@ -631,6 +631,17 @@ CREATE TABLE goals (
   KEY idx_goals_account (account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- "Safe to spend" plan settings (#31, migration 022). One household-shared row (id=1) holding the
+-- owner-set monthly savings target the spending plan subtracts. NOT VIS-scoped (single global value,
+-- like alert_settings / retirement_settings). Read by q_spending_plan() (queries.php).
+CREATE TABLE spending_plan (
+  id                     INT UNSIGNED  NOT NULL,
+  monthly_savings_target DECIMAL(15,2) NOT NULL DEFAULT 0,
+  updated_by             INT UNSIGNED  NULL,
+  updated_at             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Credit-report import (#28, migration 021). One credit_reports row per bureau pull
 -- (user_id = whose report). Household-visible reads (NOT VIS-scoped). Sensitive free-text
 -- columns (*_enc) are libsodium-encrypted at rest (lib/crypto.php); account numbers stored
