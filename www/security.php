@@ -4,6 +4,7 @@ require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/queries.php';
 require __DIR__ . '/lib/returns.php';
+require __DIR__ . '/lib/allocation.php';   // asset-class control (#32)
 require __DIR__ . '/lib/layout.php';
 require_login();
 
@@ -15,7 +16,8 @@ $securityId = (string)($_GET['security_id'] ?? '');
 // Back arrow target — the holding rows that link here live on BOTH pages, so
 // carry a whitelisted ?from to return the user where they came from.
 $from    = (string)($_GET['from'] ?? '');
-$backUrl = $from === 'retirement' ? '/retirement.php' : '/investments.php';
+$backUrl = $from === 'retirement' ? '/retirement.php'
+         : ($from === 'allocation' ? '/allocation.php' : '/investments.php');
 
 // ── VIS gate ──────────────────────────────────────────────────────────────
 // Only render if the viewer has visible exposure (a holding OR a buy/sell lot in
@@ -43,6 +45,11 @@ $prices   = q_security_prices($pdo, $securityId);
 $changes  = q_price_changes($pdo, [$securityId]);
 $c        = $changes[$securityId] ?? null;
 $divData  = q_security_dividends($pdo, [$securityId])[$securityId] ?? null;
+
+// Asset class (#32): the auto default (from Plaid's security.type) + any household override.
+$alDefault    = alloc_default_class($sec['type'] ?? null);
+$alOverride   = q_security_asset_classes($pdo)[$securityId] ?? null;
+$alIsOverride = alloc_valid_class($alOverride);
 
 $lPage    = page_num('lpage');
 $lotsRaw  = q_security_lots($pdo, $uid, $securityId, PAGE_SIZE + 1, page_offset($lPage));
@@ -235,6 +242,22 @@ render_header($title, '', ['back' => $backUrl, 'narrow' => true, 'chart' => true
     <?php endif; ?>
 </section>
 <?php endif; ?>
+
+<!-- Asset class (#32) — drives the Allocation page's mix. -->
+<section class="block">
+    <div class="block-head"><h2>Asset class</h2></div>
+    <div class="card">
+        <p class="muted" style="margin:0 0 10px">Used by the <a href="/allocation.php">Allocation</a> page.
+            Plaid groups all ETFs/funds together, so set the right class for a bond, REIT or crypto fund.
+            Applies everywhere the household sees it.</p>
+        <select class="select class-select" data-security="<?= e($securityId) ?>" aria-label="Asset class">
+            <option value="auto"<?= $alIsOverride ? '' : ' selected' ?>>Auto · <?= e(alloc_class_label($alDefault)) ?></option>
+            <?php foreach (ALLOC_CLASSES as $ck => $cl): ?>
+                <option value="<?= e($ck) ?>"<?= ($alIsOverride && $alOverride === $ck) ? ' selected' : '' ?>><?= e($cl) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+</section>
 
 <!-- Return vs benchmark (#29) -->
 <?php if ($retLots): ?>

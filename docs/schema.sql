@@ -641,6 +641,28 @@ CREATE TABLE spending_plan (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Allocation target mix (#32, migration 023). Household-shared (NOT VIS-scoped) — one target
+-- percentage per asset class (stocks/bonds/cash/crypto/real_estate/other). Empty = none set.
+-- Read by q_allocation_targets(); edited by the allocation.php form.
+CREATE TABLE allocation_targets (
+  asset_class VARCHAR(32)   NOT NULL,
+  target_pct  DECIMAL(6,3)  NOT NULL DEFAULT 0,
+  updated_by  INT UNSIGNED  NULL,
+  updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (asset_class)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per-security asset-class override (#32, migration 023). Household-shared (NOT VIS-scoped) —
+-- overrides the auto class derived from securities.type (Plaid lumps all ETFs together). Keyed
+-- by security_id; absence = auto. No FK (securities churn). Read by q_security_asset_classes().
+CREATE TABLE security_asset_class (
+  security_id VARCHAR(64)  NOT NULL,
+  asset_class VARCHAR(32)  NOT NULL,
+  updated_by  INT UNSIGNED NULL,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (security_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Credit-report import (#28, migration 021). One credit_reports row per bureau pull
 -- (user_id = whose report). Household-visible reads (NOT VIS-scoped). Sensitive free-text
 -- columns (*_enc) are libsodium-encrypted at rest (lib/crypto.php); account numbers stored

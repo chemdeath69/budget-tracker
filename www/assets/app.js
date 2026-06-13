@@ -505,6 +505,18 @@ function initRename() {
   });
 }
 
+/* Per-security asset-class override on the Allocation page (#32). A `.class-select`
+   change POSTs the override (or 'auto' to clear) and reloads so the mix/drift recompute. */
+function initAllocation() {
+  $$('.class-select[data-security]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      const out = await postJSON('/api/allocation.php', { action: 'set_class', security_id: sel.dataset.security, asset_class: sel.value });
+      if (out && out.ok) location.reload(); else sel.disabled = false;
+    });
+  });
+}
+
 /* Manual-account statement cadence (Auto/Monthly/Quarterly/Annually/Off). Reloads
    so the overdue warning/tag reflects the new cadence immediately. */
 function initStatementCadence() {
@@ -1135,6 +1147,7 @@ initAutoSubmit();
 initRecategorize();
 initVisibility();
 initRetirement();
+initAllocation();
 initRename();
 initStatementCadence();
 initRefresh();

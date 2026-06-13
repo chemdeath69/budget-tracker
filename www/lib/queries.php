@@ -825,6 +825,44 @@ function q_spending_plan(PDO $pdo): array
 }
 
 /**
+ * Allocation target mix (Session 62, TODO2 #32). Household-shared, **NOT VIS-scoped** — one set
+ * of target percentages per asset class (like spending_plan / alert_settings). Returns
+ * [asset_class => target_pct]; **defensive** (missing table pre-migration-023 / transient → []).
+ */
+function q_allocation_targets(PDO $pdo): array
+{
+    $out = [];
+    try {
+        foreach ($pdo->query("SELECT asset_class, target_pct FROM allocation_targets") as $r) {
+            $out[(string)$r['asset_class']] = (float)$r['target_pct'];
+        }
+    } catch (Throwable $e) {
+        // table missing (pre-migration) or transient — empty = "no target set yet".
+    }
+    return $out;
+}
+
+/**
+ * Per-security asset-class OVERRIDE map (Session 62, TODO2 #32). Household-shared, **NOT
+ * VIS-scoped** — a security_id→class lookup (like merchant_logo_map / all_tags). No leak: the
+ * allocation page only applies it to the viewer's own VIS-scoped q_holdings, so an override for
+ * a security the viewer doesn't hold is never surfaced. Returns [security_id => asset_class];
+ * **defensive** (missing table pre-migration-023 / transient → []).
+ */
+function q_security_asset_classes(PDO $pdo): array
+{
+    $out = [];
+    try {
+        foreach ($pdo->query("SELECT security_id, asset_class FROM security_asset_class") as $r) {
+            $out[(string)$r['security_id']] = (string)$r['asset_class'];
+        }
+    } catch (Throwable $e) {
+        // table missing (pre-migration) or transient.
+    }
+    return $out;
+}
+
+/**
  * Spending by category across the last $months calendar months (oldest→newest),
  * gap-filled, plus current-month-vs-history deltas — backs the Spending-trends page.
  *

@@ -600,6 +600,23 @@ a.cat-row:hover { background: var(--surface-2); }
 .sts-line .sts-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sts-line.sts-total { border-top: 1px solid var(--line); margin-top: 2px; font-weight: 600; }
 .sts-line.sts-total .sts-label { color: var(--ink); }
+
+/* ---- Allocation vs target (#32) ---------------------------------------- */
+.alloc-list { display: flex; flex-direction: column; gap: 14px; }
+.alloc-row { display: flex; flex-direction: column; gap: 6px; }
+.alloc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.alloc-name { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.alloc-figs { font-variant-numeric: tabular-nums; font-size: .9rem; }
+.alloc-bar { position: relative; height: 12px; background: var(--track); border-radius: var(--r-pill); overflow: hidden; }
+.alloc-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--brand); border-radius: var(--r-pill); transition: width .3s; }
+.alloc-bar-target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .65; }
+.alloc-drift { font-size: .85rem; font-variant-numeric: tabular-nums; }
+.alloc-drift.muted { color: var(--muted); }
+.alloc-rebal { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.alloc-rebal-row { padding: 8px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.alloc-rebal-row:last-child { border-bottom: 0; }
+.alloc-list .class-select { font-size: .85rem; padding: 2px 6px; max-width: 11rem; }
+.stack-form .alloc-target-input { max-width: 8rem; }
 .goals-summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .goal-edit, .goal-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .9rem; padding: 2px 4px; line-height: 1; }
 .goal-edit:active { color: var(--brand); }
