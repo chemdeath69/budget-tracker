@@ -600,6 +600,25 @@ CREATE TABLE transaction_splits (
   CONSTRAINT fk_split_tx FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Refund tracking (TODO2 #34, migration 026). One row per PURCHASE flagged "expecting a
+-- refund" (amount > 0). A SIDE table keyed by transaction_id (never written by a Plaid sync,
+-- so it survives re-sync like tags/splits). status: pending → received (confirm the matching
+-- credit); "dismiss / no longer expecting" = DELETE the row. matched_tx_id = the fulfilling
+-- credit (NO FK — Plaid churns; the read LEFT JOINs + tolerates a stale id). Visibility-only:
+-- never changes spend math. Reads VIS-scoped (q_refund_watches / q_refund_credits).
+CREATE TABLE refund_watch (
+  transaction_id VARCHAR(64) NOT NULL,                 -- the watched purchase (amount > 0)
+  status         ENUM('pending','received') NOT NULL DEFAULT 'pending',
+  matched_tx_id  VARCHAR(64) NULL,                     -- the fulfilling credit (no FK — Plaid churns)
+  created_by     INT UNSIGNED NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at    DATETIME NULL,
+  PRIMARY KEY (transaction_id),
+  KEY idx_refund_status (status),
+  KEY idx_refund_matched (matched_tx_id),
+  CONSTRAINT fk_refund_tx FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Rule-based auto-recategorization (#10, migration 016). Household-shared "always
 -- categorize merchant X as Y" rules, resolved at READ time by the RULE_CAT subquery
 -- in queries.php (precedence: split > category_override > RULE > pfc_primary).

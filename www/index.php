@@ -51,6 +51,10 @@ $goals    = q_goals($pdo, $uid);                            // savings-goals tea
 // Debt payoff teaser (avalanche, no extra, mortgage excluded) — TODO2 #33.
 require_once __DIR__ . '/lib/debt.php';
 $debtPlan = build_debt_plan(q_debts($pdo, $uid), 0.0, false);
+// Refund tracking teaser (#34) — pending count + outstanding. The teaser needs no candidate
+// pool (counts/outstanding don't depend on it), so pass [] for credits to skip that query.
+require_once __DIR__ . '/lib/refunds.php';
+$rfView = build_refunds_view(q_refund_watches($pdo, $uid), [], date('Y-m-d'));
 $overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
 $lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
@@ -288,6 +292,22 @@ render_header('Dashboard', 'dashboard', ['chart' => true]);
             </div>
         </a>
     </section>
+
+    <?php if ($rfView['pending_count'] > 0): ?>
+    <!-- Refund tracking teaser (#34) → full refunds.php -->
+    <section class="block">
+        <div class="block-head">
+            <h2>Refunds</h2>
+            <a class="block-link" href="/refunds.php">Track them ›</a>
+        </div>
+        <a class="card spend-card" href="/refunds.php">
+            <div class="spend-total">
+                <span class="spend-amt"><?= e(usd($rfView['outstanding'])) ?></span>
+                <span class="muted">outstanding across <?= (int)$rfView['pending_count'] ?> refund<?= $rfView['pending_count'] === 1 ? '' : 's' ?></span>
+            </div>
+        </a>
+    </section>
+    <?php endif; ?>
 
     <?php if ($goals): ?>
     <!-- Savings goals teaser → full goals.php -->

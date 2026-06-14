@@ -25,6 +25,7 @@ function nav_items(): array
         ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart'],
         ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar'],
         ['key' => 'safetospend',  'href' => '/safe_to_spend.php', 'label' => 'Safe to spend', 'icon' => 'wallet'],
+        ['key' => 'refunds',      'href' => '/refunds.php',      'label' => 'Refunds',       'icon' => 'refund'],
         ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow'],
         ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast'],
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
@@ -75,6 +76,7 @@ function nav_icon(string $name): string
         'credit' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
         'wallet' => '<path d="M3 7a2 2 0 0 1 2-2h12v4"/><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M21 11h-4a2 2 0 0 0 0 4h4"/>',
         'debt'   => '<rect x="4" y="5" width="4" height="15" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16" y="14" width="4" height="6" rx="1"/>',
+        'refund' => '<path d="M3 9h11a6 6 0 0 1 0 12H9"/><path d="M7 5 3 9l4 4"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';
@@ -285,6 +287,19 @@ function render_tx_meta(array $t): string
                 echo implode(' · ', $parts);
                 if ($stale) echo ' <span class="split-stale" title="The transaction amount changed after this split was set — the split no longer matches, so it isn\'t counted. Edit it to re-balance.">⚠ amount changed — review</span>';
             ?></span>
+        <?php endif; ?>
+        <?php if ($expense): ?>
+            <?php
+            // Refund tracking (#34): flag a purchase "expecting a refund". The button toggles
+            // the flag on/off (app.js initRefundFlag); confirming the matching credit / marking
+            // received happens on refunds.php. A received watch shows a static chip here.
+            $refundStatus = (isset($t['refund']) && $t['refund']) ? (string)$t['refund']['status'] : 'none';
+            ?>
+            <?php if ($refundStatus === 'received'): ?>
+                <a class="refund-chip is-received" href="/refunds.php" title="Refund received — manage on the Refunds page">✓ refunded</a>
+            <?php else: ?>
+                <button type="button" class="meta-btn refund-btn<?= $refundStatus === 'pending' ? ' is-pending' : '' ?>" data-tx="<?= e($tid) ?>" data-status="<?= e($refundStatus) ?>"><?= $refundStatus === 'pending' ? '⟳ refund pending' : '⟳ expect refund' ?></button>
+            <?php endif; ?>
         <?php endif; ?>
     </span>
     <?php

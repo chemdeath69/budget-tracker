@@ -1209,6 +1209,60 @@ function initAssistant() {
   }
 }
 
+/* ---- Refund tracking (#34) ----------------------------------------------- */
+/* The `.refund-btn` in a transaction's meta strip (render_tx_meta) toggles the
+   "expecting a refund" flag on/off in place (none ↔ pending). Confirming the
+   matching credit / marking received happens on refunds.php (initRefunds). */
+function initRefundFlag() {
+  $$('.refund-btn[data-tx]').forEach(btn => btn.addEventListener('click', async () => {
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    const pending = btn.dataset.status === 'pending';
+    const out = await postJSON('/api/account.php', {
+      action: pending ? 'refund_unflag' : 'refund_flag',
+      transaction_id: btn.dataset.tx,
+    });
+    delete btn.dataset.busy;
+    if (out && out.ok) {
+      if (pending) {
+        btn.dataset.status = 'none';
+        btn.classList.remove('is-pending');
+        btn.textContent = '⟳ expect refund';
+      } else {
+        btn.dataset.status = 'pending';
+        btn.classList.add('is-pending');
+        btn.textContent = '⟳ refund pending';
+        toast('Tracking this refund — see Refunds.');
+      }
+    } else {
+      toast((out && out.error) || 'Could not update refund flag');
+    }
+  }));
+}
+
+/* The refunds.php page: confirm a suggested match / mark received / dismiss / reopen.
+   Each mutates via api/account.php then reloads so the lists + totals refresh. */
+function initRefunds() {
+  if (!$('.refund-list')) return;
+  const act = async (btn, body, confirmMsg) => {
+    if (btn.dataset.busy) return;
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    btn.dataset.busy = '1';
+    const out = await postJSON('/api/account.php', body);
+    if (out && out.ok) { location.reload(); return; }
+    delete btn.dataset.busy;
+    toast((out && out.error) || 'Could not update');
+  };
+  $$('.refund-confirm[data-tx][data-match]').forEach(b => b.addEventListener('click', () =>
+    act(b, { action: 'refund_resolve', transaction_id: b.dataset.tx, status: 'received', matched_tx_id: b.dataset.match })));
+  $$('.refund-received[data-tx]').forEach(b => b.addEventListener('click', () =>
+    act(b, { action: 'refund_resolve', transaction_id: b.dataset.tx, status: 'received' })));
+  $$('.refund-dismiss[data-tx]').forEach(b => b.addEventListener('click', () =>
+    act(b, { action: 'refund_unflag', transaction_id: b.dataset.tx }, 'Remove the refund flag from this purchase?')));
+  $$('.refund-reopen[data-tx]').forEach(b => b.addEventListener('click', () =>
+    act(b, { action: 'refund_resolve', transaction_id: b.dataset.tx, status: 'pending' })));
+}
+
 /* ---- Boot ---------------------------------------------------------------- */
 initDrawer();
 initCharts();
@@ -1229,6 +1283,8 @@ initTxTags();
 initTxSplits();
 initRules();
 initTxRules();
+initRefundFlag();
+initRefunds();
 initCategories();
 initStatementImport();
 initCreditImport();

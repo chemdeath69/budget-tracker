@@ -523,6 +523,32 @@ a.cat-row:hover { background: var(--surface-2); }
 .split-summary { color: var(--muted); flex-basis: 100%; }
 .split-summary.is-stale { color: var(--warn-ink); }
 .split-stale { font-weight: 600; }
+/* Refund flag (#34) in the tx meta strip + the received chip. */
+.meta-btn.refund-btn.is-pending { color: var(--warn-ink); border-style: solid; border-color: var(--warn-line); background: var(--warn-bg); }
+.refund-chip { font-size: .72rem; padding: 1px 8px; border-radius: var(--r-pill); white-space: nowrap; }
+.refund-chip.is-received { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); text-decoration: none; }
+
+/* Refunds page (#34) */
+.refund-subhead { margin-top: 22px; }
+.refund-subhead h3 { margin: 0; font-size: 1rem; }
+.refund-list { gap: 10px; }
+.refund-item { padding: 12px 14px; }
+.refund-item.is-received { opacity: .92; }
+.refund-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.refund-merch { font-weight: 600; display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.refund-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.refund-sub { margin: 2px 0 0; }
+.refund-suggest-h { font-size: .82rem; margin: 10px 0 6px; }
+.refund-nomatch, .refund-matched { font-size: .85rem; margin: 8px 0 0; }
+.refund-cands { display: flex; flex-direction: column; gap: 6px; }
+.refund-cand { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.refund-cand-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.refund-cand-amt { font-weight: 600; font-variant-numeric: tabular-nums; }
+.refund-cand-merch { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.refund-cand-meta { font-size: .78rem; }
+.refund-badge { font-size: .68rem; padding: 0 7px; border-radius: var(--r-pill); background: var(--brand); color: var(--brand-ink, #fff); }
+.refund-badge.soft { background: var(--brand-weak); color: var(--brand); }
+.refund-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
 .tag-input, .note-input {
   font: inherit; font-size: .76rem; padding: 2px 8px;
   border: 1px solid var(--brand-weak); border-radius: var(--r-pill);

@@ -268,5 +268,93 @@ if ($action === 'set_splits') {
     exit;
 }
 
+if ($action === 'refund_flag') {
+    // Flag a PURCHASE (#34) as "expecting a refund" → a pending refund_watch row. Only an
+    // EXPENSE (amount > 0) can be flagged. Re-flagging a previously-received watch resets it
+    // to pending. Gated by the same "can the user see this tx" VIS check as the other tx
+    // annotations (NOT owner-only) — a refund flag is visibility-only, never touches spend.
+    $txId = (string)($in['transaction_id'] ?? '');
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pa = $pdo->prepare('SELECT amount FROM transactions WHERE transaction_id = ?');
+    $pa->execute([$txId]);
+    $amt = $pa->fetchColumn();
+    if ($amt === false) { http_response_code(404); echo json_encode(['error' => 'transaction not found']); exit; }
+    if ((float)$amt <= 0) { http_response_code(422); echo json_encode(['error' => 'only a purchase (expense) can expect a refund']); exit; }
+
+    $pdo->prepare(
+        'INSERT INTO refund_watch (transaction_id, status, created_by)
+         VALUES (?, \'pending\', ?)
+         ON DUPLICATE KEY UPDATE status = \'pending\', matched_tx_id = NULL, resolved_at = NULL'
+    )->execute([$txId, $uid]);
+    echo json_encode(['ok' => true, 'status' => 'pending']);
+    exit;
+}
+
+if ($action === 'refund_unflag') {
+    // Remove the refund flag entirely (#34) — "no longer expecting / dismiss". DELETE the
+    // watch row (the table is keyed by transaction_id).
+    $txId = (string)($in['transaction_id'] ?? '');
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $pdo->prepare('DELETE FROM refund_watch WHERE transaction_id = ?')->execute([$txId]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if ($action === 'refund_resolve') {
+    // Resolve a flagged purchase (#34): mark it received (optionally confirming the matching
+    // CREDIT) or reopen it to pending. The watch must already exist. A confirmed matched_tx_id
+    // must be a VIS-visible CREDIT (amount < 0) — so a forged POST can't pin a purchase or an
+    // invisible row as the "refund". Visibility-only; never touches spend math.
+    $txId   = (string)($in['transaction_id'] ?? '');
+    $status = (string)($in['status'] ?? '');
+    if (!in_array($status, ['pending', 'received'], true)) { http_response_code(400); echo json_encode(['error' => 'bad status']); exit; }
+    if (!tx_visible($pdo, $txId, $uid)) { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+
+    $matchedId = null;
+    if ($status === 'received') {
+        $matchedId = trim((string)($in['matched_tx_id'] ?? ''));
+        if ($matchedId === '') {
+            $matchedId = null;                         // "mark received, no specific credit"
+        } else {
+            if ($matchedId === $txId) { http_response_code(422); echo json_encode(['error' => 'a purchase cannot be its own refund']); exit; }
+            if (!tx_visible($pdo, $matchedId, $uid)) { http_response_code(422); echo json_encode(['error' => 'that credit is not visible to you']); exit; }
+            $ma = $pdo->prepare('SELECT amount FROM transactions WHERE transaction_id = ?');
+            $ma->execute([$matchedId]);
+            $mAmt = $ma->fetchColumn();
+            if ($mAmt === false || (float)$mAmt >= 0) { http_response_code(422); echo json_encode(['error' => 'the match must be a credit (money in)']); exit; }
+            // A credit fulfils at most ONE purchase — the UI already excludes a used credit from
+            // suggestions, but guard against a forged POST pinning it to two watches (review #34).
+            $dup = $pdo->prepare('SELECT 1 FROM refund_watch WHERE matched_tx_id = ? AND transaction_id <> ?');
+            $dup->execute([$matchedId, $txId]);
+            if ($dup->fetchColumn()) { http_response_code(422); echo json_encode(['error' => 'that credit is already matched to another refund']); exit; }
+        }
+    }
+
+    if ($status === 'received') {
+        $upd = $pdo->prepare(
+            'UPDATE refund_watch SET status = \'received\', matched_tx_id = ?, resolved_at = NOW()
+             WHERE transaction_id = ?'
+        );
+        $upd->execute([$matchedId, $txId]);
+    } else {
+        $upd = $pdo->prepare(
+            'UPDATE refund_watch SET status = \'pending\', matched_tx_id = NULL, resolved_at = NULL
+             WHERE transaction_id = ?'
+        );
+        $upd->execute([$txId]);
+    }
+    if ($upd->rowCount() === 0) {
+        // No change can mean the row is unflagged (gone) or already in this exact state. Only
+        // a truly-missing watch is an error; re-confirm existence to distinguish.
+        $ex = $pdo->prepare('SELECT 1 FROM refund_watch WHERE transaction_id = ?');
+        $ex->execute([$txId]);
+        if (!$ex->fetchColumn()) { http_response_code(404); echo json_encode(['error' => 'not flagged for a refund']); exit; }
+    }
+    echo json_encode(['ok' => true, 'status' => $status, 'matched_tx_id' => $matchedId]);
+    exit;
+}
+
 http_response_code(400);
 echo json_encode(['error' => 'unknown action']);

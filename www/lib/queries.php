@@ -1461,12 +1461,80 @@ function attach_tx_meta(PDO $pdo, array &$rows): void
         ];
     }
 
+    // Refund watch state (#34) for the meta strip — pending/received per purchase.
+    $refundByTx = [];
+    $rs = $pdo->prepare(
+        "SELECT transaction_id, status, matched_tx_id FROM refund_watch WHERE transaction_id IN ($ph)"
+    );
+    $rs->execute($ids);
+    foreach ($rs->fetchAll() as $row) {
+        $refundByTx[$row['transaction_id']] = [
+            'status'        => $row['status'],
+            'matched_tx_id' => $row['matched_tx_id'],
+        ];
+    }
+
     foreach ($rows as &$r) {
         $tid = $r['transaction_id'] ?? '';
         $r['tags']   = $tagsByTx[$tid]   ?? [];
         $r['splits'] = $splitsByTx[$tid] ?? [];
+        $r['refund'] = $refundByTx[$tid] ?? null;
     }
     unset($r);
+}
+
+/**
+ * Refund tracking (#34). The household-shared but VIS-SCOPED list of flagged purchases for
+ * `refunds.php`: every refund_watch row whose underlying PURCHASE the viewer can see (VIS),
+ * with the purchase's display fields. The matching credit (matched_tx_id) is NOT joined here
+ * — `lib/refunds.php` looks it up from the VIS-scoped `q_refund_credits()` pool so the credit's
+ * details are independently visibility-checked (and the pool covers it: a matched credit is
+ * dated ≥ its purchase ≥ the pool's `$since`). Single `:uid` bind (VIS) → HY093-safe.
+ * Order: pending first, then newest purchase first.
+ */
+function q_refund_watches(PDO $pdo, int $uid): array
+{
+    $st = $pdo->prepare(
+        "SELECT rw.transaction_id, rw.status, rw.matched_tx_id, rw.created_at, rw.resolved_at,
+                t.amount, t.date, t.merchant_name, t.name, t.logo_url,
+                t.account_id, " . ACCT_NAME . " AS account_name, a.mask, i.user_id AS owner_id
+         FROM refund_watch rw
+         JOIN transactions t ON t.transaction_id = rw.transaction_id
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . "
+         ORDER BY (rw.status = 'pending') DESC, t.date DESC, rw.created_at DESC"
+    );
+    $st->execute([':uid' => $uid]);
+    return $st->fetchAll();
+}
+
+/**
+ * Refund tracking (#34). The VIS-scoped candidate pool of money-in (credit) transactions on or
+ * after `$since` (Y-m-d, PHP app-TZ — never CURDATE()), used by `lib/refunds.php` to (a) suggest
+ * matches for a pending watch and (b) resolve a confirmed `matched_tx_id` to its display detail.
+ * SETTLED only (`pending = 0`) — a pending credit re-issues a new transaction_id when it settles,
+ * so confirming a pending id would dangle. Excludes INCOME / TRANSFER_IN categories (a purchase
+ * refund is neither a paycheck nor an internal transfer — a noise filter against coincidental
+ * amount matches). Distinct `:uid` (VIS) + `:since` → HY093-safe.
+ */
+function q_refund_credits(PDO $pdo, int $uid, string $since): array
+{
+    $st = $pdo->prepare(
+        "SELECT t.transaction_id, t.amount, t.date, t.merchant_name, t.name,
+                t.account_id, " . ACCT_NAME . " AS account_name, a.mask, i.user_id AS owner_id
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . "
+           AND t.amount < 0
+           AND t.pending = 0
+           AND t.date >= :since
+           AND COALESCE(t.category_override, t.pfc_primary, 'UNCATEGORIZED') NOT IN ('INCOME', 'TRANSFER_IN')
+         ORDER BY t.date ASC, t.transaction_id ASC"
+    );
+    $st->execute([':uid' => $uid, ':since' => $since]);
+    return $st->fetchAll();
 }
 
 /**
