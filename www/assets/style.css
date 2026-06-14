@@ -334,6 +334,15 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .hero-value.neg { color: var(--neg); }
 .spend-val { font-weight: 650; font-variant-numeric: tabular-nums; }
 
+/* What-if scenario sliders (#35) — a GET form of range inputs (retirement /
+   property / forecast); each mirrors its live value into `.whatif-out`. */
+.whatif-form { display: flex; flex-direction: column; gap: 1rem; }
+.whatif-knob { display: flex; flex-direction: column; gap: .35rem; }
+.whatif-knob-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+  font-size: .85rem; font-weight: 600; color: var(--ink-2); }
+.whatif-out { color: var(--brand); font-weight: 700; font-variant-numeric: tabular-nums; }
+.whatif-range { width: 100%; accent-color: var(--brand); height: 1.5rem; cursor: pointer; }
+
 /* ---- Charts ------------------------------------------------------------- */
 .chart-wrap { position: relative; height: 240px; margin-top: 6px; }
 .chart-wrap.tall { height: 280px; }

@@ -126,6 +126,92 @@ render_header('Cash flow forecast', 'forecast', ['chart' => true, 'narrow' => tr
         </p>
     </section>
 
+    <!-- What-if: spend less / save more (#35) -->
+    <?php
+    // A temporary, NON-persisted overlay: trim the modeled everyday (discretionary) spend by
+    // $save/month and re-run the SAME forecast_build, comparing the projected low + end against
+    // the baseline. "Saving" here = spending less; it raises the cash you keep (moving money to
+    // a savings account wouldn't, since savings is already part of the cash total).
+    $fcWifGet = function (string $k, float $def): float {
+        $val = $_GET[$k] ?? null;
+        if (is_array($val) || $val === null || $val === '' || !is_numeric($val)) return $def;
+        $val = (float)$val;
+        return is_finite($val) ? $val : $def;
+    };
+    $save       = max(0.0, min(2000.0, $fcWifGet('save', 0.0)));
+    $saveActive = isset($_GET['save']);
+    $adjSpend   = max(0.0, $avgSpend - $save / 30.4375);   // $/day reduction (avg days per month)
+    $fcW        = forecast_build($accounts, $liab, $recur, $adjSpend, $horizon, new DateTimeImmutable('today'));
+    $dLow       = $fcW['min_balance'] - $fc['min_balance'];
+    $dEnd       = $fcW['end_balance'] - $fc['end_balance'];
+    ?>
+    <section class="block">
+        <div class="block-head">
+            <h2>What if…</h2>
+            <?php if ($saveActive): ?><a class="block-link" href="/forecast.php<?= $horizon !== 30 ? '?horizon=' . (int)$horizon : '' ?>">Reset</a><?php endif; ?>
+        </div>
+        <div class="card">
+            <p class="muted" style="margin-top:0">See how cutting your everyday spending changes the
+                projection. A preview only — nothing is saved.</p>
+
+            <form method="get" action="/forecast.php" class="whatif-form">
+                <?php if ($horizon !== 30): ?><input type="hidden" name="horizon" value="<?= (int)$horizon ?>"><?php endif; ?>
+                <div class="whatif-knob">
+                    <span class="whatif-knob-head"><span>Spend less / save</span><output class="whatif-out" id="save-out" for="save"></output></span>
+                    <input class="whatif-range" type="range" id="save" name="save" min="0" max="2000" step="50"
+                           value="<?= (int)round($save) ?>" data-out="#save-out" data-fmt="permonth" data-autosubmit
+                           aria-label="Monthly spending to cut">
+                </div>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
+
+            <section class="hero card" style="margin-top:1rem">
+                <div class="hero-top">
+                    <span class="hero-label">What-if low</span>
+                    <?php if (abs($dLow) >= 0.5): ?>
+                        <span class="delta <?= $dLow >= 0 ? 'up' : 'down' ?>">
+                            <?= $dLow >= 0 ? '▲' : '▼' ?> <?= ($dLow >= 0 ? '+' : '−') . e(usd(abs($dLow))) ?>
+                            <span class="delta-sub">vs now</span>
+                        </span>
+                    <?php endif; ?>
+                </div>
+                <div class="hero-value <?= $fcW['goes_negative'] ? 'neg' : '' ?>">
+                    <?= ($fcW['min_balance'] < 0 ? '−' : '') . e(usd(abs($fcW['min_balance']))) ?>
+                </div>
+                <div class="hero-split">
+                    <div class="split-cell">
+                        <span class="split-label">Projected end</span>
+                        <span class="split-value <?= $fcW['end_balance'] < 0 ? 'neg' : '' ?>">
+                            <?= ($fcW['end_balance'] < 0 ? '−' : '') . e(usd(abs($fcW['end_balance']))) ?>
+                        </span>
+                    </div>
+                    <div class="split-cell">
+                        <span class="split-label">vs current plan</span>
+                        <span class="split-value <?= $dEnd >= 0 ? 'pos' : 'neg' ?>">
+                            <?= ($dEnd >= 0 ? '+' : '−') . e(usd(abs($dEnd))) ?>
+                        </span>
+                    </div>
+                </div>
+                <div class="chart-wrap tall" style="margin-top:1rem">
+                    <canvas data-chart="multiline" data-src="fcw-data"></canvas>
+                    <script type="application/json" id="fcw-data"><?= json_encode([
+                        'labels' => array_map(fn($d) => (new DateTimeImmutable($d))->format('M j'), $fc['series']['labels']),
+                        'series' => [
+                            ['label' => 'Current plan', 'values' => $fc['series']['values'], 'color' => 'muted', 'dashed' => true],
+                            ['label' => 'With savings',  'values' => $fcW['series']['values'], 'color' => 'brand', 'fill' => true],
+                        ],
+                    ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+                </div>
+                <p class="chart-cap" style="margin-top:.8rem">
+                    Trims your modeled everyday spend
+                    <?php if ($save > 0): ?>from <strong><?= e(usd($fc['discretionary_daily'])) ?>/day</strong>
+                        to <strong><?= e(usd($fcW['discretionary_daily'])) ?>/day</strong><?php else: ?>(drag the slider)<?php endif; ?>.
+                    Scheduled bills &amp; income are unchanged. A what-if preview, not advice.
+                </p>
+            </section>
+        </div>
+    </section>
+
     <!-- Upcoming money events that shape the curve -->
     <section class="block">
         <div class="block-head">

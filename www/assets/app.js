@@ -1263,6 +1263,31 @@ function initRefunds() {
     act(b, { action: 'refund_resolve', transaction_id: b.dataset.tx, status: 'pending' })));
 }
 
+/* ---- What-if sliders (#35) ----------------------------------------------- */
+// A range input mirrors its live value into [data-out] as you drag (data-fmt
+// controls formatting), and submits its GET form on release (via data-autosubmit,
+// wired in initAutoSubmit) so the server re-runs the projection. Pure progressive
+// enhancement — the form still works without JS (a noscript Apply button submits it).
+function initWhatif() {
+  $$('input[type="range"][data-out]').forEach(el => {
+    const out = $(el.dataset.out);
+    if (!out) return;
+    const fmt = el.dataset.fmt || '';
+    const render = () => {
+      const v = Number(el.value);
+      const p1 = x => x.toFixed(1).replace(/\.0$/, '');
+      if (fmt === 'permonth')     out.textContent = v > 0 ? '+' + usdCompact(v) + '/mo' : 'none';
+      else if (fmt === 'pct')     out.textContent = p1(v) + '%';
+      else if (fmt === 'pctyr')   out.textContent = (v > 0 ? '+' : '') + p1(v) + '%/yr';
+      else if (fmt === 'year')    out.textContent = String(v);
+      else if (fmt === 'years')   out.textContent = v + (v === 1 ? ' year' : ' years');
+      else                        out.textContent = el.value;
+    };
+    el.addEventListener('input', render);
+    render();
+  });
+}
+
 /* ---- Boot ---------------------------------------------------------------- */
 initDrawer();
 initCharts();
@@ -1289,3 +1314,4 @@ initCategories();
 initStatementImport();
 initCreditImport();
 initAssistant();
+initWhatif();

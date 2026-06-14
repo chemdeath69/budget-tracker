@@ -114,6 +114,136 @@ $equity = $dv['equity'] ?? null;
 </section>
 <?php endif; ?>
 
+<!-- What-if: home appreciation (#35) -->
+<?php if ($v && ($v['current'] ?? 0) > 0):
+    // A temporary, NON-persisted overlay: project home value + equity forward at a chosen
+    // annual appreciation rate. The future mortgage balance is RE-AMORTIZED from the live
+    // balance_current over the remaining term (see the detailed note below — NOT the contractual
+    // schedule, which has diverged); with no mortgage, debt is 0. Nothing here writes anything.
+    $homeNow = (float)$v['current'];
+    $wifGet = function (string $k, float $def): float {
+        $val = $_GET[$k] ?? null;
+        if (is_array($val) || $val === null || $val === '' || !is_numeric($val)) return $def;
+        $val = (float)$val;
+        return is_finite($val) ? $val : $def;
+    };
+    // Default the rate to the home's own historical appreciation when known, else 3%/yr.
+    $haDef = (isset($dv['appreciation_annual_pct']) && $dv['appreciation_annual_pct'] !== null)
+        ? max(-5.0, min(10.0, round((float)$dv['appreciation_annual_pct'] * 100, 1)))
+        : 3.0;
+    $haPct  = max(-5.0, min(10.0, $wifGet('ha', $haDef)));
+    $haYears = (int)max(1, min(30, $wifGet('hy', 10.0)));
+    $haActive = isset($_GET['ha']) || isset($_GET['hy']);
+    $haRate = $haPct / 100;
+
+    // Project the mortgage forward by RE-AMORTIZING the ACTUAL current balance over the
+    // remaining term at the loan's rate (the same approach build_property_view's refi block
+    // uses). The contractual schedule can diverge from reality (extra principal, a recast) —
+    // reading it would start the debt curve at the wrong balance (here the schedule says
+    // ~$196k while the live balance is ~$165k) and pay off at the wrong time. Starting from
+    // balance_current keeps the year-0 equity consistent with the page's actual equity.
+    $remMonths = 0; $fwdSched = null;
+    if ($m) {
+        $mRate   = $m['rate'] !== null ? (float)$m['rate'] : 0.0;
+        $elapsed = $m['_orig_date'] ? pv_months_between($m['_orig_date'], date('Y-m-d')) : 0;
+        $remMonths = max(0, (int)$m['_n'] - $elapsed);
+        $fwdSched  = $remMonths > 0
+            ? pv_amortize((float)$m['balance'], $mRate, $remMonths)['monthly']   // index 0 = current balance … index rem = 0
+            : [(float)$m['balance']];
+    }
+    $balAtMonth = function (int $monthsFromNow) use ($m, $fwdSched, $remMonths): float {
+        if (!$m || !$fwdSched) return 0.0;
+        $idx = min($remMonths, max(0, $monthsFromNow));
+        return isset($fwdSched[$idx]) ? (float)$fwdSched[$idx] : 0.0;
+    };
+
+    $curYearNum = (int)date('Y');
+    $haLabels = []; $haValueS = []; $haDebtS = []; $haEquityS = [];
+    for ($y = 0; $y <= $haYears; $y++) {
+        $val  = round($homeNow * pow(1 + $haRate, $y), 2);
+        $debt = round($balAtMonth($y * 12), 2);
+        $haLabels[]   = (string)($curYearNum + $y);
+        $haValueS[]   = $val;
+        $haDebtS[]    = $debt;
+        $haEquityS[]  = round($val - $debt, 2);
+    }
+    $futVal    = $haValueS[count($haValueS) - 1];
+    $futEquity = $haEquityS[count($haEquityS) - 1];
+    $equityNow = $equity !== null ? (float)$equity : ($homeNow - ($m ? (float)$m['balance'] : 0.0));
+    $dEquity   = $futEquity - $equityNow;
+    $hasMortgage = (bool)$m;
+?>
+<section class="block">
+    <div class="block-head">
+        <h2>What if…</h2>
+        <?php if ($haActive): ?><a class="block-link" href="/property.php">Reset</a><?php endif; ?>
+    </div>
+    <div class="card">
+        <p class="muted" style="margin-top:0">Project your home value and equity forward at a chosen
+            appreciation rate. A preview only — it changes nothing.</p>
+
+        <form method="get" action="/property.php" class="whatif-form">
+            <div class="whatif-knob">
+                <span class="whatif-knob-head"><span>Appreciation</span><output class="whatif-out" id="ha-out" for="ha"></output></span>
+                <input class="whatif-range" type="range" id="ha" name="ha" min="-5" max="10" step="0.5"
+                       value="<?= e(rtrim(rtrim(number_format($haPct, 1), '0'), '.')) ?>" data-out="#ha-out" data-fmt="pctyr" data-autosubmit
+                       aria-label="Annual home appreciation rate">
+            </div>
+            <div class="whatif-knob">
+                <span class="whatif-knob-head"><span>Years ahead</span><output class="whatif-out" id="hy-out" for="hy"></output></span>
+                <input class="whatif-range" type="range" id="hy" name="hy" min="1" max="30" step="1"
+                       value="<?= (int)$haYears ?>" data-out="#hy-out" data-fmt="years" data-autosubmit
+                       aria-label="Years ahead">
+            </div>
+            <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+        </form>
+
+        <section class="hero card" style="margin-top:1rem">
+            <?php $gain = $hasMortgage ? $dEquity : ($futVal - $homeNow); ?>
+            <div class="hero-top">
+                <span class="hero-label"><?= $hasMortgage ? 'Projected equity in' : 'Projected value in' ?> <?= (int)$haYears ?> yr<?= $haYears === 1 ? '' : 's' ?></span>
+                <?php if (abs($gain) >= 0.5): ?>
+                    <span class="delta <?= $gain >= 0 ? 'up' : 'down' ?>">
+                        <?= $gain >= 0 ? '▲' : '▼' ?> <?= ($gain >= 0 ? '+' : '−') . e(usd(abs($gain))) ?>
+                        <span class="delta-sub">vs today</span>
+                    </span>
+                <?php endif; ?>
+            </div>
+            <div class="hero-value"><?= e(usd($hasMortgage ? $futEquity : $futVal)) ?></div>
+            <?php if ($hasMortgage): ?>
+            <div class="hero-split">
+                <div class="split-cell">
+                    <span class="split-label">Home value</span>
+                    <span class="split-value pos"><?= e(usd($futVal)) ?></span>
+                </div>
+                <div class="split-cell">
+                    <span class="split-label">Mortgage</span>
+                    <span class="split-value neg">-<?= e(usd($haDebtS[count($haDebtS) - 1])) ?></span>
+                </div>
+            </div>
+            <?php endif; ?>
+            <div class="chart-wrap tall" style="margin-top:1rem">
+                <canvas data-chart="multiline" data-src="c-whatif"></canvas>
+                <script type="application/json" id="c-whatif"><?= $jenc([
+                    'labels' => $haLabels,
+                    'series' => array_values(array_filter([
+                        ['label' => 'Home value', 'values' => $haValueS, 'color' => 'brand'],
+                        $hasMortgage ? ['label' => 'Mortgage', 'values' => $haDebtS, 'color' => 'neg'] : null,
+                        ['label' => 'Equity', 'values' => $haEquityS, 'color' => 'pos', 'fill' => true],
+                    ])),
+                ]) ?></script>
+            </div>
+            <p class="chart-cap" style="margin-top:.8rem">
+                Compounds today's <strong><?= e(usd($homeNow)) ?></strong> value at
+                <strong><?= e(($haPct >= 0 ? '+' : '−') . number_format(abs($haPct), 1)) ?>%/yr</strong><?php if ($hasMortgage): ?>;
+                the mortgage follows its scheduled payoff<?php endif; ?>. A what-if estimate — actual home
+                prices don't move in a straight line.
+            </p>
+        </section>
+    </div>
+</section>
+<?php endif; ?>
+
 <div class="cols">
 
 <!-- Mortgage payoff -->

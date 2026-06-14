@@ -287,6 +287,160 @@ render_header('Retirement', 'retirement', ['chart' => true]);
     </section>
     <?php endif; ?>
 
+    <!-- What-if scenario (#35) -->
+    <?php if ($proj):
+        // A temporary, NON-persisted overlay: re-run the projection (ret_project) AND the
+        // Monte Carlo (ret_monte_carlo) from the SAME pure helpers the baseline above uses,
+        // with the slider values, and compare against the saved-assumptions baseline. Nothing
+        // here writes to retirement_settings — the Assumptions page still owns that. The current
+        // balance ($total) is the fixed starting point; the knobs change the path from here.
+        $curYear  = (int)$view['cur_year'];
+        $baseYear = (int)$proj['target_year'];
+        $baseRatePct = round($view['rate'] * 100, 1);
+        $baseVolPct  = round(($mc['volatility'] ?? RET_DEFAULT_VOLATILITY) * 100);
+        $baseContribAnnual = (float)$proj['annual_contrib'];
+        $target   = $proj['target_amount'] !== null ? (float)$proj['target_amount'] : null;
+
+        // Read a scalar GET value → a finite float, else the supplied baseline default.
+        $wifGet = function (string $k, float $def): float {
+            $v = $_GET[$k] ?? null;
+            if (is_array($v) || $v === null || $v === '' || !is_numeric($v)) return $def;
+            $v = (float)$v;
+            return is_finite($v) ? $v : $def;
+        };
+        // Slider bounds (server clamp == slider min/max so a hand-edited URL can't drift the UI).
+        $yMin = $curYear + 1;
+        $yMax = max($curYear + 60, $baseYear);
+        $wExtra  = max(0.0,   min(5000.0, $wifGet('we', 0.0)));                      // $/month, on top of the plan
+        $wYear   = (int)max($yMin, min($yMax, $wifGet('wy', (float)max($baseYear, $yMin))));
+        $wGrowth = max(0.0,   min(20.0,  $wifGet('wg', $baseRatePct)));              // % per year
+        $wVol    = max(0.0,   min(40.0,  $wifGet('wv', (float)$baseVolPct)));        // % per year
+        $wActive = isset($_GET['we']) || isset($_GET['wy']) || isset($_GET['wg']) || isset($_GET['wv']);
+
+        $wContribAnnual = $baseContribAnnual + $wExtra * 12;
+        $wRate = $wGrowth / 100;
+        $wVolF = $wVol / 100;
+        $wN    = $wYear - $curYear;                                                  // >= 1 by the clamp
+        $wSeries    = ret_project($total, $wRate, $wContribAnnual, $curYear, $wN);
+        $wProjected = (float)$wSeries[count($wSeries) - 1]['value'];
+        $wMc = ret_monte_carlo($total, $wRate, $wVolF, $wContribAnnual, $curYear, $wN, $target, RET_MC_RUNS);
+
+        $dProjected  = $wProjected - (float)$proj['projected'];
+        $baseSuccess = ($mc && $mc['success_pct'] !== null) ? (float)$mc['success_pct'] : null;
+        // Delta in whole points off the ROUNDED percentages, so the chip equals the
+        // difference of the two integers the user actually sees (no 35→70 / "+36" artifact).
+        $dSuccess    = ($wMc['success_pct'] !== null && $baseSuccess !== null)
+            ? (int)(round((float)$wMc['success_pct']) - round($baseSuccess)) : null;
+        // Restate the (nominal) target in today's dollars over THIS scenario's horizon, mirroring
+        // the baseline block's framing so the success % isn't read as silently optimistic.
+        $wInfl       = ($mc && isset($mc['inflation'])) ? (float)$mc['inflation'] : RET_DEFAULT_INFLATION;
+        $wTargetReal = $target !== null ? round($target * pow(1 + $wInfl, -$wN), 2) : null;
+    ?>
+    <section class="block">
+        <div class="block-head">
+            <h2>What if…</h2>
+            <?php if ($wActive): ?><a class="block-link" href="/retirement.php">Reset</a><?php endif; ?>
+        </div>
+        <section class="card">
+            <p class="muted" style="margin-top:0">Drag a slider to explore a different plan — this is a
+                preview only, it never changes your saved
+                <a href="/retirement_settings.php">assumptions</a>.</p>
+
+            <form method="get" action="/retirement.php" class="whatif-form">
+                <div class="whatif-knob">
+                    <span class="whatif-knob-head"><span>Extra contribution</span><output class="whatif-out" id="we-out" for="we"></output></span>
+                    <input class="whatif-range" type="range" id="we" name="we" min="0" max="5000" step="50"
+                           value="<?= (int)round($wExtra) ?>" data-out="#we-out" data-fmt="permonth" data-autosubmit
+                           aria-label="Extra monthly contribution">
+                </div>
+                <div class="whatif-knob">
+                    <span class="whatif-knob-head"><span>Retire in</span><output class="whatif-out" id="wy-out" for="wy"></output></span>
+                    <input class="whatif-range" type="range" id="wy" name="wy" min="<?= $yMin ?>" max="<?= $yMax ?>" step="1"
+                           value="<?= (int)$wYear ?>" data-out="#wy-out" data-fmt="year" data-autosubmit
+                           aria-label="Target retirement year">
+                </div>
+                <div class="whatif-knob">
+                    <span class="whatif-knob-head"><span>Growth rate</span><output class="whatif-out" id="wg-out" for="wg"></output></span>
+                    <input class="whatif-range" type="range" id="wg" name="wg" min="0" max="20" step="0.5"
+                           value="<?= e(rtrim(rtrim(number_format($wGrowth, 1), '0'), '.')) ?>" data-out="#wg-out" data-fmt="pct" data-autosubmit
+                           aria-label="Expected annual growth rate">
+                </div>
+                <div class="whatif-knob">
+                    <span class="whatif-knob-head"><span>Volatility</span><output class="whatif-out" id="wv-out" for="wv"></output></span>
+                    <input class="whatif-range" type="range" id="wv" name="wv" min="0" max="40" step="1"
+                           value="<?= (int)round($wVol) ?>" data-out="#wv-out" data-fmt="pct" data-autosubmit
+                           aria-label="Expected volatility">
+                </div>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
+
+            <section class="hero card" style="margin-top:1rem">
+                <div class="hero-top">
+                    <span class="hero-label">What-if at <?= (int)$wYear ?></span>
+                    <?php if (abs($dProjected) >= 0.5): ?>
+                        <span class="delta <?= $dProjected >= 0 ? 'up' : 'down' ?>">
+                            <?= $dProjected >= 0 ? '▲' : '▼' ?> <?= ($dProjected >= 0 ? '+' : '−') . e(usd(abs($dProjected))) ?>
+                            <span class="delta-sub">vs your plan</span>
+                        </span>
+                    <?php endif; ?>
+                </div>
+                <div class="hero-value"><?= e(usd($wProjected)) ?></div>
+
+                <?php if ($wMc['success_pct'] !== null):
+                    $wsp = (float)$wMc['success_pct'];
+                    $wspClass = $wsp >= 70 ? 'pos' : ($wsp >= 50 ? '' : 'neg');
+                    $wspLabel = $wsp >= 99.5 ? '&gt;99' : e(number_format($wsp, 0)); ?>
+                <div class="hero-split">
+                    <div class="split-cell">
+                        <span class="split-label">Chance of reaching <?= e(usd($target)) ?></span>
+                        <span class="split-value <?= $wspClass ?>"><?= $wspLabel ?>%<?php if ($dSuccess !== null && abs($dSuccess) >= 0.5): ?>
+                            <span class="delta <?= $dSuccess >= 0 ? 'up' : 'down' ?>" style="font-size:.62em"><?= $dSuccess >= 0 ? '▲' : '▼' ?> <?= e(number_format(abs($dSuccess), 0)) ?> pts</span><?php endif; ?></span>
+                    </div>
+                    <div class="split-cell">
+                        <span class="split-label">Median outcome</span>
+                        <span class="split-value"><?= e(usd($wMc['end_median'])) ?></span>
+                    </div>
+                </div>
+                <div class="mc-track"><span class="<?= $wspClass ?>" style="width:<?= round(min(100, max(1, $wsp))) ?>%"></span></div>
+                <?php endif; ?>
+
+                <?php
+                $wb      = $wMc['bands'];
+                $wlabels = array_map(fn($r) => (string)$r['year'], $wb);
+                $wseries = [
+                    ['label' => '10th pct',  'values' => array_map(fn($r) => $r['p10'], $wb), 'color' => 'brand', 'faint' => true, 'legend' => false],
+                    ['label' => '10th–90th percentile', 'values' => array_map(fn($r) => $r['p90'], $wb), 'color' => 'brand', 'faint' => true, 'fillTo' => 0],
+                    ['label' => '25th pct',  'values' => array_map(fn($r) => $r['p25'], $wb), 'color' => 'brand', 'faint' => true, 'legend' => false],
+                    ['label' => '25th–75th percentile', 'values' => array_map(fn($r) => $r['p75'], $wb), 'color' => 'brand', 'faint' => true, 'fillTo' => 2],
+                    ['label' => 'What-if median', 'values' => array_map(fn($r) => $r['p50'], $wb), 'color' => 'brand'],
+                ];
+                if ($target !== null) {
+                    $wseries[] = ['label' => 'Target', 'values' => array_fill(0, count($wb), $target), 'color' => 'pos', 'dashed' => true];
+                }
+                ?>
+                <div class="chart-wrap" style="height:260px;margin-top:1rem">
+                    <canvas data-chart="multiline" data-src="ret-wif-data"></canvas>
+                </div>
+                <script type="application/json" id="ret-wif-data"><?= json_encode([
+                    'labels' => $wlabels,
+                    'series' => $wseries,
+                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+
+                <p class="chart-cap" style="margin-top:.8rem">
+                    Same <?= number_format($wMc['runs']) ?>-run engine as your plan, at
+                    <strong><?= e(number_format($wGrowth, 1)) ?>%</strong> average growth and
+                    <strong><?= e(number_format($wVol, 0)) ?>%</strong> volatility, adding
+                    <strong><?= e(usd($wContribAnnual)) ?>/yr</strong><?= $wExtra > 0 ? ' (+' . e(usd($wExtra)) . '/mo over your plan)' : '' ?>.
+                    <?php if ($target !== null): ?>Success measures <?= e(usd($target)) ?> as a
+                    <strong>future (nominal)</strong> amount by <?= (int)$wYear ?> ≈
+                    <?= e(usd($wTargetReal)) ?> in today's dollars.<?php endif; ?>
+                    A what-if preview, not financial advice.
+                </p>
+            </section>
+        </section>
+    </section>
+    <?php endif; ?>
+
     <!-- Accounts -->
     <section class="block">
         <div class="block-head"><h2>Your retirement accounts</h2><span class="count-pill"><?= count($accounts) ?></span></div>
