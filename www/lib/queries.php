@@ -1049,6 +1049,27 @@ function q_security_asset_classes(PDO $pdo): array
 }
 
 /**
+ * Per-security expense-ratio map (Session 70, TODO2 #39). Household-shared, **NOT VIS-scoped**
+ * — a security_id→percent lookup (like q_security_asset_classes / merchant_logo_map). No leak:
+ * the fee analyzer only applies it to the viewer's own VIS-scoped q_holdings, so a ratio for a
+ * security the viewer doesn't hold is never surfaced. Returns [security_id => expense_ratio_pct]
+ * (a PERCENT, e.g. 0.50 = 0.50%); **defensive** (missing table pre-migration-027 / transient → []).
+ * The fee MATH lives in lib/fees.php, not here.
+ */
+function q_security_expense_ratios(PDO $pdo): array
+{
+    $out = [];
+    try {
+        foreach ($pdo->query("SELECT security_id, expense_ratio FROM security_expense_ratio") as $r) {
+            $out[(string)$r['security_id']] = (float)$r['expense_ratio'];
+        }
+    } catch (Throwable $e) {
+        // table missing (pre-migration) or transient.
+    }
+    return $out;
+}
+
+/**
  * Spending by category across the last $months calendar months (oldest→newest),
  * gap-filled, plus current-month-vs-history deltas — backs the Spending-trends page.
  *

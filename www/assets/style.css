@@ -663,6 +663,24 @@ a.cat-row:hover { background: var(--surface-2); }
 .alloc-list .class-select { font-size: .85rem; padding: 2px 6px; max-width: 11rem; }
 .stack-form .alloc-target-input { max-width: 8rem; }
 
+/* ---- Investment fee analyzer (#39) -------------------------------------- */
+.fee-form .rows { margin-bottom: 14px; }
+.fee-row { align-items: center; }
+.fee-entry { flex: 0 0 auto; }
+.fee-input-wrap { display: inline-flex; align-items: center; gap: 4px; }
+/* 2-class selector beats the base `.input{width:100%}` (the S25 specificity gotcha). */
+.fee-form .fee-ratio-input { width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.fee-pct { color: var(--muted); font-size: .9rem; }
+.fee-status { font-size: .76rem; font-weight: 600; color: var(--muted); }
+.fee-status.ok { color: var(--pos); }
+.fee-status.warn { color: var(--warn-ink); }
+.fee-drags { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.fee-drag-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+                padding: 8px 0; border-bottom: 1px solid var(--line); }
+.fee-drag-row:last-child { border-bottom: 0; }
+.fee-drag-name { font-weight: 600; }
+.fee-drag-figs { font-variant-numeric: tabular-nums; font-size: .9rem; }
+
 /* ---- Debt payoff planner (#33) ------------------------------------------ */
 .debt-controls { display: flex; flex-direction: column; gap: 14px; }
 .debt-controls .debt-extra-input { max-width: 10rem; }

@@ -17,7 +17,8 @@ $securityId = (string)($_GET['security_id'] ?? '');
 // carry a whitelisted ?from to return the user where they came from.
 $from    = (string)($_GET['from'] ?? '');
 $backUrl = $from === 'retirement' ? '/retirement.php'
-         : ($from === 'allocation' ? '/allocation.php' : '/investments.php');
+         : ($from === 'allocation' ? '/allocation.php'
+         : ($from === 'fees' ? '/fees.php' : '/investments.php'));
 
 // ── VIS gate ──────────────────────────────────────────────────────────────
 // Only render if the viewer has visible exposure (a holding OR a buy/sell lot in

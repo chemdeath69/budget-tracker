@@ -700,6 +700,19 @@ CREATE TABLE security_asset_class (
   PRIMARY KEY (security_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Per-security expense ratio (#39, migration 027). Household-shared override (NOT VIS-scoped),
+-- the owner-entered annual expense ratio as a PERCENT (0.50 = 0.50%). Absence = "not entered"
+-- (an unknown fund) OR auto-0 for a non-fund holding (resolved in lib/fees.php). No FK
+-- (securities churn). No reliably-free expense-ratio feed exists, so it's entered by hand.
+-- Read by q_security_expense_ratios(); edited by the fees.php form.
+CREATE TABLE security_expense_ratio (
+  security_id   VARCHAR(64)  NOT NULL,
+  expense_ratio DECIMAL(7,4) NOT NULL DEFAULT 0,
+  updated_by    INT UNSIGNED NULL,
+  updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (security_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Credit-report import (#28, migration 021). One credit_reports row per bureau pull
 -- (user_id = whose report). Household-visible reads (NOT VIS-scoped). Sensitive free-text
 -- columns (*_enc) are libsodium-encrypted at rest (lib/crypto.php); account numbers stored
