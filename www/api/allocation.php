@@ -34,6 +34,7 @@ if (!csrf_check_request()) {
 $pdo = db();
 $uid = current_user_id();
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
+access_log_action($pdo, (int)$uid, 'allocation', $in['action'] ?? null);   // audit (best-effort)
 
 try {
     if (($in['action'] ?? '') === 'set_class') {

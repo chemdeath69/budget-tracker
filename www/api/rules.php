@@ -33,6 +33,7 @@ $pdo = db();
 $uid = current_user_id();
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $action = $in['action'] ?? '';
+access_log_action($pdo, (int)$uid, 'rules', $action !== '' ? $action : null);   // audit (best-effort)
 
 try {
     if ($action === 'add') {

@@ -39,6 +39,7 @@ if (!csrf_check_request()) {
     echo json_encode(['error' => 'invalid csrf token']);
     exit;
 }
+access_log_action($pdo, $uid, 'goals', strtolower($method));   // audit (best-effort)
 
 try {
     if ($method === 'POST') {

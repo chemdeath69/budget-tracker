@@ -8,6 +8,8 @@ declare(strict_types=1);
  * session carries the user id + email + name.
  */
 
+require_once __DIR__ . '/activity.php';   // best-effort access-log writers (login/logout)
+
 function is_logged_in(): bool
 {
     return !empty($_SESSION['user_email']);
@@ -148,6 +150,7 @@ function google_handle_callback(): ?string
     $allow = array_map('strtolower', $CONFIG['allowed_emails']);
     if (!in_array($email, $allow, true)) {
         error_log('Rejected login attempt from: ' . $email);
+        access_log_record(db(), null, 'login', 'rejected', $email);   // audit (best-effort)
         return 'This account is not authorised to use this site.';
     }
 
@@ -170,6 +173,8 @@ function google_handle_callback(): ?string
     $_SESSION['user_email'] = $email;
     $_SESSION['name']       = $name;
     $_SESSION['picture']    = $picture; // Google profile photo URL (may be empty)
+
+    access_log_record($pdo, $uid, 'login', null, $email);   // audit (best-effort)
     return null;
 }
 
@@ -190,6 +195,8 @@ function decode_jwt_payload(string $jwt): ?array
 
 function logout(): void
 {
+    $uid = current_user_id();
+    if ($uid !== null) access_log_record(db(), $uid, 'logout', null, current_user_email());
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();

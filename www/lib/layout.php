@@ -13,6 +13,8 @@ declare(strict_types=1);
  *     render_footer();
  */
 
+require_once __DIR__ . '/activity.php';   // page-view logging + sync-error banner state
+
 /** The navigation entries shown in the drawer, in order. */
 function nav_items(): array
 {
@@ -81,6 +83,7 @@ function nav_icon(string $name): string
         'refund' => '<path d="M3 9h11a6 6 0 0 1 0 12H9"/><path d="M7 5 3 9l4 4"/>',
         'car'    => '<path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13"/><path d="M3 17v-2a2 2 0 0 1 1-1.7L5 13h14l1 .3A2 2 0 0 1 21 15v2"/><path d="M3 17h18v2h-2v-1H5v1H3z"/><circle cx="7.5" cy="16.5" r="1.2"/><circle cx="16.5" cy="16.5" r="1.2"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+        'activity' => '<path d="M3 12h4l2 6 4-14 2 8h6"/>',
     ];
     $inner = $p[$name] ?? '';
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
@@ -326,6 +329,28 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     $back    = $opts['back'] ?? null;
     $name    = $_SESSION['name'] ?? ($_SESSION['user_email'] ?? '');
     $email   = $_SESSION['user_email'] ?? '';
+
+    // --- Activity logging + persistent sync-error banner (migration 029) ---------
+    // render_header() runs on every authenticated page, so it's the single choke point
+    // for "what pages they viewed" + the household sync-error banner. All best-effort —
+    // a logging/query failure must never break the render.
+    $actUid = function_exists('current_user_id') ? current_user_id() : null;
+    if ($actUid !== null) access_log_page(db(), (int)$actUid);
+    if (isset($_GET['dismiss_sync_alert'])) {                        // per-session dismiss
+        $_SESSION['sync_alert_dismissed'] = (string)$_GET['dismiss_sync_alert'];
+    }
+    if ($active !== 'activity') {
+        $syncAlert = sync_alert_state(db());
+        // Once the error clears, forget the dismissal — so a later RECURRENCE of the same
+        // content-stable signature (e.g. the same bank re-breaking in one session) re-surfaces
+        // the banner instead of staying hidden (review fix).
+        if (empty($syncAlert['error'])) unset($_SESSION['sync_alert_dismissed']);
+    } else {
+        $syncAlert = ['error' => false, 'signature' => '', 'reasons' => []];
+    }
+    $showSyncAlert = !empty($syncAlert['error'])
+        && ($_SESSION['sync_alert_dismissed'] ?? '') !== ($syncAlert['signature'] ?? '');
+    $dismissHref = '?' . http_build_query(array_merge($_GET, ['dismiss_sync_alert' => $syncAlert['signature'] ?? '']));
     ?>
 <!doctype html>
 <html lang="en">
@@ -399,7 +424,13 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     </nav>
 
     <main class="screen<?= !empty($opts['narrow']) ? ' narrow' : '' ?>" id="main">
-    <?php if (!empty($opts['subtitle'])): ?>
+    <?php if ($showSyncAlert): ?>
+        <div class="notice warn sync-alert" role="alert">
+            <span class="sync-alert-msg"><?= e(implode(' · ', $syncAlert['reasons'])) ?> — <a href="/activity.php?view=sync">View sync status</a></span>
+            <a class="sync-alert-x" href="<?= e($dismissHref) ?>" aria-label="Dismiss this warning">&times;</a>
+        </div>
+    <?php endif;
+    if (!empty($opts['subtitle'])): ?>
         <p class="screen-subtitle"><?= e($opts['subtitle']) ?></p>
     <?php endif;
 }

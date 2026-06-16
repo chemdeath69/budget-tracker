@@ -3495,3 +3495,107 @@ function q_fred_history(PDO $pdo, string $seriesId, int $limit = 0): array
     }
     return $out;
 }
+
+/* ---------------------------------------------------------------------------
+ * Activity / diagnostics reads (Access Logs + Sync Status — migration 029).
+ * HOUSEHOLD-WIDE, deliberately NOT VIS-scoped — these are diagnostic logs surfaced
+ * on activity.php (reached from Settings), like alert_settings / credit reports. The
+ * page resolves user_id → name via household_users() in PHP, so no JOIN is needed.
+ * Defensive: a missing table (pre-migration-029) / transient error → [] so the page
+ * degrades to an empty state rather than 500ing. The WRITERS + the banner-state read
+ * live in lib/activity.php.
+ * ------------------------------------------------------------------------- */
+
+/** Valid access_log event types (the filter whitelist). */
+function access_event_types(): array
+{
+    return ['login', 'logout', 'page', 'action'];
+}
+
+/**
+ * Paginated access-log rows, newest first. $filters: ['event'=>?type, 'user_id'=>?int].
+ * Distinct placeholders → HY093-safe; LIMIT/OFFSET inlined int-cast (codebase idiom).
+ */
+function q_access_log(PDO $pdo, int $limit = 50, int $offset = 0, array $filters = []): array
+{
+    try {
+        $where = [];
+        $args  = [];
+        if (!empty($filters['event']) && in_array($filters['event'], access_event_types(), true)) {
+            $where[] = 'event_type = :ev';
+            $args[':ev'] = $filters['event'];
+        }
+        if (isset($filters['user_id']) && $filters['user_id'] !== '' && $filters['user_id'] !== null) {
+            $where[] = 'user_id = :uid';
+            $args[':uid'] = (int)$filters['user_id'];
+        }
+        $sql = 'SELECT id, user_id, event_type, label, detail, ip, user_agent, created_at,
+                       TIMESTAMPDIFF(SECOND, created_at, NOW()) AS age_s
+                  FROM access_log'
+             . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
+             . ' ORDER BY created_at DESC, id DESC'
+             . ' LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset);
+        $st = $pdo->prepare($sql);
+        $st->execute($args);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/** Recent sync runs, newest first (paginated). */
+function q_sync_runs(PDO $pdo, int $limit = 30, int $offset = 0): array
+{
+    try {
+        $st = $pdo->query(
+            'SELECT id, trigger_type, started_at, finished_at, ok, step_count, error_count,
+                    TIMESTAMPDIFF(SECOND, started_at, finished_at) AS duration_s,
+                    TIMESTAMPDIFF(SECOND, started_at, NOW()) AS age_s
+               FROM sync_run
+              ORDER BY started_at DESC, id DESC
+              LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset)
+        );
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/** Steps for many runs at once → [run_id => [step rows]] (avoids N+1 on the history list). */
+function q_sync_run_steps_map(PDO $pdo, array $runIds): array
+{
+    $ids = array_values(array_filter(array_map('intval', $runIds)));
+    if (!$ids) return [];
+    try {
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare(
+            "SELECT run_id, step, label, ok, message, created_at
+               FROM sync_run_step WHERE run_id IN ($ph) ORDER BY id ASC"
+        );
+        $st->execute($ids);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['run_id']][] = $r;
+        }
+        return $out;
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/** Per-Plaid-Item connection status for the Sync-status page (institution, status, last sync). */
+function q_connection_status(PDO $pdo): array
+{
+    try {
+        $st = $pdo->query(
+            "SELECT item_id, institution_name, status, error_code, last_synced_at,
+                    TIMESTAMPDIFF(SECOND, last_synced_at, NOW()) AS age_s
+               FROM items
+              WHERE source = 'plaid' AND status <> 'removed'
+              ORDER BY (status = 'error') DESC, institution_name ASC"
+        );
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+}

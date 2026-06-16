@@ -44,6 +44,7 @@ $pdo = db();
 $uid = current_user_id();
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $messages = is_array($in['messages'] ?? null) ? $in['messages'] : [];
+access_log_action($pdo, (int)$uid, 'assistant', 'ask');   // audit (best-effort; question text not logged)
 
 try {
     $res = assistant_respond($pdo, $uid, $messages, $CONFIG);

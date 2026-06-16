@@ -807,3 +807,49 @@ CREATE TABLE credit_flags (
   KEY idx_flag_report (credit_report_id),
   CONSTRAINT fk_flag_report FOREIGN KEY (credit_report_id) REFERENCES credit_reports (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- access_log / sync_run / sync_run_step — Access Logs + Sync Status diagnostics
+-- (migration 029, owner request). Household-wide (reads NOT VIS-scoped); surfaced
+-- on activity.php (reached from Settings). access_log is pruned to ~90 days by the
+-- nightly cron. Written best-effort by lib/activity.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE access_log (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id     INT UNSIGNED NULL,                  -- NULL for a pre-auth event (no FK — survive user delete)
+  event_type  VARCHAR(16) NOT NULL,               -- login | logout | page | action
+  label       VARCHAR(160) NULL,                  -- page path, or 'endpoint:action'
+  detail      VARCHAR(255) NULL,                  -- extra (query string, action target, reason)
+  ip          VARCHAR(45)  NULL,
+  user_agent  VARCHAR(255) NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_access_created (created_at),
+  KEY idx_access_user (user_id, created_at),
+  KEY idx_access_event (event_type, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sync_run (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  trigger_type VARCHAR(16) NOT NULL,              -- cron | manual | webhook
+  started_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at  DATETIME NULL,                     -- NULL while in progress
+  ok           TINYINT(1) NULL,                   -- 1 all steps ok, 0 >=1 failed, NULL in progress
+  step_count   INT NOT NULL DEFAULT 0,
+  error_count  INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_syncrun_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sync_run_step (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  run_id      BIGINT UNSIGNED NOT NULL,
+  step        VARCHAR(48) NOT NULL,               -- item:<id> | prices | dividends | fred | vehicles | snapshot | ...
+  label       VARCHAR(160) NULL,                  -- friendly name (e.g. the bank/institution)
+  ok          TINYINT(1) NOT NULL DEFAULT 1,
+  message     TEXT NULL,                          -- output summary or error text
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_runstep_run (run_id),
+  CONSTRAINT fk_runstep_run FOREIGN KEY (run_id) REFERENCES sync_run (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

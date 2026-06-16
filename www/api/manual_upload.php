@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if (!csrf_check_request()) {
     upload_done('error', 'Your session expired — please try again.', $back);
 }
+access_log_action($pdo, (int)$uid, 'manual_upload', 'upload', $accountId !== '' ? $accountId : null);   // audit (best-effort)
 
 $acct = $accountId !== '' ? q_account($pdo, $uid, $accountId) : null;
 if (!$acct || !is_manual($acct)) {

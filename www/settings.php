@@ -167,6 +167,18 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
 </section>
 
 <section class="block">
+    <div class="block-head"><h2>Activity &amp; diagnostics</h2></div>
+    <a class="card action-card" href="/activity.php">
+        <span class="acct-icon"><?= nav_icon('activity') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Access logs &amp; sync status</span>
+            <span class="acct-sub muted">Logins, page views, actions · nightly sync history</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
+</section>
+
+<section class="block">
     <a class="card action-card danger" href="/logout.php">
         <span class="acct-icon"><?= nav_icon('logout') ?></span>
         <span class="acct-main"><span class="acct-name">Sign out</span></span>

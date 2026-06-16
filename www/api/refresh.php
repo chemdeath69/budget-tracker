@@ -44,6 +44,8 @@ const REFRESH_COOLDOWN_SECONDS = 60;   // skip a just-synced item (avoid Plaid h
 
 $in     = json_decode(file_get_contents('php://input'), true) ?: [];
 $itemId = trim((string)($in['item_id'] ?? ''));
+access_log_action(db(), (int)current_user_id(), 'refresh', $itemId !== '' ? 'item' : 'all',
+    $itemId !== '' ? $itemId : null);   // audit (best-effort)
 
 $toRun = [];
 try {

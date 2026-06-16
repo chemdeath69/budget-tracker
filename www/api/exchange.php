@@ -21,6 +21,8 @@ if (!csrf_check_request()) {
 $in = json_decode(file_get_contents('php://input'), true) ?: [];
 $publicToken = $in['public_token'] ?? '';
 $institution = $in['institution'] ?? [];
+access_log_action(db(), (int)current_user_id(), 'exchange', 'link_bank',
+    is_array($institution) ? ($institution['name'] ?? null) : null);   // audit (best-effort)
 
 if (!$publicToken) {
     http_response_code(400);

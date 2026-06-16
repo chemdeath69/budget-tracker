@@ -11,6 +11,7 @@ if (!is_logged_in()) {
 
 $uid = current_user_id();
 $pdo = db();
+access_log_action($pdo, (int)$uid, 'export', 'csv');   // audit (best-effort)
 
 // Optional filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&q=text&account_id=...&category=TAG&tag=name
 // Must stay in lock-step with q_transactions (lib/queries.php) so the CSV matches

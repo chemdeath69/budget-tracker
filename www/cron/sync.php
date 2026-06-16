@@ -27,12 +27,19 @@ require __DIR__ . '/../lib/fred.php';
 require __DIR__ . '/../lib/vehicles.php';
 require __DIR__ . '/../lib/digest.php';
 require __DIR__ . '/../lib/spend_alerts.php';
+require __DIR__ . '/../lib/activity.php';
 
 $pdo = db();
+
+// Open a sync-run capture (migration 029) so this nightly pipeline's per-step
+// outputs/errors land in the DB (sync_run / sync_run_step), surfaced on the Sync-status
+// page — not just the web-denied storage/cron.log. All sync_run_* calls are best-effort
+// (a logging failure never aborts the run); $runId is null only if the table is missing.
+$runId = sync_run_begin($pdo, 'cron');
 // Only Plaid items have a live feed to sync. Manual (source='manual') items are
 // updated by document upload and have no access_token — skip them here (their
 // balances still flow into the snapshot written below).
-$items = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor
+$items = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor, institution_name
                       FROM items WHERE status <> "removed" AND source = "plaid"')->fetchAll();
 
 $ts = date('Y-m-d H:i:s T');
@@ -48,9 +55,13 @@ foreach ($items as $item) {
         $r = ['ok' => false, 'error' => $e->getMessage()];
     }
     if (!empty($r['ok'])) {
-        echo "  item {$item['item_id']}: +{$r['added']} ~{$r['modified']} -{$r['removed']}\n";
+        $msg = "+{$r['added']} added / ~{$r['modified']} modified / -{$r['removed']} removed";
+        echo "  item {$item['item_id']}: {$msg}\n";
+        sync_run_step($pdo, $runId, "item:{$item['item_id']}", true, $msg, $item['institution_name'] ?? null);
     } else {
-        echo "  item {$item['item_id']}: FAILED — " . ($r['error'] ?? '?') . "\n";
+        $msg = 'FAILED — ' . ($r['error'] ?? '?');
+        echo "  item {$item['item_id']}: {$msg}\n";
+        sync_run_step($pdo, $runId, "item:{$item['item_id']}", false, $msg, $item['institution_name'] ?? null);
     }
 }
 
@@ -61,12 +72,20 @@ foreach ($items as $item) {
 try {
     $vn = vehicle_revalue_all($pdo);
     if ($vn > 0) echo "[" . date('Y-m-d H:i:s T') . "] vehicles: revalued {$vn} asset(s)\n";
+    sync_run_step($pdo, $runId, 'vehicles', true, "revalued {$vn} asset(s)");
 } catch (Throwable $e) {
     echo "[" . date('Y-m-d H:i:s T') . "] vehicles: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'vehicles', false, 'FAILED — ' . $e->getMessage());
 }
 
-write_networth_snapshot($pdo);
-echo "[" . date('Y-m-d H:i:s T') . "] cron sync done; snapshot written.\n";
+try {
+    write_networth_snapshot($pdo);
+    echo "[" . date('Y-m-d H:i:s T') . "] cron sync done; snapshot written.\n";
+    sync_run_step($pdo, $runId, 'snapshot', true, 'net-worth snapshot written');
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] snapshot: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'snapshot', false, 'FAILED — ' . $e->getMessage());
+}
 
 // Per-account balance history (one row per account per day) — powers the
 // mortgage-balance-over-time chart (balance_snapshots only stores household totals).
@@ -80,15 +99,19 @@ $abh = $pdo->prepare(
 );
 $abh->execute([':d' => date('Y-m-d')]);
 echo "[" . date('Y-m-d H:i:s T') . "] account balance history: {$abh->rowCount()} row(s)\n";
+sync_run_step($pdo, $runId, 'balance_history', true, "{$abh->rowCount()} row(s)");
 
 // Refresh security prices (daily close per held ticker). No-op without a key.
 // Only here in the daily cron — NOT in lib/sync.php — so webhook-triggered syncs
 // don't burn Twelve Data credits on every fire.
 $pr = prices_refresh_latest($pdo);
-echo "[" . date('Y-m-d H:i:s T') . "] prices: "
-   . ($pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
-                . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
-                : "skipped ({$pr['error']})") . "\n";
+$prMsg = $pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
+                   . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
+                   : "skipped ({$pr['error']})";
+echo "[" . date('Y-m-d H:i:s T') . "] prices: {$prMsg}\n";
+// Informational step: a no-key skip or a single bad-ticker error isn't banner-worthy
+// (captured in the message for visibility) — only a thrown exception marks a step failed.
+sync_run_step($pdo, $runId, 'prices', true, $prMsg);
 
 // Refresh per-security dividend data (Polygon.io free feed → security_dividends).
 // Staleness-gated (≤weekly per security) so the nightly cost stays near zero and the
@@ -97,12 +120,14 @@ echo "[" . date('Y-m-d H:i:s T') . "] prices: "
 // dividend-feed hiccup can never abort the cron before the digest/alert steps below.
 try {
     $dv = dividends_refresh_if_stale($pdo);
-    echo "[" . date('Y-m-d H:i:s T') . "] dividends: "
-       . ($dv['ok'] ? "{$dv['refreshed']} refreshed / {$dv['skipped']} fresh, {$dv['stored']} row(s) across {$dv['symbols']} symbol(s)"
-                    . (empty($dv['errors']) ? '' : '; errors: ' . implode(', ', array_keys($dv['errors'])))
-                    : "skipped ({$dv['error']})") . "\n";
+    $dvMsg = $dv['ok'] ? "{$dv['refreshed']} refreshed / {$dv['skipped']} fresh, {$dv['stored']} row(s) across {$dv['symbols']} symbol(s)"
+                       . (empty($dv['errors']) ? '' : '; errors: ' . implode(', ', array_keys($dv['errors'])))
+                       : "skipped ({$dv['error']})";
+    echo "[" . date('Y-m-d H:i:s T') . "] dividends: {$dvMsg}\n";
+    sync_run_step($pdo, $runId, 'dividends', true, $dvMsg);
 } catch (Throwable $e) {
     echo "[" . date('Y-m-d H:i:s T') . "] dividends: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'dividends', false, 'FAILED — ' . $e->getMessage());
 }
 
 // Refresh the home value (RentCast AVM) at most ~monthly. Hard-capped at 50 req/mo
@@ -115,19 +140,22 @@ if ($homeAddr !== '') {
     $msg = $hv['ok']
         ? (isset($hv['skipped']) ? "fresh as of {$hv['as_of']}" : "stored \$" . number_format((float)$hv['value']))
         : "skipped ({$hv['error']})";
-    echo "[" . date('Y-m-d H:i:s T') . "] home value: $msg — quota {$u['used']}/{$u['cap']} this month\n";
+    $hvMsg = "$msg — quota {$u['used']}/{$u['cap']} this month";
+    echo "[" . date('Y-m-d H:i:s T') . "] home value: {$hvMsg}\n";
 
     // Property record (~quarterly) + zip market data (~monthly). Same capped path.
-    $pr = property_record_refresh_if_stale($pdo, $homeAddr);
-    echo "[" . date('Y-m-d H:i:s T') . "] property record: "
-       . ($pr['ok'] ? ($pr['skipped'] ?? 'stored') : "skipped ({$pr['error']})") . "\n";
+    $prc = property_record_refresh_if_stale($pdo, $homeAddr);
+    $prcMsg = $prc['ok'] ? ($prc['skipped'] ?? 'stored') : "skipped ({$prc['error']})";
+    echo "[" . date('Y-m-d H:i:s T') . "] property record: {$prcMsg}\n";
 
     $zip = hv_zip_from_address($homeAddr);
     $mk  = market_refresh_if_stale($pdo, $zip);
     $u   = hv_usage($pdo);
-    echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): "
-       . ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
-       . " — quota {$u['used']}/{$u['cap']} this month\n";
+    $mkMsg = ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
+           . " — quota {$u['used']}/{$u['cap']} this month";
+    echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): {$mkMsg}\n";
+
+    sync_run_step($pdo, $runId, 'home_value', true, "value: {$hvMsg}; property: {$prcMsg}; market ($zip): {$mkMsg}");
 }
 
 // FRED economic series (TODO #17) — refresh CPI / 30-yr mortgage rate / Treasury +
@@ -137,12 +165,14 @@ if ($homeAddr !== '') {
 // contract so a transient failure logs one line instead of aborting the run.
 try {
     $fr = fred_refresh_latest($pdo);
-    echo "[" . date('Y-m-d H:i:s T') . "] fred: " . ($fr['ok']
-        ? "{$fr['updated']} obs across {$fr['series']} series"
-          . (empty($fr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($fr['errors'])))
-        : "skipped ({$fr['error']})") . "\n";
+    $frMsg = $fr['ok'] ? "{$fr['updated']} obs across {$fr['series']} series"
+                       . (empty($fr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($fr['errors'])))
+                       : "skipped ({$fr['error']})";
+    echo "[" . date('Y-m-d H:i:s T') . "] fred: {$frMsg}\n";
+    sync_run_step($pdo, $runId, 'fred', true, $frMsg);
 } catch (Throwable $e) {
     echo '[' . date('Y-m-d H:i:s T') . '] fred: FAILED — ' . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'fred', false, 'FAILED — ' . $e->getMessage());
 }
 
 // Weekly email digest (TODO #15) — only actually sends on Sunday (app TZ) or as a
@@ -153,8 +183,10 @@ try {
 // transient DB error here logs one line instead of dumping a stack trace.
 try {
     maybe_send_weekly_digest($pdo);
+    sync_run_step($pdo, $runId, 'digest', true, 'ran (sends only on Sunday / catch-up)');
 } catch (Throwable $e) {
     echo '[' . date('Y-m-d H:i:s T') . '] digest: FAILED — ' . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'digest', false, 'FAILED — ' . $e->getMessage());
 }
 
 // Spending alerts (TODO #16) — budget-exceeded / unusual-spend / bill reminders.
@@ -164,6 +196,16 @@ try {
 // lib/spend_alerts.php). Wrapped in try/catch per the Session 22 resilience contract.
 try {
     maybe_send_spend_alerts($pdo);
+    sync_run_step($pdo, $runId, 'spend_alerts', true, 'ran (gated on alert_settings)');
 } catch (Throwable $e) {
     echo '[' . date('Y-m-d H:i:s T') . '] spend-alerts: FAILED — ' . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'spend_alerts', false, 'FAILED — ' . $e->getMessage());
 }
+
+// Prune the access log to the ~90-day retention window, then close out the run capture
+// (stamps finished_at + rolls up step_count / error_count / ok). Both best-effort.
+$pruned = access_log_prune($pdo);
+echo "[" . date('Y-m-d H:i:s T') . "] access log: pruned {$pruned} old row(s)\n";
+sync_run_step($pdo, $runId, 'prune_access_log', true, "pruned {$pruned} old row(s)");
+sync_run_finish($pdo, $runId);
+echo "[" . date('Y-m-d H:i:s T') . "] sync run #" . ($runId ?? 0) . " recorded.\n";

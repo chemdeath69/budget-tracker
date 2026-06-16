@@ -29,6 +29,7 @@ try {
     $pdo = db();
     $uid = current_user_id();
     $in  = json_decode(file_get_contents('php://input'), true) ?: [];
+    access_log_action($pdo, (int)$uid, 'alerts', 'save');   // audit (best-effort)
 
     $bool = static fn($v) => !empty($v) ? 1 : 0;
     $clamp = static fn($v, $lo, $hi) => max($lo, min($hi, (int)$v));

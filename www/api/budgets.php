@@ -30,6 +30,7 @@ if (!csrf_check_request()) {
     echo json_encode(['error' => 'invalid csrf token']);
     exit;
 }
+access_log_action($pdo, (int)current_user_id(), 'budgets', strtolower($method));   // audit (best-effort)
 
 if ($method === 'POST') {
     $category = strtoupper(trim((string)($in['category'] ?? '')));

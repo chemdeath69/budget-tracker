@@ -25,6 +25,7 @@ $pdo = db();
 $uid = current_user_id();
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $action = $in['action'] ?? '';
+access_log_action(db(), (int)$uid, 'account', $action !== '' ? $action : null);   // audit (best-effort)
 
 /** True if $uid may see this transaction (shared OR owns the Item; excludes hidden) — the
  * same VIS rule q_transactions applies. Shared by the note/tag/split actions (#8) and
