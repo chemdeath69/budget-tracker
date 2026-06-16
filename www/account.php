@@ -24,7 +24,9 @@ $owner   = (int)$acct['owner_id'] === $uid;
 $debt    = is_liability($acct);
 $isInvest = ($acct['type'] ?? '') === 'investment';
 $manual  = is_manual($acct);
-$stmtStatus = $manual ? manual_account_status($pdo, $acct) : null; // overdue-statement check (null = not monitored)
+$isVehicle = ($acct['type'] ?? '') === 'vehicle';                  // manual vehicle asset (#40)
+$vehicle = $isVehicle ? q_vehicle_asset($pdo, $accountId) : null;
+$stmtStatus = ($manual && !$isVehicle) ? manual_account_status($pdo, $acct) : null; // overdue-statement check (null = not monitored)
 $bal     = (float)($acct['balance_current'] ?? 0);
 $catOptions = transaction_category_options($pdo, $uid);
 
@@ -144,8 +146,36 @@ render_header($acct['name'] ?: 'Account', '', [
     <?php endif; ?>
 </section>
 
-<!-- Manual update (owner only) -->
-<?php if ($manual && is_retirement($acct)): ?>
+<!-- Vehicle details (#40) -->
+<?php if ($isVehicle):
+    $vIdentity = $vehicle ? trim((string)($vehicle['year'] ?? '') . ' ' . (string)($vehicle['make'] ?? '') . ' ' . (string)($vehicle['model'] ?? '')) : '';
+    $vTrim = $vehicle['trim'] ?? '';
+    $vManual = $vehicle && ($vehicle['manual_value'] ?? null) !== null && $vehicle['manual_value'] !== '';
+    $vMethod = ($vehicle['depreciation_method'] ?? 'declining') === 'straight' ? 'Straight-line' : 'Declining-balance'; ?>
+<section class="card">
+    <h2>Vehicle</h2>
+    <?php if ($vIdentity !== '' || $vTrim !== '' || !empty($vehicle['body_class']) || !empty($vehicle['vin'])): ?>
+    <div class="kv-grid">
+        <?php if ($vIdentity !== ''): ?><div><span class="muted">Vehicle</span><strong><?= e($vIdentity) ?></strong></div><?php endif; ?>
+        <?php if ($vTrim !== ''): ?><div><span class="muted">Trim</span><strong><?= e($vTrim) ?></strong></div><?php endif; ?>
+        <?php if (!empty($vehicle['body_class'])): ?><div><span class="muted">Body</span><strong><?= e($vehicle['body_class']) ?></strong></div><?php endif; ?>
+        <?php if (!empty($vehicle['vin'])): ?><div><span class="muted">VIN</span><strong><?= e($vehicle['vin']) ?></strong></div><?php endif; ?>
+    </div>
+    <?php endif; ?>
+    <?php if ($vehicle): ?>
+    <div class="kv-grid">
+        <?php if (($vehicle['purchase_price'] ?? null) !== null): ?><div><span class="muted">Purchase price</span><strong><?= e(usd($vehicle['purchase_price'])) ?><?= $vehicle['purchase_date'] ? ' · ' . e($vehicle['purchase_date']) : '' ?></strong></div><?php endif; ?>
+        <?php if ($vManual): ?>
+            <div><span class="muted">Value source</span><strong>You set it<?= $vehicle['manual_value_date'] ? ' · ' . e($vehicle['manual_value_date']) : '' ?></strong></div>
+        <?php else: ?>
+            <div><span class="muted">Estimate</span><strong><?= e($vMethod) ?> · <?= e((string)(float)$vehicle['annual_rate']) ?>%/yr</strong></div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+    <p class="muted">This is an <strong>estimate</strong>, not a market quote — there's no free vehicle-value feed, so it's depreciated from what you paid (or a value you entered). It counts toward your net worth.</p>
+    <?php if ($owner): ?><a class="btn" href="/vehicle_add.php?account_id=<?= e(urlencode($accountId)) ?>">Edit vehicle</a><?php endif; ?>
+</section>
+<?php elseif ($manual && is_retirement($acct)): ?>
 <section class="card">
     <h2>Retirement account</h2>
     <p class="muted">This 401(k) is kept current by entering each statement (balance + contributions)
@@ -296,7 +326,7 @@ render_header($acct['name'] ?: 'Account', '', [
             <option value="private"<?= $acct['visibility'] === 'private' ? ' selected' : '' ?>>Private</option>
         </select>
     </div>
-    <?php if ($manual):
+    <?php if ($manual && !$isVehicle):
         $cadRaw = $acct['statement_cadence'] ?? null;
         $cadVal = ($cadRaw === null || $cadRaw === '') ? 'auto' : (string)$cadRaw;
         $cadAuto = is_retirement($acct) ? 'Quarterly' : 'Monthly'; ?>
@@ -377,8 +407,8 @@ render_header($acct['name'] ?: 'Account', '', [
     <?php endif; ?>
 <?php endif; ?>
 
-<!-- Transactions for this account (hidden for brokerages with no cash transactions) -->
-<?php if (!$isInvest || $txns || $txHasFilters): ?>
+<!-- Transactions for this account (hidden for brokerages / vehicles with no cash transactions) -->
+<?php if ((!$isInvest && !$isVehicle) || $txns || $txHasFilters): ?>
 <section class="block">
     <div class="block-head">
         <h2>Transactions</h2>

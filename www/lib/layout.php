@@ -79,6 +79,7 @@ function nav_icon(string $name): string
         'wallet' => '<path d="M3 7a2 2 0 0 1 2-2h12v4"/><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M21 11h-4a2 2 0 0 0 0 4h4"/>',
         'debt'   => '<rect x="4" y="5" width="4" height="15" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16" y="14" width="4" height="6" rx="1"/>',
         'refund' => '<path d="M3 9h11a6 6 0 0 1 0 12H9"/><path d="M7 5 3 9l4 4"/>',
+        'car'    => '<path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13"/><path d="M3 17v-2a2 2 0 0 1 1-1.7L5 13h14l1 .3A2 2 0 0 1 21 15v2"/><path d="M3 17h18v2h-2v-1H5v1H3z"/><circle cx="7.5" cy="16.5" r="1.2"/><circle cx="16.5" cy="16.5" r="1.2"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
     ];
     $inner = $p[$name] ?? '';

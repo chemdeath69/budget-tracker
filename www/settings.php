@@ -53,6 +53,14 @@ render_header('Settings', 'settings', ['narrow' => true]);
         </span>
         <span class="chev" aria-hidden="true">›</span>
     </a>
+    <a class="card action-card" href="/vehicle_add.php">
+        <span class="acct-icon"><?= nav_icon('car') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Add a vehicle</span>
+            <span class="acct-sub muted">A car, truck or motorcycle — decoded from its VIN, valued by depreciation, counts in net worth</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
 </section>
 
 <!-- Manage owned accounts -->

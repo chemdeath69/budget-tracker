@@ -713,6 +713,34 @@ CREATE TABLE security_expense_ratio (
   PRIMARY KEY (security_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Vehicle assets (#40, migration 028). A vehicle is a MANUAL account (items.manual_type
+-- ='vehicle', accounts.type='vehicle') so its balance_current counts in net worth like any
+-- manual asset; this side table holds the decoded identity (free NHTSA vPIC VIN decode) +
+-- the owner-set depreciation BASIS. balance_current is recomputed from this (nightly cron +
+-- on save) via lib/vehicles.php; manual_value is an optional point-in-time override that
+-- wins + stops the modelled depreciation. No free valuation feed exists (KBB/Black Book are
+-- paid), so the value is a transparent depreciation estimate. No FK (no UI delete path).
+-- Read by q_vehicle_asset(); written by vehicle_add.php / lib/vehicles.php.
+CREATE TABLE vehicle_assets (
+  account_id          VARCHAR(64)  NOT NULL,
+  vin                 VARCHAR(32)  NULL,
+  year                SMALLINT     NULL,
+  make                VARCHAR(64)  NULL,
+  model               VARCHAR(96)  NULL,
+  trim                VARCHAR(96)  NULL,
+  body_class          VARCHAR(64)  NULL,
+  purchase_price      DECIMAL(15,2) NULL,
+  purchase_date       DATE         NULL,
+  depreciation_method ENUM('declining','straight') NOT NULL DEFAULT 'declining',
+  annual_rate         DECIMAL(6,3) NOT NULL DEFAULT 15.000,   -- depreciation %/yr
+  manual_value        DECIMAL(15,2) NULL,                     -- override; wins + stops depreciation
+  manual_value_date   DATE         NULL,
+  updated_by          INT UNSIGNED NULL,
+  created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Credit-report import (#28, migration 021). One credit_reports row per bureau pull
 -- (user_id = whose report). Household-visible reads (NOT VIS-scoped). Sensitive free-text
 -- columns (*_enc) are libsodium-encrypted at rest (lib/crypto.php); account numbers stored

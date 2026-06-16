@@ -422,7 +422,7 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
  * Net-worth COMPOSITION over time (#6) — how the asset/debt MIX shifted, not just the
  * single net-worth line. Derived at READ time from account_balance_history (one row per
  * account per day, written by the nightly cron for every non-hidden account), bucketed by
- * account_group() into 5 bands, with the estimated home value layered on per date.
+ * account_group() into 6 bands, with the estimated home value layered on per date.
  *
  * Deliberately HOUSEHOLD-WIDE (NOT VIS-scoped), excluding only 'hidden' — it decomposes the
  * household net-worth LINE (q_networth / balance_snapshots), which is itself household-wide,
@@ -440,9 +440,9 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
  * So the composition span can be SHORTER than the net-worth line — that's intended, not a bug.
  *
  * Bands (display/stack order): Cash (checking+savings+other-deposit) · Investments · Retirement ·
- * Home (asset, layered from the valuation timeline) · Debt (credit+loans, returned NEGATIVE so the
- * stack nets to net worth). A band that's flat-zero across the whole window is dropped (no home /
- * no retirement account ⇒ no empty legend entry).
+ * Vehicles (manual vehicle assets, #40) · Home (asset, layered from the valuation timeline) · Debt
+ * (credit+loans, returned NEGATIVE so the stack nets to net worth). A band that's flat-zero across
+ * the whole window is dropped (no home / no retirement / no vehicle ⇒ no empty legend entry).
  *
  * Returns ['labels'=>[date…], 'series'=>[['label'=>…,'values'=>[…]]…],
  *          'current'=>['Cash'=>…, …, 'net'=>…], 'net'=>[per-date sum]].
@@ -472,6 +472,7 @@ function q_networth_composition(PDO $pdo, int $days = 365): array
             case 'savings':     return 'Cash';
             case 'investments': return 'Investments';
             case 'retirement':  return 'Retirement';
+            case 'vehicle':     return 'Vehicles';   // manual vehicle asset (#40)
             case 'credit':
             case 'loans':       return 'Debt';
             default:            return 'Cash';
@@ -492,7 +493,7 @@ function q_networth_composition(PDO $pdo, int $days = 365): array
     }
 
     $tl     = nw_home_timeline($pdo);            // home value timeline (ABH stores accounts only)
-    $bands  = ['Cash', 'Investments', 'Retirement', 'Home', 'Debt'];
+    $bands  = ['Cash', 'Investments', 'Retirement', 'Vehicles', 'Home', 'Debt'];
     $series = array_fill_keys($bands, []);
     $labels = [];
     $net    = [];
@@ -500,12 +501,14 @@ function q_networth_composition(PDO $pdo, int $days = 365): array
         $cash = round((float)($byDate[$d]['Cash'] ?? 0.0), 2);
         $inv  = round((float)($byDate[$d]['Investments'] ?? 0.0), 2);
         $ret  = round((float)($byDate[$d]['Retirement'] ?? 0.0), 2);
+        $veh  = round((float)($byDate[$d]['Vehicles'] ?? 0.0), 2);   // manual vehicle assets (#40)
         $debt = round((float)($byDate[$d]['Debt'] ?? 0.0), 2);   // positive here
         // Reconcile gate: skip a date with no household snapshot, or whose financial-account
         // net doesn't match it (incomplete ABH that day). $1 tolerance covers cent rounding.
-        if (!isset($bs[$d]) || abs(($cash + $inv + $ret - $debt) - $bs[$d]) > 1.0) continue;
+        // Vehicles are assets in balance_snapshots' else-branch, so include them in the sum.
+        if (!isset($bs[$d]) || abs(($cash + $inv + $ret + $veh - $debt) - $bs[$d]) > 1.0) continue;
 
-        $vals = ['Cash' => $cash, 'Investments' => $inv, 'Retirement' => $ret,
+        $vals = ['Cash' => $cash, 'Investments' => $inv, 'Retirement' => $ret, 'Vehicles' => $veh,
                  'Home' => round(nw_home_at($tl, $d), 2), 'Debt' => -$debt];  // debt below zero
         $labels[] = $d;
         $n = 0.0;
@@ -2809,6 +2812,7 @@ const ACCOUNT_GROUPS = [
     'savings'     => 'Savings',
     'investments' => 'Investments',
     'retirement'  => 'Retirement',
+    'vehicle'     => 'Vehicles',
     'credit'      => 'Credit cards',
     'loans'       => 'Loans',
     'other'       => 'Other',
@@ -2830,6 +2834,7 @@ function account_group(array $a): string
         case 'credit':     return 'credit';
         case 'loan':       return 'loans';
         case 'investment': return 'investments';
+        case 'vehicle':    return 'vehicle';   // manual vehicle asset (#40)
         default:           return 'other';
     }
 }
@@ -2871,6 +2876,24 @@ function q_tax_summaries(PDO $pdo, string $accountId): array
     return $st->fetchAll();
 }
 
+/**
+ * The vehicle_assets basis row for a vehicle account (#40, migration 028), or null.
+ * The caller must have already fetched the account via q_account() (which enforces
+ * visibility) — this is keyed by account_id, mirroring q_manual_documents(). Defensive:
+ * a missing table (pre-migration-028) or any error returns null, never fatals.
+ */
+function q_vehicle_asset(PDO $pdo, string $accountId): ?array
+{
+    try {
+        $st = $pdo->prepare('SELECT * FROM vehicle_assets WHERE account_id = ? LIMIT 1');
+        $st->execute([$accountId]);
+        $row = $st->fetch();
+        return $row ?: null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
 /* ---- Manual-statement cadence / overdue warning (migration 010) ----------- */
 
 /** Days of grace allowed after a period closes before its statement is "overdue". */
@@ -2888,6 +2911,7 @@ function statement_cadence_effective(array $a): string
     $c = $a['statement_cadence'] ?? null;
     if ($c !== null && $c !== '') return (string)$c;   // explicit override, incl. 'off'
     if (!is_manual($a)) return 'off';
+    if (($a['manual_type'] ?? '') === 'vehicle') return 'off';   // a vehicle has no statements (#40)
     if (($a['manual_type'] ?? '') === 'retirement_401k') return 'quarterly';
     return 'monthly';
 }

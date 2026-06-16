@@ -24,6 +24,7 @@ require __DIR__ . '/../lib/prices.php';
 require __DIR__ . '/../lib/dividends.php';
 require __DIR__ . '/../lib/home_value.php';
 require __DIR__ . '/../lib/fred.php';
+require __DIR__ . '/../lib/vehicles.php';
 require __DIR__ . '/../lib/digest.php';
 require __DIR__ . '/../lib/spend_alerts.php';
 
@@ -51,6 +52,17 @@ foreach ($items as $item) {
     } else {
         echo "  item {$item['item_id']}: FAILED — " . ($r['error'] ?? '?') . "\n";
     }
+}
+
+// Re-age manual vehicle assets (#40) into accounts.balance_current BEFORE the snapshot +
+// balance-history below read it, so the depreciation curve advances day by day and net
+// worth/history pick it up. Pure local math (no external call); try/catch per the S22
+// resilience contract. No-op when there are no vehicles.
+try {
+    $vn = vehicle_revalue_all($pdo);
+    if ($vn > 0) echo "[" . date('Y-m-d H:i:s T') . "] vehicles: revalued {$vn} asset(s)\n";
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] vehicles: FAILED — " . $e->getMessage() . "\n";
 }
 
 write_networth_snapshot($pdo);

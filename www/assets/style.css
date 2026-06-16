@@ -817,6 +817,15 @@ a.cat-row:hover { background: var(--surface-2); }
 .stack-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 .input { font: inherit; padding: 11px 13px; border: 1px solid var(--line);
   border-radius: var(--r-sm); background: var(--surface); color: var(--ink); width: 100%; }
+/* Vehicle add/edit form (#40). */
+.veh-vin-form { margin-bottom: 2px; }
+.veh-vin-row { display: flex; gap: 8px; align-items: stretch; }
+.veh-vin-row .input { flex: 1; min-width: 0; }
+.veh-vin-row .btn-ghost { white-space: nowrap; }
+.veh-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; }
+.veh-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0 2px; }
+.veh-section-note { font-size: .85rem; margin: 0; }
+
 .upload-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .file-input { padding: 9px; cursor: pointer; }
 .file-input::file-selector-button { font: inherit; font-weight: 600; margin-right: 10px;
