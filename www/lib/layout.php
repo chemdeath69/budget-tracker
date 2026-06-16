@@ -435,6 +435,18 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     // a logging/query failure must never break the render.
     $actUid = function_exists('current_user_id') ? current_user_id() : null;
     if ($actUid !== null) access_log_page(db(), (int)$actUid);
+
+    // --- Per-user theme override (UI redesign Phase 2; migration 030) ------------
+    // Light/Dark/Auto, set in Settings → Appearance, stored in user_prefs.theme. We
+    // render it onto <html data-theme> server-side (no flash — no inline guard needed),
+    // and make the color-scheme + theme-color metas match a forced theme. Auto = no
+    // attribute → CSS prefers-color-scheme wins. Defensive (function_exists + the
+    // q_user_prefs try/catch) so a pre-migration DB can't 500 every page.
+    $theme = 'auto';
+    if ($actUid !== null && function_exists('q_user_prefs')) {
+        $theme = user_prefs_theme(q_user_prefs(db(), (int)$actUid));
+    }
+    $htmlThemeAttr = $theme === 'auto' ? '' : ' data-theme="' . $theme . '"';
     if (isset($_GET['dismiss_sync_alert'])) {                        // per-session dismiss
         $_SESSION['sync_alert_dismissed'] = (string)$_GET['dismiss_sync_alert'];
     }
@@ -452,13 +464,21 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     $dismissHref = '?' . http_build_query(array_merge($_GET, ['dismiss_sync_alert' => $syncAlert['signature'] ?? '']));
     ?>
 <!doctype html>
-<html lang="en">
+<html lang="en"<?= $htmlThemeAttr ?>>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <?php if ($theme === 'light'): ?>
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#F7F4EE">
+    <?php elseif ($theme === 'dark'): ?>
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#14130F">
+    <?php else: ?>
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#F7F4EE" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#14130F" media="(prefers-color-scheme: dark)">
+    <?php endif; ?>
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title><?= e($title) ?> · Budget Tracker</title>
     <link rel="preload" href="/assets/fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>

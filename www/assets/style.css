@@ -41,9 +41,15 @@
   --shadow-sm: 0 1px 2px rgba(40, 30, 15, .05);
 }
 
+/* Quiet Wealth — dark (deep ink) palette. Applied in TWO cases (UI redesign Phase 2):
+   (1) Auto — the OS prefers dark AND the user hasn't forced a theme (no [data-theme]);
+   (2) Forced dark — the user picked Dark in Settings → Appearance ([data-theme=dark]),
+       regardless of OS.
+   ⚠️ The two rules below share ONE identical token list — KEEP THEM IN SYNC when
+   re-pointing the palette. (CSS can't share a declaration block across a media query
+   and a plain selector without a build step, hence the deliberate duplication.) */
 @media (prefers-color-scheme: dark) {
-  :root {
-    /* Quiet Wealth — dark (deep ink). */
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
     --bg: #14130F;
     --surface: #1C1A15;
     --surface-2: #24211A;
@@ -71,6 +77,33 @@
     --shadow-sm: none;
   }
 }
+:root[data-theme="dark"] {
+  --bg: #14130F;
+  --surface: #1C1A15;
+  --surface-2: #24211A;
+  --surface-3: #2C2820;
+  --ink: #ECE7DD;
+  --ink-2: #B7AE9D;
+  --muted: #827A6B;
+  --line: #2E2A22;
+  --line-2: #39342A;
+  --brand: #C9A164;
+  --brand-ink: #1B1A17;
+  --brand-weak: rgba(201, 161, 100, .16);
+  --brass: #C9A164; --brass-2: #D9B57E; --brass-weak: rgba(201, 161, 100, .16);
+  --teal: #4FB89E; --teal-weak: rgba(79, 184, 158, .16);
+  --pos: #4FB89E;
+  --neg: #D9745F;
+  --neg-weak: rgba(217, 116, 95, .16);
+  --warn-bg: #2A2113; --warn-ink: #D9B57E; --warn-line: #4A3B20;
+  --track: #2C2820;
+  --shadow-1: 0 14px 40px rgba(0, 0, 0, .5);
+  --shadow-2: 0 18px 50px rgba(0, 0, 0, .6);
+  --shadow-sm: none;
+}
+/* A forced theme also drives native UI (form controls, scrollbars, date pickers). */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"]  { color-scheme: dark; }
 
 /* ---- Fonts (self-hosted woff2; latin subset; full variable weight axis) -- */
 @font-face {
@@ -587,6 +620,23 @@ a.cat-row:hover { background: var(--surface-2); }
 }
 .switch:checked::after { transform: translateX(19px); }
 .switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ---- Settings section row + segmented control (Phase 2 — Appearance) ----- */
+/* A generic label↔control row inside a settings .card (mirrors .alert-row but
+   without the toggle-row coupling); used by the theme picker. */
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.set-label { display: flex; flex-direction: column; gap: 2px; font-weight: 600; min-width: 0; }
+.set-sub { font-weight: 500; font-size: .8rem; color: var(--muted); }
+/* Segmented control (Light · Dark · Auto). A pill track of buttons; the active one
+   gets the brass fill. Theme-aware via --var tokens (no hard-coded hex). */
+.seg { display: inline-flex; flex: none; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 3px; }
+.seg-btn {
+  border: 0; background: transparent; color: var(--ink-2); font: inherit; font-weight: 600;
+  font-size: .82rem; padding: 7px 16px; border-radius: var(--r-pill); cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.seg-btn.on { background: var(--brand); color: var(--brand-ink); }
+.seg-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* ---- Search bar --------------------------------------------------------- */
 .search-bar { display: flex; gap: 8px; align-items: center; }

@@ -702,6 +702,40 @@ function initAlertSettings() {
   controls.forEach(el => el.addEventListener('change', save));
 }
 
+/* ---- Theme (Light/Dark/Auto) — Settings → Appearance (Phase 2) ----------- */
+/* The server already renders the saved theme onto <html data-theme> (no flash).
+   This segmented control applies the choice instantly for live feedback, then
+   persists it via /api/prefs.php; on failure it reverts the UI + the attribute. */
+function applyTheme(t) {
+  const html = document.documentElement;
+  if (t === 'light' || t === 'dark') html.setAttribute('data-theme', t);
+  else html.removeAttribute('data-theme');   // 'auto' → media query wins
+}
+function initTheme() {
+  const seg = document.getElementById('theme-seg');
+  if (!seg) return;
+  seg.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.seg-btn[data-theme]');
+    if (!btn || btn.classList.contains('on')) return;
+    const theme = btn.dataset.theme;
+    const prevBtn = seg.querySelector('.seg-btn.on');
+    const prevTheme = prevBtn ? prevBtn.dataset.theme : 'auto';
+    const setActive = (el) => seg.querySelectorAll('.seg-btn').forEach(b => {
+      const on = b === el;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    setActive(btn);
+    applyTheme(theme);                         // optimistic
+    const out = await postJSON('/api/prefs.php', { theme });
+    if (!out || !out.ok) {
+      applyTheme(prevTheme);                    // revert
+      if (prevBtn) setActive(prevBtn);
+      toast((out && out.error) || 'Could not save theme');
+    }
+  });
+}
+
 /* ---- Transaction notes (#8) ---------------------------------------------- */
 /* Click a `.note-btn[data-tx]` → inline input prefilled with the current note;
    Enter / blur commits `action=set_note`, Escape cancels. The button is rebuilt
@@ -1303,6 +1337,7 @@ initRefresh();
 initBudgets();
 initGoals();
 initAlertSettings();
+initTheme();
 initTxNotes();
 initTxTags();
 initTxSplits();

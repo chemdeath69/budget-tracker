@@ -916,6 +916,40 @@ function q_spending_plan(PDO $pdo): array
     return ['monthly_savings_target' => max(0.0, $target)];
 }
 
+/* ---- Per-user preferences (UI redesign Phase 2; migration 030) ----------- */
+
+/** Allowed values of the per-user theme preference. */
+const USER_PREF_THEMES = ['light', 'dark', 'auto'];
+
+/**
+ * The viewer's own preferences (NOT VIS-scoped — keyed by user_id). Defensive: a
+ * missing table (pre-migration-030), a NULL/invalid JSON blob, or any transient
+ * error → the empty array, so a fresh user and a pre-migration DB both fall back to
+ * the defaults at the point of use (theme via user_prefs_theme()). Phase 3 will read
+ * the dashboard layout from the same blob. Returns the decoded prefs as an assoc array.
+ */
+function q_user_prefs(PDO $pdo, int $uid): array
+{
+    try {
+        $st = $pdo->prepare("SELECT prefs FROM user_prefs WHERE user_id = :uid");
+        $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+        $st->execute();
+        $raw = $st->fetchColumn();
+        if ($raw === false || $raw === null || $raw === '') return [];
+        $decoded = json_decode((string)$raw, true);
+        return is_array($decoded) ? $decoded : [];
+    } catch (Throwable $e) {
+        return [];   // table missing / transient — caller uses defaults.
+    }
+}
+
+/** Validate a prefs theme to one of USER_PREF_THEMES (default 'auto'). */
+function user_prefs_theme(array $prefs): string
+{
+    $t = $prefs['theme'] ?? 'auto';
+    return in_array($t, USER_PREF_THEMES, true) ? $t : 'auto';
+}
+
 /**
  * Per-cash-account interest income over the trailing $days window (VIS-scoped) + the
  * earliest observed transaction date per account, for the savings-rate estimate (TODO2 #38).

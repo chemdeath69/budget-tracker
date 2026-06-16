@@ -853,3 +853,16 @@ CREATE TABLE sync_run_step (
   KEY idx_runstep_run (run_id),
   CONSTRAINT fk_runstep_run FOREIGN KEY (run_id) REFERENCES sync_run (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- user_prefs — per-user personal preferences (UI redesign Phase 2+; migration 030).
+-- One JSON blob per user: `theme` (light|dark|auto) now; Phase 3 adds the
+-- customizable-dashboard layout. NOT VIS-scoped (the viewer's own prefs, keyed by
+-- user_id). Read by q_user_prefs(); written by api/prefs.php. Absence = defaults.
+-- ---------------------------------------------------------------------------
+CREATE TABLE user_prefs (
+  user_id    INT UNSIGNED NOT NULL,
+  prefs      JSON         NULL,                  -- {"theme":"light|dark|auto", ...}
+  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

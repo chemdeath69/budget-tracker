@@ -13,6 +13,7 @@ $uid  = current_user_id();
 // everywhere else in the app, including their own account.php drill-down).
 $owned  = q_owned_accounts($pdo, $uid);
 $alerts = q_alert_settings($pdo);   // household-shared notification prefs (TODO #14)
+$theme  = user_prefs_theme(q_user_prefs($pdo, $uid));  // per-user Light/Dark/Auto (Phase 2)
 
 render_header('Settings', 'settings', ['narrow' => true]);
 ?>
@@ -26,9 +27,27 @@ render_header('Settings', 'settings', ['narrow' => true]);
     </div>
 </section>
 
-<!-- Link -->
+<!-- Appearance (Phase 2 — per-user Light/Dark/Auto theme) -->
 <section class="block">
-    <div class="block-head"><h2>Banks</h2></div>
+    <div class="block-head"><h2>Appearance</h2></div>
+    <div class="card">
+        <div class="set-row">
+            <span class="set-label">Theme
+                <span class="set-sub">Light, dark, or follow your device</span></span>
+            <span class="seg" id="theme-seg" role="group" aria-label="Theme">
+                <?php foreach (['light' => 'Light', 'dark' => 'Dark', 'auto' => 'Auto'] as $val => $lbl):
+                    $on = $theme === $val; ?>
+                <button type="button" class="seg-btn<?= $on ? ' on' : '' ?>" data-theme="<?= e($val) ?>"
+                        aria-pressed="<?= $on ? 'true' : 'false' ?>"><?= e($lbl) ?></button>
+                <?php endforeach; ?>
+            </span>
+        </div>
+    </div>
+</section>
+
+<!-- Banks & accounts -->
+<section class="block">
+    <div class="block-head"><h2>Banks &amp; accounts</h2></div>
     <a class="card action-card" href="/link.php">
         <span class="acct-icon"><?= nav_icon('bank') ?></span>
         <span class="acct-main">
@@ -185,7 +204,5 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
         <span class="chev" aria-hidden="true">›</span>
     </a>
 </section>
-
-<p class="muted load-note">Appearance follows your device's light/dark setting.</p>
 
 <?php render_footer(); ?>
