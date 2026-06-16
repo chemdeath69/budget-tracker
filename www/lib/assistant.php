@@ -102,17 +102,29 @@ function assistant_tools(): array
             ]],
         ],
         [
-            'name'        => 'search_transactions',
-            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", etc. Returns at most ~40 rows newest-first; narrow with filters rather than asking for everything.',
+            'name'        => 'find_merchants',
+            'description' => 'Find merchants/payees by an APPROXIMATE name, ignoring punctuation, spacing, and capitalization, and tolerating small typos — so "OAces" finds "O\'Aces Bar & Grill", "mcd" finds "McDonald\'s", "starbcks" finds "Starbucks". Returns the matching CANONICAL merchant names, ranked best-match first, each with how many transactions, total spent, total received, and the first/last date (optionally within a window). USE THIS FIRST whenever the user names a place/store/business/payee — to discover the real spelling, to count visits, or before search_transactions. Then answer from the count/totals, or pass the exact returned `merchant` to search_transactions to list the rows. The candidates may include a few near-misses — judge by the name (and any context the user gave) and use the one(s) that genuinely match; never claim "no transactions" until this returns nothing.',
             'input_schema' => ['type' => 'object', 'properties' => [
-                'q'        => ['type' => 'string', 'description' => 'Free-text search over merchant, raw name, category, and account-owner first name.'],
-                'category' => ['type' => 'string', 'description' => 'Exact Plaid category code, e.g. FOOD_AND_DRINK, TRANSPORTATION, GENERAL_MERCHANDISE.'],
-                'merchant' => ['type' => 'string', 'description' => 'Exact merchant/payee name as shown on the ledger.'],
-                'from'     => ['type' => 'string', 'description' => 'Earliest date, YYYY-MM-DD.'],
-                'to'       => ['type' => 'string', 'description' => 'Latest date, YYYY-MM-DD.'],
-                'amin'     => ['type' => 'number', 'description' => 'Minimum dollar magnitude (ABS amount).'],
-                'amax'     => ['type' => 'number', 'description' => 'Maximum dollar magnitude (ABS amount).'],
-                'limit'    => $int('Max rows', 40, 1, 40),
+                'q'     => ['type' => 'string', 'description' => 'Approximate merchant name or the distinctive keyword(s), e.g. "oaces", "starbucks", "amazon". Keep it short — every word you give must appear in the name.'],
+                'days'  => $int('Only count transactions within the last N days (omit for all history)', 365, 1, 1825),
+                'from'  => ['type' => 'string', 'description' => 'Earliest date YYYY-MM-DD (overrides days).'],
+                'to'    => ['type' => 'string', 'description' => 'Latest date YYYY-MM-DD.'],
+                'limit' => $int('Max merchants to return', 25, 1, 50),
+            ], 'required' => ['q']],
+        ],
+        [
+            'name'        => 'search_transactions',
+            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", etc. Returns at most ~40 rows newest-first; narrow with filters rather than asking for everything. To match a merchant when you are unsure of the exact spelling, prefer find_merchants first (or use merchant_fuzzy here) — a plain `q` is a literal substring and will MISS names with punctuation (e.g. "OAces" will not match "O\'Aces Bar & Grill").',
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'q'              => ['type' => 'string', 'description' => 'Free-text LITERAL substring search over merchant, raw name, category, and account-owner first name (no fuzzy matching — use merchant_fuzzy / find_merchants for approximate merchant names).'],
+                'category'       => ['type' => 'string', 'description' => 'Exact Plaid category code, e.g. FOOD_AND_DRINK, TRANSPORTATION, GENERAL_MERCHANDISE.'],
+                'merchant'       => ['type' => 'string', 'description' => 'EXACT merchant/payee name as shown on the ledger (e.g. the value returned by find_merchants).'],
+                'merchant_fuzzy' => ['type' => 'string', 'description' => 'APPROXIMATE merchant name — matches ignoring punctuation/spacing/case (e.g. "oaces" → "O\'Aces Bar & Grill"). Use this instead of `merchant`/`q` when you don\'t know the exact spelling and just want the rows in one step.'],
+                'from'           => ['type' => 'string', 'description' => 'Earliest date, YYYY-MM-DD.'],
+                'to'             => ['type' => 'string', 'description' => 'Latest date, YYYY-MM-DD.'],
+                'amin'           => ['type' => 'number', 'description' => 'Minimum dollar magnitude (ABS amount).'],
+                'amax'           => ['type' => 'number', 'description' => 'Maximum dollar magnitude (ABS amount).'],
+                'limit'          => $int('Max rows', 40, 1, 40),
             ]],
         ],
         [
@@ -176,6 +188,7 @@ Rules:
 - Amount sign convention in this app: "+" means money OUT (an expense/payment) and "−" means money IN (income/credit/refund). The spending and cash-flow tools already account for this — present spending as positive dollars and income as positive dollars; don't show raw signs to the user.
 - Format money as US dollars (e.g. $1,234.56). Round sensibly. Use the user's own words for categories when natural (e.g. "dining" for FOOD_AND_DRINK).
 - You can call several tools, in sequence, to build an answer (e.g. find an account, then its transactions). Be efficient — request only what you need, and prefer one focused query over many broad ones.
+- Merchant/payee names in the data often include punctuation, abbreviations, or extra words the user will NOT type exactly — the bar "O'Aces Bar & Grill" for "OAces", "AMZN MKTP" for Amazon, "SQ *COFFEE" for a coffee shop. So when the user names a place/store/business, do NOT assume a plain search matches: call find_merchants with a short approximate term (it matches ignoring punctuation/spacing/case and tolerates small typos) to discover the real name(s) and visit counts, then answer from those, or pass the exact returned merchant name to search_transactions. The candidate list may contain a few near-misses — examine the names (and any context the user gave, like "my favorite bar") and use only the one(s) that genuinely match; if two are plausible, briefly ask or present the options. Only say "no transactions / none" AFTER find_merchants also comes back empty.
 - Keep answers short and skimmable. Lead with the direct answer, then a brief supporting detail or two. Use a short bulleted list for multiple figures. No preamble like "Sure!".
 - This data is already scoped to what the asking user is allowed to see; you don't need to worry about permissions.
 - You are READ-ONLY: you cannot add, change, or delete anything (no creating budgets, paying bills, moving money). If asked to act, explain that you can only look things up and suggest where in the app to do it.
@@ -262,9 +275,32 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
             ];
         }
 
+        case 'find_merchants': {
+            $term = trim((string)($in['q'] ?? ''));
+            if ($term === '') return ['error' => 'provide an approximate merchant name to search for', 'merchants' => [], 'count' => 0];
+            $opts = ['limit' => $clampInt($in['limit'] ?? null, 25, 1, 50)];
+            if (isset($in['from']) && trim((string)$in['from']) !== '') $opts['from'] = (string)$in['from'];
+            if (isset($in['to'])   && trim((string)$in['to'])   !== '') $opts['to']   = (string)$in['to'];
+            // days → from (app-TZ), only when no explicit from was given.
+            if (!isset($opts['from']) && isset($in['days']) && is_numeric($in['days'])) {
+                $d = $clampInt($in['days'], 365, 1, 1825);
+                $opts['from'] = date('Y-m-d', strtotime("-{$d} days"));
+            }
+            $rows = q_merchant_search($pdo, $uid, $term, $opts);
+            $out  = array_map(fn($r) => [
+                'merchant'     => $r['merchant'],
+                'transactions' => (int)$r['txn_count'],
+                'spent'        => assistant_money($r['spent']),
+                'received'     => assistant_money($r['received']),
+                'first_date'   => $r['first_date'],
+                'last_date'    => $r['last_date'],
+            ], $rows);
+            return ['query' => $term, 'window_from' => $opts['from'] ?? null, 'merchants' => $out, 'count' => count($out)];
+        }
+
         case 'search_transactions': {
             $opts = [];
-            foreach (['q', 'category', 'merchant', 'from', 'to'] as $k) {
+            foreach (['q', 'category', 'merchant', 'merchant_fuzzy', 'from', 'to'] as $k) {
                 if (isset($in[$k]) && trim((string)$in[$k]) !== '') $opts[$k] = (string)$in[$k];
             }
             foreach (['amin', 'amax'] as $k) {

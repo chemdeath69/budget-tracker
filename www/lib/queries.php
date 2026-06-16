@@ -1368,6 +1368,31 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         $where[] = "COALESCE(NULLIF(t.merchant_name, ''), t.name) = :merch";
         $params[':merch'] = (string)$opts['merchant'];
     }
+    if (!empty($opts['merchant_fuzzy'])) {
+        // Fuzzy merchant match for the AI assistant (#27 fuzzy-search upgrade) — match the
+        // merchant display name with punctuation/spacing/case stripped from BOTH sides, so
+        // "OAces" finds "O'Aces Bar & Grill". Tokenises the term and requires EACH token to
+        // appear as a substring of the normalised name (word order / extra words don't matter).
+        // ADDITIVE opt — only the assistant sets it; the UI/CSV (transactions.php, account.php,
+        // api/export.php) never do, so those stay byte-for-byte in lock-step. Distinct :mf*
+        // placeholders → HY093-safe. Typo tolerance (Levenshtein) is NOT done here — that lives
+        // in q_merchant_search()/find_merchants (discovery); the agent resolves the canonical
+        // spelling there first, then drills in with the exact `merchant` filter.
+        $mfTokens = merchant_search_tokens((string)$opts['merchant_fuzzy']);
+        if (!$mfTokens) {
+            // A non-empty term that tokenises to nothing (e.g. "&&&", "'''") must match NOTHING,
+            // never silently fall through to the whole ledger — an empty filter returning every
+            // row would let the assistant present unrelated transactions as "your X charges".
+            $where[] = '1=0';
+        } else {
+            $mfDisp = "COALESCE(NULLIF(t.merchant_name, ''), t.name)";
+            $mfNorm = "LOWER(REGEXP_REPLACE($mfDisp, '[^a-zA-Z0-9]+', ''))";
+            foreach ($mfTokens as $k => $tok) {
+                $where[] = "$mfNorm LIKE :mf$k";
+                $params[":mf$k"] = '%' . $tok . '%';
+            }
+        }
+    }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
     // Amount-range filter (spec §5.2) on the DOLLAR MAGNITUDE — `ABS(t.amount)` — because the
@@ -1412,6 +1437,123 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * Tokenise a free-text merchant-search term (#27 fuzzy-search upgrade): split on any
+ * non-alphanumeric run, lowercase, dedupe, cap at 6 tokens. So "O'Aces Bar" → ['oaces','bar'],
+ * "OAces" → ['oaces'] (no separator = one token), "  " → []. Shared by q_transactions'
+ * merchant_fuzzy opt (SQL substring match) and q_merchant_search() (PHP match + typo pass) so
+ * the two agree on what a "token" is. Returns [] for an empty/garbage term (callers no-op then).
+ */
+function merchant_search_tokens(string $term): array
+{
+    $parts = preg_split('/[^a-z0-9]+/i', trim($term), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $seen = [];
+    foreach ($parts as $p) {
+        $p = strtolower($p);
+        if ($p === '' || isset($seen[$p])) continue;
+        $seen[$p] = true;
+        if (count($seen) >= 6) break;
+    }
+    return array_keys($seen);
+}
+
+/**
+ * Score how well a merchant display name matches a set of normalised query tokens (#27).
+ * PURE — no DB — so it is unit-testable and shared by q_merchant_search().
+ *
+ * Each query token must match the merchant, either as a contiguous substring of the
+ * punctuation-stripped name (cost 0 — the "OAces" → "O'Aces Bar & Grill" case) OR, for tokens
+ * of length ≥ 4, within a small Levenshtein distance of one of the merchant's word-tokens
+ * (typo tolerance — "starbcks" → "Starbucks"); a typo match costs its edit distance + 0.5 so a
+ * clean match always ranks above a fuzzy one. If ANY token fails, the merchant does not match
+ * (returns null). Otherwise returns the summed cost (0 = every token matched exactly), which
+ * the caller uses as the primary sort key (lower = better).
+ */
+function merchant_match_score(array $tokens, string $merchant): ?float
+{
+    $low      = strtolower($merchant);
+    $normFull = (string)preg_replace('/[^a-z0-9]+/', '', $low);
+    if ($normFull === '') return null;
+    $mTokens  = preg_split('/[^a-z0-9]+/', $low, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+    $total = 0.0;
+    foreach ($tokens as $qt) {
+        $len = strlen($qt);
+        if ($len === 0) continue;
+        if (strpos($normFull, $qt) !== false) continue;   // strong contiguous match → cost 0
+        if ($len < 4) return null;                         // too short to fuzzy-match safely
+        $thr  = $len <= 5 ? 1 : 2;                          // allow 1–2 typos by token length
+        $best = PHP_INT_MAX;
+        foreach ($mTokens as $mt) {
+            if (abs(strlen($mt) - $len) > $thr) continue;   // length gap can't be within $thr edits
+            $d = levenshtein($qt, $mt);
+            if ($d < $best) $best = $d;
+        }
+        if ($best > $thr) return null;                      // this token didn't match the name
+        $total += $best + 0.5;                              // a typo match ranks below an exact one
+    }
+    return $total;
+}
+
+/**
+ * Fuzzy merchant discovery (#27 fuzzy-search upgrade) — find distinct payees whose name
+ * LOOSELY matches a free-text term, ignoring punctuation / spacing / capitalization (and
+ * tolerating small typos), so "OAces" finds "O'Aces Bar & Grill" and "starbcks" finds
+ * "Starbucks". VIS-scoped. Aggregates per canonical merchant over an optional date window so
+ * the assistant can both (a) answer "how many transactions at X" directly and (b) learn the
+ * exact merchant spelling to drill in with q_transactions' exact `merchant` filter.
+ *
+ * Casts a wide RECALL net (the SQL just aggregates every visible merchant in the window — a
+ * few hundred rows for this 2-person household, so a full scan is fine); PRECISION is done in
+ * PHP via merchant_match_score() (where Levenshtein lives) and the result is RANKED best-first
+ * so the model gets a clean, ordered candidate set it can reason over. Sign convention: in this
+ * app `+` = money out, so `spent` sums positive amounts and `received` sums |negatives|.
+ *
+ * $opts: from / to (Y-m-d window, app-TZ — pass dates, never CURDATE()), limit (default 25, cap 50).
+ * Returns rows: [merchant, txn_count, spent, received, first_date, last_date] best-match first.
+ */
+function q_merchant_search(PDO $pdo, int $uid, string $term, array $opts = []): array
+{
+    $tokens = merchant_search_tokens($term);
+    if (!$tokens) return [];
+    $limit = max(1, min(50, (int)($opts['limit'] ?? 25)));
+
+    $disp   = "COALESCE(NULLIF(t.merchant_name, ''), t.name)";
+    $where  = [VIS, "$disp <> ''"];
+    $params = [':uid' => $uid];
+    if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
+    if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
+
+    $sql = "SELECT $disp AS merchant,
+                   COUNT(*) AS txn_count,
+                   ROUND(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 2) AS spent,
+                   ROUND(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 2) AS received,
+                   MIN(t.date) AS first_date, MAX(t.date) AS last_date
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.account_id
+            JOIN items i ON a.item_id = i.item_id
+            WHERE " . implode(' AND ', $where) . "
+            GROUP BY $disp";
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+
+    $scored = [];
+    foreach ($st->fetchAll() as $m) {
+        $score = merchant_match_score($tokens, (string)$m['merchant']);
+        if ($score === null) continue;
+        $m['_score'] = $score;
+        $scored[] = $m;
+    }
+    // Rank: best match first (lower score), then most transactions, then most recent.
+    usort($scored, fn($a, $b) =>
+        [$a['_score'], -(int)$a['txn_count'], $b['last_date']]
+        <=> [$b['_score'], -(int)$b['txn_count'], $a['last_date']]);
+    $scored = array_slice($scored, 0, $limit);
+    foreach ($scored as &$s) unset($s['_score']);
+    unset($s);
+    return $scored;
 }
 
 /**
