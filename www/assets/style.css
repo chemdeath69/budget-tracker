@@ -5,56 +5,95 @@
 
 :root {
   color-scheme: light dark;
-  --r-sm: 10px; --r: 14px; --r-lg: 20px; --r-pill: 999px;
+  --r-sm: 10px; --r: 16px; --r-lg: 22px; --r-pill: 999px;
   --gap: 14px;
   --screen-max: 600px;
   --banner-h: 56px;
 
-  /* light theme */
-  --bg: #eef1f6;
-  --surface: #ffffff;
-  --surface-2: #f5f7fa;
-  --ink: #0f172a;
-  --ink-2: #475569;
-  --muted: #8a94a6;
-  --line: #e6e9ef;
-  --brand: #4f46e5;
+  /* Type (Quiet Wealth) — Fraunces serif for figures/headings, IBM Plex Sans body. */
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --font: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Quiet Wealth — light (warm paper). The legacy token NAMES are kept and
+     re-pointed at the new palette, so the whole stylesheet reskins with no
+     template edits; the canonical --brass/--teal/etc. are added for new work. */
+  --bg: #F7F4EE;
+  --surface: #FFFFFF;
+  --surface-2: #F1ECE2;
+  --surface-3: #EBE4D7;
+  --ink: #1B1A17;
+  --ink-2: #5C564C;
+  --muted: #938B7C;
+  --line: #E7E0D4;
+  --line-2: #DED5C5;
+  --brand: #A8814C;            /* brass — primary */
   --brand-ink: #ffffff;
-  --brand-weak: rgba(79, 70, 229, .12);
-  --pos: #0a8f5b;
-  --neg: #d6443b;
-  --warn-bg: #fff7ed; --warn-ink: #b45309; --warn-line: #fcd9a8;
-  --track: #e9edf3;
-  --shadow-1: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .05);
-  --shadow-2: 0 12px 34px rgba(16, 24, 40, .16);
+  --brand-weak: rgba(168, 129, 76, .12);
+  --brass: #A8814C; --brass-2: #C39A5E; --brass-weak: rgba(168, 129, 76, .12);
+  --teal: #2C8C7A; --teal-weak: rgba(44, 140, 122, .12);
+  --pos: #2C8C7A;             /* teal — positive */
+  --neg: #B4503F;             /* clay — negative */
+  --neg-weak: rgba(180, 80, 63, .12);
+  --warn-bg: #FBF0DD; --warn-ink: #9A6B22; --warn-line: #EAD3A4;
+  --track: #EBE4D7;
+  --shadow-1: 0 1px 2px rgba(40, 30, 15, .04), 0 14px 40px rgba(40, 30, 15, .06);
+  --shadow-2: 0 18px 50px rgba(40, 30, 15, .16);
+  --shadow-sm: 0 1px 2px rgba(40, 30, 15, .05);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0f17;
-    --surface: #131925;
-    --surface-2: #1a2230;
-    --ink: #e8edf5;
-    --ink-2: #aeb9c8;
-    --muted: #6b7686;
-    --line: #28303f;
-    --brand: #7c83ff;
-    --brand-ink: #0b0f17;
-    --brand-weak: rgba(124, 131, 255, .16);
-    --pos: #34d399;
-    --neg: #f87171;
-    --warn-bg: #2a1f12; --warn-ink: #fbbf24; --warn-line: #4a3a1e;
-    --track: #232c3b;
-    --shadow-1: none;
-    --shadow-2: 0 12px 34px rgba(0, 0, 0, .55);
+    /* Quiet Wealth — dark (deep ink). */
+    --bg: #14130F;
+    --surface: #1C1A15;
+    --surface-2: #24211A;
+    --surface-3: #2C2820;
+    --ink: #ECE7DD;
+    --ink-2: #B7AE9D;
+    --muted: #827A6B;
+    --line: #2E2A22;
+    --line-2: #39342A;
+    --brand: #C9A164;
+    /* Dark text on the lighter dark-mode brass reads better than white
+       (white-on-#C9A164 is ~2.3:1); a deep-ink label on a gold control is the
+       classic, legible choice — improves chips/buttons without touching light. */
+    --brand-ink: #1B1A17;
+    --brand-weak: rgba(201, 161, 100, .16);
+    --brass: #C9A164; --brass-2: #D9B57E; --brass-weak: rgba(201, 161, 100, .16);
+    --teal: #4FB89E; --teal-weak: rgba(79, 184, 158, .16);
+    --pos: #4FB89E;
+    --neg: #D9745F;
+    --neg-weak: rgba(217, 116, 95, .16);
+    --warn-bg: #2A2113; --warn-ink: #D9B57E; --warn-line: #4A3B20;
+    --track: #2C2820;
+    --shadow-1: 0 14px 40px rgba(0, 0, 0, .5);
+    --shadow-2: 0 18px 50px rgba(0, 0, 0, .6);
+    --shadow-sm: none;
   }
+}
+
+/* ---- Fonts (self-hosted woff2; latin subset; full variable weight axis) -- */
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 340 700;
+  font-display: swap;
+  font-optical-sizing: auto;
+  src: url("/assets/fonts/fraunces-latin-var.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/assets/fonts/ibmplexsans-latin-var.woff2") format("woff2");
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font: 15px/1.5 var(--font);
   background: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -65,6 +104,21 @@ h1, h2, h3 { margin: 0; }
 .muted { color: var(--muted); }
 .pos { color: var(--pos); }
 .neg { color: var(--neg); }
+.serif { font-family: var(--serif); }
+.tnum { font-variant-numeric: tabular-nums; }
+/* Quiet Wealth: Fraunces serif on headings + the principal money figures
+   (those already carry tabular-nums). Applied by existing class = near-zero
+   template edits. The figures' own later rules keep their letter-spacing. */
+h1, h2, h3,
+.banner-title,
+.hero-value,
+.balance-value,
+.spend-amt,
+.cr-figure, .cr-score-num, .cr-util,
+.debt-strat-date {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+}
 .skip-link {
   position: absolute; left: -999px; top: 0; background: var(--brand); color: #fff;
   padding: .5rem .8rem; border-radius: 0 0 var(--r-sm) 0; z-index: 100;

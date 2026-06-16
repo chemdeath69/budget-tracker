@@ -358,10 +358,12 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#0b0f17" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#F7F4EE" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#14130F" media="(prefers-color-scheme: dark)">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title><?= e($title) ?> · Budget Tracker</title>
+    <link rel="preload" href="/assets/fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/assets/fonts/ibmplexsans-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/assets/style.css?v=<?= $cssV ?>">
     <?php if ($needChart): ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
