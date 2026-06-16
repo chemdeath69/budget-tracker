@@ -55,6 +55,8 @@ function nw_account_rows(array $rows, bool $debt): void
         </a>
     <?php endforeach;
 }
+
+render_nav_chips('worth', 'networth');
 ?>
 
 <section class="card hero">

@@ -15,39 +15,136 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/activity.php';   // page-view logging + sync-error banner state
 
-/** The navigation entries shown in the drawer, in order. */
+/**
+ * The single ordered source of truth for navigation (UI redesign Phase 1).
+ * Drives THREE renderings: the desktop grouped sidebar + the mobile bottom tab
+ * bar (via the `tab` field) + the mobile "More" list (more.php). Each entry:
+ *   key   highlight key (matches render_header's $active / body[data-page])
+ *   href  destination
+ *   label sidebar / More-list label
+ *   icon  nav_icon() name
+ *   group sidebar/More section (one of NAV_GROUPS, in render order)
+ *   tab   which bottom tab highlights here: home|spend|worth|assistant|more
+ *   desc  one-line description (shown in the More list)
+ * "Link a bank" is intentionally NOT here — it lives under Settings (Phase 2).
+ */
 function nav_items(): array
 {
     return [
-        // Ordered by how often a user is likely to visit: daily-use pages first,
-        // periodic financial views next, analytics below, rare config pages last.
-        ['key' => 'dashboard',    'href' => '/index.php',        'label' => 'Dashboard',     'icon' => 'home'],
-        ['key' => 'assistant',    'href' => '/assistant.php',    'label' => 'Assistant',     'icon' => 'chat'],
-        ['key' => 'transactions', 'href' => '/transactions.php', 'label' => 'Transactions',  'icon' => 'list'],
-        ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart'],
-        ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar'],
-        ['key' => 'safetospend',  'href' => '/safe_to_spend.php', 'label' => 'Safe to spend', 'icon' => 'wallet'],
-        ['key' => 'refunds',      'href' => '/refunds.php',      'label' => 'Refunds',       'icon' => 'refund'],
-        ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow'],
-        ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast'],
-        ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend'],
-        ['key' => 'goals',        'href' => '/goals.php',        'label' => 'Savings goals', 'icon' => 'target'],
-        ['key' => 'debt',         'href' => '/debt.php',         'label' => 'Debt payoff',   'icon' => 'debt'],
-        ['key' => 'investments',  'href' => '/investments.php',  'label' => 'Investments',   'icon' => 'invest'],
-        ['key' => 'allocation',   'href' => '/allocation.php',   'label' => 'Allocation',    'icon' => 'pie'],
-        ['key' => 'fees',         'href' => '/fees.php',         'label' => 'Investment fees', 'icon' => 'percent'],
-        ['key' => 'retirement',   'href' => '/retirement.php',   'label' => 'Retirement',    'icon' => 'nest'],
-        ['key' => 'recurring',    'href' => '/recurring.php',    'label' => 'Recurring',     'icon' => 'repeat'],
-        ['key' => 'trends',       'href' => '/trends.php',       'label' => 'Spending trends', 'icon' => 'bars'],
-        ['key' => 'peers',        'href' => '/peers.php',        'label' => 'Spending vs typical', 'icon' => 'peers'],
-        ['key' => 'merchants',    'href' => '/merchants.php',    'label' => 'Top merchants', 'icon' => 'store'],
-        ['key' => 'moneyflow',    'href' => '/moneyflow.php',    'label' => 'Money flow',    'icon' => 'sankey'],
-        ['key' => 'property',     'href' => '/property.php',     'label' => 'Property',      'icon' => 'house'],
-        ['key' => 'economic',     'href' => '/economic.php',     'label' => 'Economic',      'icon' => 'globe'],
-        ['key' => 'credit',       'href' => '/credit.php',       'label' => 'Credit',        'icon' => 'credit'],
-        ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Categories & rules', 'icon' => 'rules'],
-        ['key' => 'settings',     'href' => '/settings.php',     'label' => 'Settings',      'icon' => 'gear'],
+        // EVERYDAY — the daily loop.
+        ['key' => 'dashboard',    'href' => '/index.php',        'label' => 'Home',          'icon' => 'home',     'group' => 'everyday', 'tab' => 'home',      'desc' => 'Your overview & accounts'],
+        ['key' => 'assistant',    'href' => '/assistant.php',    'label' => 'Assistant',     'icon' => 'chat',     'group' => 'everyday', 'tab' => 'assistant', 'desc' => 'Ask anything about your money'],
+        ['key' => 'transactions', 'href' => '/transactions.php', 'label' => 'Transactions',  'icon' => 'list',     'group' => 'everyday', 'tab' => 'more',      'desc' => 'Search & browse every transaction'],
+        ['key' => 'spending',     'href' => '/spending.php',     'label' => 'Spending & budgets', 'icon' => 'chart', 'group' => 'everyday', 'tab' => 'spend',  'desc' => 'Spending by category & budgets'],
+        ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar', 'group' => 'everyday', 'tab' => 'more',      'desc' => 'Bills due & payment calendar'],
+        ['key' => 'safetospend',  'href' => '/safe_to_spend.php', 'label' => 'Safe to spend', 'icon' => 'wallet',  'group' => 'everyday', 'tab' => 'more',      'desc' => "What's safe to spend this month"],
+        ['key' => 'refunds',      'href' => '/refunds.php',      'label' => 'Refunds',       'icon' => 'refund',   'group' => 'everyday', 'tab' => 'more',      'desc' => 'Track purchases awaiting a credit'],
+
+        // WORTH — net worth & planning.
+        ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend',    'group' => 'worth',    'tab' => 'worth',     'desc' => 'Net worth & composition over time'],
+        ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow',     'group' => 'worth',    'tab' => 'worth',     'desc' => 'Income vs expense by month'],
+        ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast', 'group' => 'worth',    'tab' => 'worth',     'desc' => 'Projected balance, next 30–90 days'],
+        ['key' => 'goals',        'href' => '/goals.php',        'label' => 'Savings goals', 'icon' => 'target',   'group' => 'worth',    'tab' => 'worth',     'desc' => 'Savings targets & progress'],
+        ['key' => 'debt',         'href' => '/debt.php',         'label' => 'Debt payoff',   'icon' => 'debt',     'group' => 'worth',    'tab' => 'worth',     'desc' => 'Payoff plan — snowball vs avalanche'],
+
+        // INVEST — the portfolio.
+        ['key' => 'investments',  'href' => '/investments.php',  'label' => 'Investments',   'icon' => 'invest',   'group' => 'invest',   'tab' => 'more',      'desc' => 'Holdings, performance & returns'],
+        ['key' => 'allocation',   'href' => '/allocation.php',   'label' => 'Allocation',    'icon' => 'pie',      'group' => 'invest',   'tab' => 'more',      'desc' => 'Asset mix vs target'],
+        ['key' => 'fees',         'href' => '/fees.php',         'label' => 'Investment fees', 'icon' => 'percent','group' => 'invest',   'tab' => 'more',      'desc' => 'Portfolio expense ratios & drag'],
+        ['key' => 'retirement',   'href' => '/retirement.php',   'label' => 'Retirement',    'icon' => 'nest',     'group' => 'invest',   'tab' => 'more',      'desc' => '401(k)s & retirement projection'],
+
+        // INSIGHTS — analytics over spending.
+        ['key' => 'trends',       'href' => '/trends.php',       'label' => 'Spending trends', 'icon' => 'bars',   'group' => 'insights', 'tab' => 'spend',     'desc' => 'Month-by-month by category'],
+        ['key' => 'peers',        'href' => '/peers.php',        'label' => 'Spending vs typical', 'icon' => 'peers', 'group' => 'insights', 'tab' => 'spend', 'desc' => 'Compare to a typical household'],
+        ['key' => 'merchants',    'href' => '/merchants.php',    'label' => 'Top merchants', 'icon' => 'store',    'group' => 'insights', 'tab' => 'spend',     'desc' => 'Where your money goes'],
+        ['key' => 'moneyflow',    'href' => '/moneyflow.php',    'label' => 'Money flow',    'icon' => 'sankey',   'group' => 'insights', 'tab' => 'spend',     'desc' => 'Income → spending, one month'],
+        ['key' => 'recurring',    'href' => '/recurring.php',    'label' => 'Recurring',     'icon' => 'repeat',   'group' => 'insights', 'tab' => 'spend',     'desc' => 'Subscriptions & recurring income'],
+
+        // PROPERTY — home, credit, macro.
+        ['key' => 'property',     'href' => '/property.php',     'label' => 'Property',      'icon' => 'house',    'group' => 'property', 'tab' => 'worth',     'desc' => 'Home value & mortgage'],
+        ['key' => 'credit',       'href' => '/credit.php',       'label' => 'Credit',        'icon' => 'credit',   'group' => 'property', 'tab' => 'more',      'desc' => 'Imported credit reports'],
+        ['key' => 'economic',     'href' => '/economic.php',     'label' => 'Economic',      'icon' => 'globe',    'group' => 'property', 'tab' => 'more',      'desc' => 'Rates, inflation & savings'],
+
+        // SETUP — config.
+        ['key' => 'rules',        'href' => '/rules.php',        'label' => 'Categories & rules', 'icon' => 'rules', 'group' => 'setup',  'tab' => 'spend',     'desc' => 'Custom categories & auto-rules'],
+        ['key' => 'settings',     'href' => '/settings.php',     'label' => 'Settings',      'icon' => 'gear',     'group' => 'setup',    'tab' => 'more',      'desc' => 'Banks, alerts & appearance'],
     ];
+}
+
+/** Sidebar / More-list groups, in render order. */
+const NAV_GROUPS = [
+    'everyday' => 'Everyday',
+    'worth'    => 'Worth',
+    'invest'   => 'Invest',
+    'insights' => 'Insights',
+    'property' => 'Property',
+    'setup'    => 'Setup',
+];
+
+/**
+ * The 5 primary bottom-tab-bar tabs (mobile) / sidebar order anchors. Each `tab`
+ * matches the `tab` field on nav_items() so the active page lights the right tab.
+ */
+function nav_tabs(): array
+{
+    return [
+        ['tab' => 'home',      'href' => '/index.php',      'label' => 'Home',  'icon' => 'home'],
+        ['tab' => 'spend',     'href' => '/spending.php',   'label' => 'Spend', 'icon' => 'chart'],
+        ['tab' => 'worth',     'href' => '/networth.php',   'label' => 'Worth', 'icon' => 'trend'],
+        ['tab' => 'assistant', 'href' => '/assistant.php',  'label' => 'Ask',   'icon' => 'chat'],
+        ['tab' => 'more',      'href' => '/more.php',       'label' => 'More',  'icon' => 'more'],
+    ];
+}
+
+/** Which bottom tab is active for a given page key (defaults to 'more'). */
+function nav_active_tab(string $activeKey): string
+{
+    if ($activeKey === 'more') return 'more';
+    foreach (nav_items() as $it) {
+        if ($it['key'] === $activeKey) return $it['tab'];
+    }
+    return '';   // login/link pages etc. — nothing highlighted
+}
+
+/**
+ * The "Direct page" area chip rows (UI redesign §4) — sibling links shown at the
+ * top of the area's landing page (spending.php / networth.php). Keys match
+ * nav_items() so the current page's chip highlights.
+ */
+function nav_area_chips(): array
+{
+    return [
+        'spend' => [
+            ['key' => 'spending',  'href' => '/spending.php',  'label' => 'Overview'],
+            ['key' => 'trends',    'href' => '/trends.php',    'label' => 'Trends'],
+            ['key' => 'merchants', 'href' => '/merchants.php', 'label' => 'Top merchants'],
+            ['key' => 'moneyflow', 'href' => '/moneyflow.php', 'label' => 'Money flow'],
+            ['key' => 'recurring', 'href' => '/recurring.php', 'label' => 'Recurring'],
+            ['key' => 'rules',     'href' => '/rules.php',     'label' => 'Categories & rules'],
+        ],
+        'worth' => [
+            ['key' => 'networth',  'href' => '/networth.php',  'label' => 'Overview'],
+            ['key' => 'cashflow',  'href' => '/cashflow.php',  'label' => 'Cash flow'],
+            ['key' => 'forecast',  'href' => '/forecast.php',  'label' => 'Forecast'],
+            ['key' => 'goals',     'href' => '/goals.php',     'label' => 'Goals'],
+            ['key' => 'debt',      'href' => '/debt.php',      'label' => 'Debt payoff'],
+            ['key' => 'property',  'href' => '/property.php',  'label' => 'Property'],
+        ],
+    ];
+}
+
+/** Render the area chip row (a horizontal scroll strip) for spending.php / networth.php. */
+function render_nav_chips(string $area, string $activeKey): void
+{
+    $chips = nav_area_chips()[$area] ?? [];
+    if (!$chips) return;
+    echo '<nav class="tool-chips" aria-label="Section navigation">';
+    foreach ($chips as $c) {
+        $on = $c['key'] === $activeKey ? ' chip-on' : '';
+        $cur = $c['key'] === $activeKey ? ' aria-current="page"' : '';
+        echo '<a class="chip' . $on . '" href="' . e($c['href']) . '"' . $cur . '>' . e($c['label']) . '</a>';
+    }
+    echo '</nav>';
 }
 
 /** Minimal inline icon set (stroke-based, inherit currentColor). */
@@ -84,6 +181,7 @@ function nav_icon(string $name): string
         'car'    => '<path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13"/><path d="M3 17v-2a2 2 0 0 1 1-1.7L5 13h14l1 .3A2 2 0 0 1 21 15v2"/><path d="M3 17h18v2h-2v-1H5v1H3z"/><circle cx="7.5" cy="16.5" r="1.2"/><circle cx="16.5" cy="16.5" r="1.2"/>',
         'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
         'activity' => '<path d="M3 12h4l2 6 4-14 2 8h6"/>',
+        'more'   => '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
     ];
     $inner = $p[$name] ?? '';
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
@@ -326,7 +424,8 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     $jsV     = @filemtime($assets . '/app.js') ?: time();
     $needSankey = !empty($opts['sankey']);
     $needChart  = !empty($opts['chart']) || $needSankey;
-    $back    = $opts['back'] ?? null;
+    $back      = $opts['back'] ?? null;
+    $activeTab = nav_active_tab($active);   // which bottom tab highlights
     $name    = $_SESSION['name'] ?? ($_SESSION['user_email'] ?? '');
     $email   = $_SESSION['user_email'] ?? '';
 
@@ -372,7 +471,7 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <?php endif; ?>
     <?php endif; ?>
 </head>
-<body data-page="<?= e($active) ?>">
+<body data-page="<?= e($active) ?>" data-tab="<?= e($activeTab) ?>">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="banner">
@@ -381,9 +480,7 @@ function render_header(string $title, string $active = '', array $opts = []): vo
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
             </a>
         <?php else: ?>
-            <button class="banner-btn" id="menu-open" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </button>
+            <span class="banner-btn banner-spacer" aria-hidden="true"></span>
         <?php endif; ?>
 
         <h1 class="banner-title"><?= e($title) ?></h1>
@@ -393,36 +490,39 @@ function render_header(string $title, string $active = '', array $opts = []): vo
         </a>
     </header>
 
-    <!-- Slide-out navigation drawer -->
-    <div class="scrim" id="scrim"></div>
-    <nav class="drawer" id="drawer" aria-label="Main navigation" aria-hidden="true">
+    <!-- Desktop grouped sidebar (≥1024px). Hidden on mobile — the bottom tab bar
+         + the More tab cover navigation there (UI redesign Phase 1). -->
+    <nav class="drawer" id="drawer" aria-label="Main navigation">
         <div class="drawer-head">
             <?= user_avatar_html(true) ?>
             <div class="drawer-id">
                 <div class="drawer-name"><?= e($name) ?></div>
                 <div class="drawer-email"><?= e($email) ?></div>
             </div>
-            <button class="drawer-close" id="menu-close" aria-label="Close menu">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-            </button>
         </div>
 
-        <ul class="drawer-nav">
-            <?php foreach (nav_items() as $it): ?>
-            <li>
-                <a href="<?= e($it['href']) ?>" class="<?= $active === $it['key'] ? 'active' : '' ?>"<?= $active === $it['key'] ? ' aria-current="page"' : '' ?>>
+        <div class="drawer-nav">
+            <?php $grp = null; foreach (nav_items() as $it):
+                if ($it['group'] !== $grp): $grp = $it['group']; ?>
+                <h4 class="nav-group"><?= e(NAV_GROUPS[$grp] ?? $grp) ?></h4>
+                <?php endif; ?>
+                <a href="<?= e($it['href']) ?>" class="nav-link<?= $active === $it['key'] ? ' active' : '' ?>"<?= $active === $it['key'] ? ' aria-current="page"' : '' ?>>
                     <span class="ic"><?= nav_icon($it['icon']) ?></span>
                     <span><?= e($it['label']) ?></span>
                 </a>
-            </li>
             <?php endforeach; ?>
-            <li class="drawer-sep">
-                <a href="/link.php" class="drawer-action"><span class="ic"><?= nav_icon('bank') ?></span><span>Link a bank</span></a>
-            </li>
-            <li>
-                <a href="/logout.php" class="drawer-action"><span class="ic"><?= nav_icon('logout') ?></span><span>Sign out</span></a>
-            </li>
-        </ul>
+            <a href="/logout.php" class="nav-link drawer-action drawer-sep"><span class="ic"><?= nav_icon('logout') ?></span><span>Sign out</span></a>
+        </div>
+    </nav>
+
+    <!-- Mobile bottom tab bar (hidden on desktop). -->
+    <nav class="tabbar" aria-label="Primary">
+        <?php foreach (nav_tabs() as $t): ?>
+        <a href="<?= e($t['href']) ?>" class="<?= $activeTab === $t['tab'] ? 'active' : '' ?>"<?= $activeTab === $t['tab'] ? ' aria-current="page"' : '' ?>>
+            <span class="ic"><?= nav_icon($t['icon']) ?></span>
+            <span class="tabbar-label"><?= e($t['label']) ?></span>
+        </a>
+        <?php endforeach; ?>
     </nav>
 
     <main class="screen<?= !empty($opts['narrow']) ? ' narrow' : '' ?>" id="main">

@@ -30,6 +30,7 @@ $deltaChip = function (float $cur, float $base): string {
 };
 
 render_header('Spending & budgets', 'spending', ['chart' => true]);
+render_nav_chips('spend', 'spending');
 ?>
 
 <div class="cols">

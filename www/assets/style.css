@@ -165,15 +165,15 @@ h1, h2, h3,
   opacity: 0; pointer-events: none; transition: opacity .22s ease; z-index: 40;
 }
 body.menu-open .scrim { opacity: 1; pointer-events: auto; }
+/* The drawer is the DESKTOP grouped sidebar (≥1024px). On mobile it's hidden —
+   the bottom tab bar + the More tab handle navigation there (Phase 1). */
 .drawer {
   position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
-  width: min(86vw, 320px);
+  width: var(--sidebar-w, 264px);
   background: var(--surface); border-right: 1px solid var(--line);
-  transform: translateX(-100%); transition: transform .24s cubic-bezier(.22, .61, .36, 1);
-  display: flex; flex-direction: column;
-  padding-top: env(safe-area-inset-top); box-shadow: var(--shadow-2);
+  display: none; flex-direction: column;
+  padding-top: env(safe-area-inset-top);
 }
-body.menu-open .drawer { transform: translateX(0); }
 .drawer-head {
   display: flex; align-items: center; gap: 12px; padding: 18px 16px 16px;
   border-bottom: 1px solid var(--line);
@@ -181,25 +181,80 @@ body.menu-open .drawer { transform: translateX(0); }
 .drawer-id { min-width: 0; flex: 1; }
 .drawer-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-email { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.drawer-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 6px; border-radius: var(--r-sm); }
-.drawer-close svg { width: 20px; height: 20px; }
-.drawer-nav { list-style: none; margin: 8px 0; padding: 0 10px calc(10px + env(safe-area-inset-bottom)); flex: 1; overflow-y: auto; }
+.drawer-nav { margin: 8px 0; padding: 0 10px calc(10px + env(safe-area-inset-bottom)); flex: 1; overflow-y: auto; }
+.nav-group { font-size: .64rem; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700; margin: 16px 0 4px; padding: 0 12px; }
+.nav-group:first-child { margin-top: 4px; }
 .drawer-nav a, .drawer-action {
-  display: flex; align-items: center; gap: 14px; padding: 12px 12px;
+  display: flex; align-items: center; gap: 14px; padding: 10px 12px;
   border-radius: var(--r); color: var(--ink); font-weight: 550;
 }
-.drawer-nav a:active, .drawer-action:active { background: var(--surface-2); }
+.drawer-nav a:hover, .drawer-action:hover { background: var(--surface-2); }
 .drawer-nav a.active { background: var(--brand-weak); color: var(--brand); }
 .ic { display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); flex: none; }
 .drawer-nav a.active .ic { color: var(--brand); }
 .ic svg { width: 22px; height: 22px; }
-.drawer-sep { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.drawer-sep { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .drawer-action { color: var(--ink-2); }
+.banner-spacer { background: transparent; pointer-events: none; }
+
+/* ---- Mobile bottom tab bar (Phase 1) ------------------------------------ */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; justify-content: space-around; align-items: stretch;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-top: 1px solid var(--line);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.tabbar a {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; min-height: 44px; padding: 2px 4px;
+  font-size: .66rem; font-weight: 600; color: var(--muted);
+}
+.tabbar a.active { color: var(--brand); }
+.tabbar .ic { width: 24px; height: 24px; color: inherit; }
+.tabbar .ic svg { width: 23px; height: 23px; }
+.tabbar a.active .ic { color: var(--brand); }
+.tabbar-label { line-height: 1; }
+
+/* ---- Area chip row ("Direct page" sub-nav, Phase 1) --------------------- */
+.tool-chips {
+  display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  margin: -2px 0 2px; padding-bottom: 4px;
+}
+.tool-chips .chip { flex: none; }
+
+/* ---- "More" menu list (more.php, Phase 1) ------------------------------- */
+.menu-search {
+  display: flex; align-items: center; gap: 9px; background: var(--surface);
+  border: 1px solid var(--line-2); border-radius: var(--r-pill); padding: 10px 16px;
+}
+.menu-search-ic { display: grid; place-items: center; color: var(--muted); flex: none; }
+.menu-search-ic svg { width: 18px; height: 18px; }
+.menu-search input { border: 0; background: transparent; font: inherit; color: var(--ink); width: 100%; outline: 0; }
+.menu-h { font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+  font-weight: 700; margin: 18px 4px 8px; }
+.menu-list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow-sm); overflow: hidden; }
+.menu-row { display: flex; align-items: center; gap: 13px; padding: 13px 16px; color: var(--ink); }
+.menu-row + .menu-row { border-top: 1px solid var(--line); }
+.menu-row:hover { background: var(--surface-2); }
+.menu-row .mi { width: 38px; height: 38px; border-radius: 11px; background: var(--brand-weak);
+  color: var(--brand); display: grid; place-items: center; flex: none; }
+.menu-row .mi svg { width: 20px; height: 20px; }
+.menu-row .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.menu-row .n { font-weight: 600; font-size: .95rem; }
+.menu-row .s { color: var(--muted); font-size: .78rem; }
+.menu-row .chev { color: var(--muted); font-size: 1.3rem; flex: none; }
 
 /* ---- Screen / layout ---------------------------------------------------- */
 .screen {
   max-width: var(--screen-max); margin: 0 auto;
-  padding: var(--gap) 16px calc(40px + env(safe-area-inset-bottom));
+  /* Bottom padding clears the fixed mobile tab bar (~58px + safe-area). The
+     desktop block (no tab bar) resets this. */
+  padding: var(--gap) 16px calc(76px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: var(--gap);
 }
 .screen-subtitle { margin: -4px 2px 0; color: var(--muted); font-size: .9rem; }
@@ -1008,27 +1063,29 @@ a.cat-row:hover { background: var(--surface-2); }
      data-page attribute, so they keep their full-bleed centered layout). */
   body[data-page] { padding-left: var(--sidebar-w); }
 
-  /* The slide-out drawer becomes a permanent left sidebar. */
+  /* The drawer is the permanent left sidebar (grouped nav). */
   .drawer {
-    transform: none;
+    display: flex;
     width: var(--sidebar-w);
     box-shadow: none;
     border-right: 1px solid var(--line);
   }
-  .scrim { display: none !important; }
-  .drawer-close { display: none; }
+  /* The mobile bottom tab bar is replaced by the sidebar. */
+  .tabbar { display: none; }
 
-  /* Banner: drop the hamburger, left-align the title, give it breathing room. */
-  #menu-open { display: none; }
+  /* Banner: left-align the title, give it breathing room (no hamburger here). */
   .banner {
     grid-template-columns: auto 1fr auto;
     padding-left: 24px;
     padding-right: 24px;
   }
   .banner-title { text-align: left; }
+  .banner-spacer { display: none; }
 
-  /* Wider — but still centered and capped — content column. */
-  .screen { max-width: 1180px; padding-left: 24px; padding-right: 24px; }
+  /* Wider — but still centered and capped — content column. No tab bar, so the
+     mobile bottom padding for it is reset. */
+  .screen { max-width: 1180px; padding-left: 24px; padding-right: 24px;
+    padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
   .screen.narrow { max-width: 820px; }
 
   /* Asymmetric summary (left) + detail (right) split for the account page. */
