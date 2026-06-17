@@ -1258,8 +1258,33 @@ function assistantMarkup(text) {
   const inline = s => s
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
-  for (let raw of lines) {
-    const line = raw.trim();
+  // Split a markdown table row "| a | b |" into trimmed cells (drop the
+  // empty leading/trailing cells from the bounding pipes).
+  const cells = row => {
+    let parts = row.trim().split('|');
+    if (parts.length && parts[0].trim() === '') parts.shift();
+    if (parts.length && parts[parts.length - 1].trim() === '') parts.pop();
+    return parts.map(c => c.trim());
+  };
+  const isRow = l => /^\|.*\|/.test(l.trim());
+  const isSep = l => /^\|?[\s:|-]*-[\s:|-]*\|?$/.test(l.trim()) && l.includes('-');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Markdown table: a row line immediately followed by a |---|---| separator.
+    if (isRow(line) && i + 1 < lines.length && isSep(lines[i + 1])) {
+      if (inList) { html += '</ul>'; inList = false; }
+      const head = cells(line);
+      html += '<table><thead><tr>' + head.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>';
+      i += 2; // skip header + separator
+      while (i < lines.length && isRow(lines[i])) {
+        const cs = cells(lines[i]);
+        html += '<tr>' + head.map((_, k) => '<td>' + inline(cs[k] || '') + '</td>').join('') + '</tr>';
+        i++;
+      }
+      i--; // the for-loop will ++; we stopped on a non-row line
+      html += '</tbody></table>';
+      continue;
+    }
     const m = line.match(/^[-*•]\s+(.*)$/);
     if (m) {
       if (!inList) { html += '<ul>'; inList = true; }

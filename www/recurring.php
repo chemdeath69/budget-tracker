@@ -32,7 +32,7 @@ function recurring_rows(array $rows, array $logos): void
         $logo = $r['merchant_name'] ? ($logos[strtolower($r['merchant_name'])] ?? '') : ''; ?>
         <div class="row" data-search="<?= e($hay) ?>">
             <span class="row-main">
-                <span class="row-title"><?php if ($logo): ?><img class="merchant-logo" src="<?= e($logo) ?>" alt="" loading="lazy"><?php endif; ?><?php if ($name !== '—'): ?><a href="/transactions.php?merchant=<?= rawurlencode($name) ?>&amp;from=<?= e($merchFrom) ?>"><?= e($name) ?></a><?php else: ?><?= e($name) ?><?php endif; ?></span>
+                <span class="row-title"><?php if ($logo): ?><img class="merchant-logo" src="<?= e($logo) ?>" alt="" loading="lazy"><?php endif; ?><?php if ($name !== '—'): ?><a href="/transactions.php?merchant=<?= rawurlencode($name) ?>&amp;from=<?= e($merchFrom) ?>"><?= e(display_merchant($name)) ?></a><?php else: ?><?= e($name) ?><?php endif; ?></span>
                 <span class="row-sub">
                     <?= e(pretty_cat($r['frequency'] ?: '')) ?>
                     <?php if ($r['category_primary']): ?>· <?= e(pretty_cat($r['category_primary'])) ?><?php endif; ?>

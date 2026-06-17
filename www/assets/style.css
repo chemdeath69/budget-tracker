@@ -1204,6 +1204,10 @@ a.row:hover, .acct-card:hover, .action-card:hover { background: var(--surface-2)
 .msg p:last-child { margin-bottom: 0; }
 .msg ul { margin: .3em 0 .5em; padding-left: 1.2em; }
 .msg li { margin: .15em 0; }
+.msg table { width: 100%; border-collapse: collapse; margin: .4em 0; font-size: .9rem; }
+.msg th, .msg td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.msg th { font-weight: 700; color: var(--muted); font-size: .82rem; }
+.msg td:last-child, .msg th:last-child { text-align: right; }
 .msg-user { align-self: flex-end; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: var(--r-sm); }
 .msg-assistant { align-self: flex-start; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-bottom-left-radius: var(--r-sm); }
 .msg-assistant.error { color: var(--neg); }

@@ -484,6 +484,8 @@ function render_header(string $title, string $active = '', array $opts = []): vo
     <?php endif; ?>
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title><?= e($title) ?> · Budget Tracker</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%23A8814C'/%3E%3Ctext%20x='16'%20y='23'%20font-family='Georgia,serif'%20font-size='21'%20font-weight='700'%20fill='%23F7F4EE'%20text-anchor='middle'%3E$%3C/text%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%23A8814C'/%3E%3Ctext%20x='16'%20y='23'%20font-family='Georgia,serif'%20font-size='21'%20font-weight='700'%20fill='%23F7F4EE'%20text-anchor='middle'%3E$%3C/text%3E%3C/svg%3E">
     <link rel="preload" href="/assets/fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/ibmplexsans-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/assets/style.css?v=<?= $cssV ?>">

@@ -64,7 +64,7 @@ render_header('Top merchants', 'merchants', ['narrow' => true]);
                     <span class="merchant-logo placeholder" aria-hidden="true"><?= e(strtoupper(mb_substr($name, 0, 1))) ?></span>
                 <?php endif; ?>
                 <span class="row-main">
-                    <span class="row-title"><?= e($name) ?></span>
+                    <span class="row-title"><?= e(display_merchant($name)) ?></span>
                     <span class="row-sub muted"><?= (int)$m['n'] ?> transaction<?= (int)$m['n'] === 1 ? '' : 's' ?></span>
                     <span class="merch-bar"><span style="width:<?= round($pct) ?>%"></span></span>
                 </span>

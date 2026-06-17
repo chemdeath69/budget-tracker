@@ -39,6 +39,7 @@ try {
     if (array_key_exists('theme', $in)) {
         $t = $in['theme'];
         if (!in_array($t, USER_PREF_THEMES, true)) {
+            error_log('prefs.php 422 invalid theme uid=' . $uid . ' payload=' . substr((string)json_encode($in), 0, 300));
             http_response_code(422);
             echo json_encode(['error' => 'invalid theme']);
             exit;
@@ -51,6 +52,7 @@ try {
     if (array_key_exists('dashboard', $in)) {
         $layout = dash_sanitize_layout($in['dashboard']);
         if ($layout === null) {
+            error_log('prefs.php 422 invalid dashboard layout uid=' . $uid . ' payload=' . substr((string)json_encode($in), 0, 500));
             http_response_code(422);
             echo json_encode(['error' => 'invalid dashboard layout']);
             exit;

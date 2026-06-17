@@ -109,7 +109,7 @@ if ($active('cash_flow') && ($cf6['income'] > 0 || $cf6['expense'] > 0)) {
         'href' => '/cashflow.php', 'eyebrow' => 'Cash flow · 6mo',
         'value' => ($cf6['net'] < 0 ? '−' : '+') . usd(abs($cf6['net'])),
         'tone'  => $cf6['net'] < 0 ? 'neg' : 'pos',
-        'sub'   => $cfRate !== null ? number_format($cfRate, 0) . '% saved' : 'net, 6 months',
+        'sub'   => $cfRate !== null ? ($cfRate < 0 ? '−' : '') . number_format(abs($cfRate), 0) . '% saved' : 'net, 6 months',
         'spark' => count($cf6['months']) > 1 ? ['id' => 'cf-spark-data',
             'labels' => array_column($cf6['months'], 'label'),
             'values' => array_map(fn($m) => round($m['net'], 2), $cf6['months'])] : null,

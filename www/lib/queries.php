@@ -529,7 +529,12 @@ function q_networth_composition(PDO $pdo, int $days = 365): array
     return ['labels' => $labels, 'series' => $out, 'current' => $current, 'net' => $net];
 }
 
-/** Spending by category over the last $days days (outflows only). */
+/** Spending by category over the last $days days (TRUE expense — outflows only).
+ *  Session 86: applies the SAME true-expense exclusions as every other spend read
+ *  (transfers via expense_exclude_clause + credit-card payments) so the by-category
+ *  breakdown reconciles with trends/cash-flow/budgets instead of being dominated by
+ *  internal transfers & CC payments (UI-review F7). Kept in lock-step with
+ *  q_spending_total so the doughnut total == Σ category slices. */
 function q_spending(PDO $pdo, int $uid, int $days = 30): array
 {
     $st = $pdo->prepare(
@@ -541,7 +546,8 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
-           AND " . expense_exclude_clause($pdo, []) . "
+           AND " . expense_exclude_clause($pdo) . "
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
          GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
@@ -610,10 +616,11 @@ function merchant_logo_map(PDO $pdo): array
     return $map;
 }
 
-/** Total outflow over the last $days days (for headline figures). Split-aware (SUM(EFF_AMT)
- *  over SPLIT_JOIN — identical to the parent total when there are no splits) and drops any
- *  custom category flagged exclude_from_spending so the dashboard headline matches q_spending;
- *  transfers are NOT excluded here (base []), preserving the historical headline scope. */
+/** Total TRUE-expense outflow over the last $days days (for headline figures). Split-aware
+ *  (SUM(EFF_AMT) over SPLIT_JOIN — identical to the parent total when there are no splits).
+ *  Session 86: now applies the full true-expense exclusion set (transfers via
+ *  expense_exclude_clause + credit-card payments), kept in lock-step with q_spending so the
+ *  headline total == Σ of the by-category slices (UI-review F7). */
 function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
 {
     $st = $pdo->prepare(
@@ -624,7 +631,8 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND t.date >= (CURDATE() - INTERVAL :d DAY)
-           AND " . expense_exclude_clause($pdo, [])
+           AND " . expense_exclude_clause($pdo) . "
+           AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')"
     );
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
     $st->bindValue(':d', $days, PDO::PARAM_INT);
@@ -2910,6 +2918,19 @@ function pretty_cat(?string $c): string
         if (isset($map[$c])) return $map[$c]['label'];
     }
     return ucwords(strtolower(str_replace('_', ' ', $c)));
+}
+
+/** Tidy a display merchant/payee string for the UI: fix dotted initialisms that a
+ *  naive title-case lowercased — "U.s. Bank" → "U.S. Bank", "e.l.f." → "E.L.F." — by
+ *  upper-casing a lone lowercase letter sitting between dots (a lookahead lets
+ *  consecutive ones like "U.s.a." all match). Best-effort, ASCII, idempotent;
+ *  operate on the RAW string BEFORE e() and only on DISPLAY text (never on a value
+ *  used as a filter key / href param, which must stay byte-for-byte). UI-review F5. */
+function display_merchant(?string $name): string
+{
+    $name = (string)$name;
+    if ($name === '') return '';
+    return preg_replace_callback('/\.([a-z])(?=\.)/', static fn($m) => '.' . strtoupper($m[1]), $name);
 }
 
 /** Account display label with mask, e.g. "Ally Savings ••7890". */
