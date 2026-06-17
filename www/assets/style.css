@@ -1029,6 +1029,26 @@ a.cat-row:hover { background: var(--surface-2); }
 .btn-google:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .error { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); padding: 10px 14px; border-radius: var(--r-sm); margin-top: 14px; }
 
+/* ---- Keyboard focus (a11y, Phase 5 chunk 4) ----------------------------- */
+/* A consistent on-brand focus ring on every interactive element — matches the
+   .switch / .seg-btn / .btn-google convention. :focus-visible fires ONLY for
+   keyboard navigation, so mouse/touch focus stays ring-free. The outline draws
+   outside the box and follows each element's own border-radius in modern
+   browsers. Placed after the base rules so it wins source-order ties against
+   the .menu-search input { outline:0 } reset. (The .switch/.seg-btn/.btn-google
+   per-component rules above are identical, so they're harmlessly redundant now;
+   .assistant-input:focus keeps its own higher-specificity ring.) */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
