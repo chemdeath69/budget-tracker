@@ -56,23 +56,32 @@ function nw_account_rows(array $rows, bool $debt): void
     <?php endforeach;
 }
 
-render_nav_chips('worth', 'networth');
 ?>
 
-<section class="card hero">
-    <div class="hero-top">
-        <span class="hero-label">Net worth</span>
-        <?php if ($change['pct'] !== null): $up = $change['pct'] >= 0; ?>
-            <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($change['pct']), 1) ?>%<span class="delta-sub">30d</span></span>
-        <?php endif; ?>
-        <?php if ($realChange['pct'] !== null): $ru = $realChange['pct'] >= 0; ?>
-            <span class="delta <?= $ru ? 'up' : 'down' ?>" title="Inflation-adjusted (CPI), vs ~30 days ago"><?= $ru ? '▲' : '▼' ?> <?= number_format(abs($realChange['pct']), 1) ?>%<span class="delta-sub">real 30d</span></span>
+<div class="page-head">
+    <p class="eyebrow">Worth</p>
+    <h1>Net worth</h1>
+</div>
+<?php render_nav_chips('worth', 'networth'); ?>
+
+<!-- Chart leads: the net-worth figure + 30-day deltas, then the history line -->
+<section class="card">
+    <div class="chart-lead-head">
+        <div class="lead-fig">
+            <span class="eyebrow">Net worth</span>
+            <div class="big"><?= e(usd($stats['net_worth'])) ?></div>
+        </div>
+        <?php if ($change['pct'] !== null || $realChange['pct'] !== null): ?>
+        <div class="lead-deltas">
+            <?php if ($change['pct'] !== null): $up = $change['pct'] >= 0; ?>
+                <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($change['pct']), 1) ?>%<span class="delta-sub">30d</span></span>
+            <?php endif; ?>
+            <?php if ($realChange['pct'] !== null): $ru = $realChange['pct'] >= 0; ?>
+                <span class="delta <?= $ru ? 'up' : 'down' ?>" title="Inflation-adjusted (CPI), vs ~30 days ago"><?= $ru ? '▲' : '▼' ?> <?= number_format(abs($realChange['pct']), 1) ?>%<span class="delta-sub">real 30d</span></span>
+            <?php endif; ?>
+        </div>
         <?php endif; ?>
     </div>
-    <div class="hero-value"><?= e(usd($stats['net_worth'])) ?></div>
-    <?php if ($change['abs'] !== null): ?>
-        <div class="muted"><?= ($change['abs'] >= 0 ? '+' : '−') . e(usd(abs($change['abs']))) ?> over the last 30 days</div>
-    <?php endif; ?>
 
     <?php if (count($snaps) > 1): ?>
         <div class="chart-wrap tall">
@@ -98,6 +107,14 @@ render_nav_chips('worth', 'networth');
         <p class="muted">Net-worth history will appear as daily snapshots accumulate.</p>
     <?php endif; ?>
 </section>
+
+<!-- KPI strip: assets / liabilities / home / 30-day change at a glance -->
+<div class="kpis">
+    <div class="kpi"><span class="eyebrow">Assets</span><div class="v pos"><?= e(usd($stats['assets'])) ?></div></div>
+    <div class="kpi"><span class="eyebrow">Liabilities</span><div class="v neg"><?= e(usd($stats['liabilities'])) ?></div></div>
+    <?php if ($homeVal > 0): ?><div class="kpi"><span class="eyebrow">Home value</span><div class="v"><?= e(usd($homeVal)) ?></div></div><?php endif; ?>
+    <?php if ($change['abs'] !== null): ?><div class="kpi"><span class="eyebrow">30-day change</span><div class="v <?= $change['abs'] < 0 ? 'neg' : 'pos' ?>"><?= ($change['abs'] >= 0 ? '+' : '−') . e(usd(abs($change['abs']))) ?></div></div><?php endif; ?>
+</div>
 
 <?php if (count($comp['labels']) > 1): ?>
 <section class="card">

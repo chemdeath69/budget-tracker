@@ -24,42 +24,10 @@ $rows = array_reverse($cf['months']);
 render_header('Cash flow', 'cashflow', ['chart' => true]);
 ?>
 
-<form class="filter-bar" method="get" action="/cashflow.php">
-    <div class="filter-row">
-        <select name="months" class="select" data-autosubmit aria-label="Period">
-            <option value="6"<?=  $months === 6  ? ' selected' : '' ?>>Last 6 months</option>
-            <option value="12"<?= $months === 12 ? ' selected' : '' ?>>Last 12 months</option>
-            <option value="24"<?= $months === 24 ? ' selected' : '' ?>>Last 24 months</option>
-        </select>
-        <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
-    </div>
-</form>
-
-<!-- Net cash flow hero: income − expense over the window, with savings rate -->
-<section class="hero card">
-    <div class="hero-top">
-        <span class="hero-label">Net cash flow</span>
-        <span class="delta-sub muted">last <?= (int)$months ?> months</span>
-    </div>
-    <div class="hero-value <?= $cf['net'] < 0 ? 'neg' : '' ?>">
-        <?= ($cf['net'] < 0 ? '−' : '') . e(usd(abs($cf['net']))) ?>
-    </div>
-
-    <div class="hero-split tri">
-        <div class="split-cell">
-            <span class="split-label">Income</span>
-            <span class="split-value pos"><?= e(usd($cf['income'])) ?></span>
-        </div>
-        <div class="split-cell">
-            <span class="split-label">Expenses</span>
-            <span class="split-value neg"><?= e(usd($cf['expense'])) ?></span>
-        </div>
-        <div class="split-cell">
-            <span class="split-label">Savings rate</span>
-            <span class="split-value <?= $rate !== null && $rate < 0 ? 'neg' : '' ?>"><?= $rate === null ? '—' : number_format($rate, 0) . '%' ?></span>
-        </div>
-    </div>
-</section>
+<div class="page-head">
+    <p class="eyebrow">Spend</p>
+    <h1>Cash flow</h1>
+</div>
 
 <?php if (!$hasData): ?>
     <div class="empty-state card">
@@ -69,11 +37,21 @@ render_header('Cash flow', 'cashflow', ['chart' => true]);
     </div>
 <?php else: ?>
 
-    <!-- Monthly income / expense bars + net line -->
+    <!-- Chart leads: net figure + period selector, then the monthly bars + net line -->
     <section class="card">
-        <div class="block-head">
-            <h2>By month</h2>
-            <span class="muted">avg <?= e(usd($avgNet)) ?>/mo net</span>
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Net cash flow · last <?= (int)$months ?> months</span>
+                <div class="big <?= $cf['net'] < 0 ? 'neg' : '' ?>"><?= ($cf['net'] < 0 ? '−' : '') . e(usd(abs($cf['net']))) ?></div>
+            </div>
+            <form method="get" action="/cashflow.php" class="head-form">
+                <select name="months" class="select" data-autosubmit aria-label="Period">
+                    <option value="6"<?=  $months === 6  ? ' selected' : '' ?>>Last 6 months</option>
+                    <option value="12"<?= $months === 12 ? ' selected' : '' ?>>Last 12 months</option>
+                    <option value="24"<?= $months === 24 ? ' selected' : '' ?>>Last 24 months</option>
+                </select>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
         </div>
         <div class="chart-wrap tall">
             <canvas id="cf-chart" data-chart="cashflow" data-src="cf-data"></canvas>
@@ -86,6 +64,14 @@ render_header('Cash flow', 'cashflow', ['chart' => true]);
         </div>
         <p class="muted load-note">Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice.</p>
     </section>
+
+    <!-- KPI strip: the supporting figures at a glance -->
+    <div class="kpis">
+        <div class="kpi"><span class="eyebrow">Income</span><div class="v pos"><?= e(usd($cf['income'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Expenses</span><div class="v neg"><?= e(usd($cf['expense'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Savings rate</span><div class="v <?= $rate !== null && $rate < 0 ? 'neg' : '' ?>"><?= $rate === null ? '—' : number_format($rate, 0) . '%' ?></div></div>
+        <div class="kpi"><span class="eyebrow">Avg / mo net</span><div class="v <?= $avgNet < 0 ? 'neg' : '' ?>"><?= ($avgNet < 0 ? '−' : '') . e(usd(abs($avgNet))) ?></div></div>
+    </div>
 
     <!-- Per-month breakdown → click a month to see its transactions -->
     <section class="block">

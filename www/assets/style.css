@@ -1045,6 +1045,26 @@ a.cat-row:hover { background: var(--surface-2); }
 .kv .v.neg { color: var(--neg); }
 .kv .v.pos { color: var(--pos); }
 
+/* Chart-forward (pattern C): a chart-led card + a KPI tile strip beneath it.
+   .chart-lead reuses .card; .chart-lead-head holds the key figure (left) + the
+   period control (right). .kpis is a 2-col (desktop 4-col) grid of stat tiles. */
+.chart-lead-head { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 4px; }
+.chart-lead-head .lead-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.chart-lead-head .big { font-family: var(--serif); font-weight: 500;
+  font-size: clamp(1.9rem, 6vw, 2.5rem); line-height: 1.05; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; }
+.chart-lead-head .big.neg { color: var(--neg); }
+.chart-lead-head .head-form { flex: none; }
+.chart-lead-head .lead-deltas { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex: none; }
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 13px 15px; box-shadow: var(--shadow-sm); }
+.kpi .v { font-family: var(--serif); font-weight: 500; font-size: 1.3rem; margin-top: 4px;
+  font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi .v.neg { color: var(--neg); }
+.kpi .v.pos { color: var(--pos); }
+
 /* ==========================================================================
    Responsive multi-column wrappers
    `.cols` auto-fits: one column when its container is narrow (mobile, where
@@ -1260,6 +1280,9 @@ a.cat-row:hover { background: var(--surface-2); }
     align-items: start;
   }
   .two-col .rail { position: sticky; top: calc(var(--banner-h) + 16px); }
+
+  /* Chart-forward KPI strip widens to 4 across. */
+  .kpis { grid-template-columns: repeat(4, 1fr); }
 
   /* Category bar rows (spending/trends/moneyflow): give the amount a FIXED
      column so the bar track ends at the same right edge on every row. With
