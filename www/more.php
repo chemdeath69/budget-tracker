@@ -21,6 +21,11 @@ require_login();
 render_header('More', 'more', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Navigate</p>
+    <h1>More</h1>
+</div>
+
 <div class="menu-search">
     <span class="menu-search-ic" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>

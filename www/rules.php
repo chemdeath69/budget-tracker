@@ -21,6 +21,11 @@ $catOpts = array_values(array_filter(
 render_header('Categories & rules', 'rules', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Setup</p>
+    <h1>Categories &amp; rules</h1>
+</div>
+
 <section class="card">
     <p class="muted intro-note">
         Create your own <strong>custom categories</strong> below, then assign them to transactions

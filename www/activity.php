@@ -52,6 +52,11 @@ $stepName = static function (array $s): string {
 render_header('Activity & diagnostics', 'activity', ['back' => '/settings.php']);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Diagnostics</p>
+    <h1>Activity &amp; diagnostics</h1>
+</div>
+
 <div class="tabs" role="tablist">
     <a class="tab<?= $view === 'sync' ? ' active' : '' ?>" href="?view=sync">Sync status</a>
     <a class="tab<?= $view === 'access' ? ' active' : '' ?>" href="?view=access">Access log</a>

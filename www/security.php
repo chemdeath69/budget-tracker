@@ -29,6 +29,10 @@ $hasAccess = $securityId !== '' && q_security_has_access($pdo, $uid, $securityId
 if (!$hasAccess) {
     render_header('Security', '', ['back' => $backUrl, 'narrow' => true]);
     ?>
+    <div class="page-head">
+        <p class="eyebrow">Security</p>
+        <h1>Security</h1>
+    </div>
     <div class="empty-state card">
         <h2>Security not found</h2>
         <p class="muted">This security isn't in your holdings, or you don't have access to it.</p>
@@ -149,6 +153,11 @@ function sec_freq_label(?int $f): string
 
 render_header($title, '', ['back' => $backUrl, 'narrow' => true, 'chart' => true]);
 ?>
+
+<div class="page-head">
+    <p class="eyebrow">Security</p>
+    <h1><?= e($title) ?></h1>
+</div>
 
 <!-- Identity + latest price -->
 <section class="card hero">
