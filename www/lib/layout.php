@@ -202,25 +202,17 @@ function user_initials(string $nameOrEmail): string
     return strtoupper($first . $last);
 }
 
-/** Deterministic accent colour for the initials avatar, from the email. */
-function avatar_hue(string $seed): int
-{
-    return (int)(hexdec(substr(md5($seed), 0, 6)) % 360);
-}
-
-/** The avatar element (Google photo if available, else initials circle). */
+/** The avatar element (Google photo if available, else a brass initials circle). */
 function user_avatar_html(bool $large = false): string
 {
     $name    = $_SESSION['name'] ?? ($_SESSION['user_email'] ?? '');
-    $email   = $_SESSION['user_email'] ?? '';
     $picture = $_SESSION['picture'] ?? '';
     $cls     = 'avatar' . ($large ? ' avatar-lg' : '');
     if ($picture !== '') {
         return '<img class="' . $cls . '" src="' . e($picture) . '" alt="' . e($name) . '" '
              . 'referrerpolicy="no-referrer" loading="lazy">';
     }
-    $hue = avatar_hue($email ?: $name);
-    return '<span class="' . $cls . ' avatar-initials" style="--hue:' . $hue . '" '
+    return '<span class="' . $cls . ' avatar-initials" '
          . 'aria-label="' . e($name) . '">' . e(user_initials($name)) . '</span>';
 }
 

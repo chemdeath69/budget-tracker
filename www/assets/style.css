@@ -32,6 +32,12 @@
   --brand: #A8814C;            /* brass — primary */
   --brand-ink: #ffffff;
   --brand-weak: rgba(168, 129, 76, .12);
+  /* Letter colour for the brass initials avatar: a FIXED deep ink (not theme-
+     flipped) — passes WCAG AA on brass in BOTH themes (~4.97:1 on the light-mode
+     brass, ~7.4:1 on the lighter dark-mode brass). --brand-ink is white in light
+     (3.55:1, fails) and --ink flips to near-white in dark, so neither works for
+     both; this constant does. Phase 5 a11y pass. */
+  --avatar-ink: #1B1A17;
   --brass: #A8814C; --brass-2: #C39A5E; --brass-weak: rgba(168, 129, 76, .12);
   /* A deeper brass for SMALL accent text (kickers/eyebrows): plain --brass on
      white is only 3.55:1 — below WCAG AA for <18px. This reaches ~5:1. Dark
@@ -217,8 +223,8 @@ h1, h2, h3,
 }
 .avatar-lg { width: 48px; height: 48px; font-size: 1.05rem; }
 .avatar-initials {
-  background: hsl(var(--hue, 220), 62%, 52%);
-  color: #fff; border: 0; letter-spacing: .02em;
+  background: var(--brand);
+  color: var(--avatar-ink); border: 0; letter-spacing: .02em;
 }
 
 /* ---- Drawer ------------------------------------------------------------- */
@@ -1024,7 +1030,12 @@ a.cat-row:hover { background: var(--surface-2); }
 .error { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); padding: 10px 14px; border-radius: var(--r-sm); margin-top: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .drawer, .scrim, .budget-bar > span, .btn-google { transition: none; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---- Manual accounts (add / upload / docs / tax) ------------------------ */
