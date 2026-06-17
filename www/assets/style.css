@@ -1049,6 +1049,30 @@ summary:focus-visible,
   outline-offset: 2px;
 }
 
+/* ---- Micro-interactions (Phase 5 chunk 5) ------------------------------- */
+/* Subtle hover/press feedback on the clickable cards & list rows that were
+   still bare. Matches the existing vocabulary: cards lift with a brass hairline
+   + soft shadow (like .hero-link/.spend-card/.cr-card); rows shade on hover the
+   same way they already do on :active. All transitions are auto-disabled by the
+   global prefers-reduced-motion rule below. */
+
+/* Clickable list rows + cards-in-a-list: add the desktop :hover to match their
+   existing :active press. (a.row stays anchor-only — a plain .row is not a link.) */
+a.row, .acct-card, .action-card { transition: background .12s ease; }
+a.row:hover, .acct-card:hover, .action-card:hover { background: var(--surface-2); }
+
+/* Bento dashboard cards (always links): calm border + shadow lift, no movement. */
+.bento .b-card { transition: border-color .12s, box-shadow .12s; }
+.bento .b-card:hover { border-color: var(--brand); box-shadow: var(--shadow-1); }
+
+/* Needs-Attention feed items (always links): shadow lift + the chevron nudges
+   toward its target. The coloured left-accent border IS the item's identity
+   (warn/go), so it is intentionally NOT recoloured on hover. */
+.feed-item { transition: box-shadow .12s; }
+.feed-item .chev { transition: transform .12s ease; }
+.feed-item:hover { box-shadow: var(--shadow-1); }
+.feed-item:hover .chev { transform: translateX(2px); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
