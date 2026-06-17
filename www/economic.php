@@ -22,9 +22,14 @@ $fdate = fn($d) => $d ? date('M j, Y', strtotime((string)$d)) : '';
 render_header('Economic', 'economic', ['chart' => true, 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Economy</p>
+    <h1>Economic indicators</h1>
+</div>
+
 <?php if (!$view['has_data']): ?>
     <div class="empty-state card">
-        <h2>Economic indicators</h2>
+        <h2>No economic data yet</h2>
         <p class="muted">This page pulls free macro data from <strong>FRED</strong> (the St. Louis
             Fed) — inflation (CPI), the 30-year mortgage rate and Treasury / Fed-funds yields — to
             show your <em>real</em> (inflation-adjusted) net worth, whether your mortgage beats the

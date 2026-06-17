@@ -35,6 +35,11 @@ function debt_date_label(int $months): string
 render_header('Debt payoff', 'debt', ['narrow' => true, 'chart' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Worth</p>
+    <h1>Debt payoff</h1>
+</div>
+
 <?php if (!$plan['debts']): ?>
     <div class="empty-state card">
         <h2>No debts to plan<?= $plan['has_mortgage'] && !$includeMortgage ? ' (except your mortgage)' : '' ?></h2>

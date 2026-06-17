@@ -66,6 +66,11 @@ $targetVal = number_format($sp['savings_target'], 2, '.', '');   // '' separator
 render_header('Safe to spend', 'safetospend', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Everyday</p>
+    <h1>Safe to spend</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>

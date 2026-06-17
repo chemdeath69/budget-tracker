@@ -86,6 +86,11 @@ $fv     = build_fees_view($holds, $ratios);
 render_header('Investment fees', 'fees', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Investment fees</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>

@@ -144,6 +144,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 render_header('Import a credit report', 'credit', ['back' => '/credit.php', 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Credit</p>
+    <h1>Import a credit report</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>

@@ -32,6 +32,11 @@ $chip = function (?float $pct, bool $over): string {
 render_header('Spending vs typical', 'peers', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Insights</p>
+    <h1>Spending vs typical</h1>
+</div>
+
 <form class="filter-bar" method="get" action="/peers.php">
     <div class="filter-row">
         <label class="muted peer-sel-label" for="bracket">Compare me to households earning</label>

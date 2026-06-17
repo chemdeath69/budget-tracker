@@ -58,9 +58,13 @@ if (!$view) {
         echo '<div class="notice ' . ($fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '')) . '">' . e($fl['msg']) . '</div>';
     }
     ?>
+    <div class="page-head">
+        <p class="eyebrow">Credit</p>
+        <h1>Credit reports</h1>
+    </div>
     <section class="card">
         <div class="head-actions">
-            <h2>Credit reports</h2>
+            <h2>Your reports</h2>
             <a class="btn" href="/credit_import.php">+ Import a report</a>
         </div>
         <?php if (!credit_ocr_enabled($GLOBALS['CONFIG'])): ?>
@@ -123,6 +127,11 @@ foreach (flash_take() as $fl) {
     echo '<div class="notice ' . ($fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '')) . '">' . e($fl['msg']) . '</div>';
 }
 ?>
+
+<div class="page-head">
+    <p class="eyebrow">Credit report</p>
+    <h1><?= e($rep['bureau_label']) ?></h1>
+</div>
 
 <section class="hero card">
     <div class="hero-top">
