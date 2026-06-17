@@ -223,6 +223,11 @@ function div_freq_label(?int $f): string
 }
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Investments</h1>
+</div>
+
 <?php if (!$holds): ?>
     <div class="empty-state card">
         <span class="empty-ic"><?= nav_icon('invest') ?></span>
@@ -231,20 +236,31 @@ function div_freq_label(?int $f): string
         <a class="btn" href="/link.php">Link an account</a>
     </div>
 <?php else: ?>
-    <section class="card hero">
-        <div class="hero-top">
-            <span class="hero-label">Total holdings value</span>
+    <!-- Chart leads: total value + total gain, then value over time -->
+    <section class="card">
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Total holdings value</span>
+                <div class="big"><?= e(usd($total)) ?></div>
+                <?php if ($gain !== null): ?>
+                    <span class="muted" style="font-size:.84rem"><?= ($gain >= 0 ? '+' : '−') . e(usd(abs($gain))) ?> total gain/loss<?php if ($partial): ?> · <span title="Some holdings have no cost basis yet">excludes holdings without cost basis</span><?php endif; ?></span>
+                <?php else: ?>
+                    <span class="muted" style="font-size:.84rem">Cost basis isn't available yet, so gain/loss can't be shown.</span>
+                <?php endif; ?>
+            </div>
             <?php if ($gainPct !== null): $up = $gain >= 0; ?>
-                <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($gainPct), 1) ?>%<span class="delta-sub">total</span></span>
+            <div class="lead-deltas"><span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($gainPct), 1) ?>%<span class="delta-sub">total</span></span></div>
             <?php endif; ?>
         </div>
-        <div class="hero-value"><?= e(usd($total)) ?></div>
-        <?php if ($gain !== null): ?>
-            <div class="muted">
-                <?= ($gain >= 0 ? '+' : '−') . e(usd(abs($gain))) ?> total gain/loss<?php if ($partial): ?> · <span title="Some holdings have no cost basis yet">excludes holdings without cost basis</span><?php endif; ?>
-            </div>
-        <?php else: ?>
-            <div class="muted">Cost basis isn't available yet, so gain/loss can't be shown.</div>
+        <?php if (count($history) > 1): ?>
+        <div class="chart-wrap tall">
+            <canvas id="pv-chart" data-chart="line" data-src="pv-data"></canvas>
+            <script type="application/json" id="pv-data"><?= json_encode([
+                'labels' => array_column($history, 'date'),
+                'values' => array_map('floatval', array_column($history, 'value')),
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+        </div>
+        <p class="muted chart-cap">Value over time at current holdings.</p>
         <?php endif; ?>
     </section>
 
@@ -336,21 +352,6 @@ function div_freq_label(?int $f): string
         <?php else: ?>
         <div class="card"><p class="muted">We can't compute a reliable return yet — your recorded buy/sell history doesn't reconcile with the current share counts (a statement or transaction is likely missing). Once the full lot history is on file, an annualized return vs an index appears here.</p></div>
         <?php endif; ?>
-    </section>
-    <?php endif; ?>
-
-    <?php if (count($history) > 1): ?>
-    <section class="block">
-        <div class="block-head"><h2>Value over time</h2><span class="muted">at current holdings</span></div>
-        <div class="card">
-            <div class="chart-wrap tall">
-                <canvas id="pv-chart" data-chart="line" data-src="pv-data"></canvas>
-                <script type="application/json" id="pv-data"><?= json_encode([
-                    'labels' => array_column($history, 'date'),
-                    'values' => array_map('floatval', array_column($history, 'value')),
-                ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-            </div>
-        </div>
     </section>
     <?php endif; ?>
 

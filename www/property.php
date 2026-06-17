@@ -40,59 +40,45 @@ $rf = $view['refi'] ?? null;
 $equity = $dv['equity'] ?? null;
 ?>
 
-<!-- Hero: equity vs value/mortgage -->
-<section class="hero card">
-    <div class="hero-top">
-        <span class="hero-label"><?= $equity !== null ? 'Home equity' : 'Home value' ?></span>
+<div class="page-head">
+    <p class="eyebrow">Property</p>
+    <h1>Home &amp; Mortgage</h1>
+</div>
+
+<!-- Chart leads: the equity figure + LTV, then the home-value trend -->
+<section class="card">
+    <div class="chart-lead-head">
+        <div class="lead-fig">
+            <span class="eyebrow"><?= $equity !== null ? 'Home equity' : 'Home value' ?></span>
+            <div class="big"><?= e(usd($equity !== null ? $equity : ($v['current'] ?? 0))) ?></div>
+        </div>
         <?php if (isset($dv['ltv'])): ?>
-            <span class="delta"><?= e($pct($dv['ltv'])) ?> <span class="delta-sub">LTV</span></span>
+        <div class="lead-deltas"><span class="delta"><?= e($pct($dv['ltv'])) ?> <span class="delta-sub">LTV</span></span></div>
         <?php endif; ?>
     </div>
-    <div class="hero-value"><?= e(usd($equity !== null ? $equity : ($v['current'] ?? 0))) ?></div>
-    <div class="hero-split">
-        <div class="split-cell">
-            <span class="split-label">Home value<?php if ($v && $v['low'] !== null): ?> <span class="muted">(<?= e(usd($v['low'])) ?>–<?= e(usd($v['high'])) ?>)</span><?php endif; ?></span>
-            <span class="split-value pos"><?= e(usd($v['current'] ?? 0)) ?></span>
-        </div>
-        <?php if ($m): ?>
-        <div class="split-cell">
-            <span class="split-label"><?= e($m['name']) ?> balance<?= owner_suffix($m['owner_id'] ?? null) ?></span>
-            <span class="split-value neg">-<?= e(usd($m['balance'])) ?></span>
-        </div>
-        <?php endif; ?>
+    <?php if (!empty($ch['value'])): ?>
+    <div class="chart-wrap tall">
+        <canvas data-chart="multiline" data-src="c-value"></canvas>
+        <script type="application/json" id="c-value"><?= $jenc([
+            'labels' => $ch['value']['labels'],
+            'series' => [
+                ['label' => '_low',  'values' => $ch['value']['low'],  'color' => 'muted', 'faint' => true, 'legend' => false],
+                ['label' => '_high', 'values' => $ch['value']['high'], 'color' => 'muted', 'faint' => true, 'fillTo' => 0, 'legend' => false],
+                ['label' => 'Estimate', 'values' => $ch['value']['est'], 'color' => 'brand'],
+            ],
+        ]) ?></script>
     </div>
-    <?php if (isset($dv['appreciation'])): $up = $dv['appreciation'] >= 0; ?>
-    <div class="muted" style="margin-top:.6rem">
-        <?= $up ? '▲' : '▼' ?> <?= e(($up ? '+' : '−') . usd(abs($dv['appreciation']))) ?>
-        since purchase<?php if (isset($dv['appreciation_annual_pct'])): ?>
-            · <?= e($pct($dv['appreciation_annual_pct'])) ?>/yr<?php endif; ?>
-        <?php if ($v && $v['as_of']): ?> · est. <?= e($fdate($v['as_of'])) ?><?php endif; ?>
-    </div>
+    <p class="muted chart-cap">Estimated market value with range<?php if (count($ch['value']['labels']) < 3): ?> · starts from your purchase, the trend fills in monthly<?php endif; ?><?php if ($v && $v['as_of']): ?> · est. <?= e($fdate($v['as_of'])) ?><?php endif; ?>.</p>
     <?php endif; ?>
 </section>
 
-<!-- Value over time -->
-<?php if (!empty($ch['value'])): ?>
-<section class="block">
-    <div class="block-head"><h2>Home value over time</h2><span class="muted">est. + range</span></div>
-    <div class="card">
-        <div class="chart-wrap tall">
-            <canvas data-chart="multiline" data-src="c-value"></canvas>
-            <script type="application/json" id="c-value"><?= $jenc([
-                'labels' => $ch['value']['labels'],
-                'series' => [
-                    ['label' => '_low',  'values' => $ch['value']['low'],  'color' => 'muted', 'faint' => true, 'legend' => false],
-                    ['label' => '_high', 'values' => $ch['value']['high'], 'color' => 'muted', 'faint' => true, 'fillTo' => 0, 'legend' => false],
-                    ['label' => 'Estimate', 'values' => $ch['value']['est'], 'color' => 'brand'],
-                ],
-            ]) ?></script>
-        </div>
-        <?php if (count($ch['value']['labels']) < 3): ?>
-        <p class="muted" style="margin:.4rem 0 0">Starts from your purchase; the trend fills in monthly.</p>
-        <?php endif; ?>
-    </div>
-</section>
-<?php endif; ?>
+<!-- KPI strip: value / mortgage / appreciation at a glance -->
+<div class="kpis">
+    <div class="kpi"><span class="eyebrow">Home value</span><div class="v pos"><?= e(usd($v['current'] ?? 0)) ?></div></div>
+    <?php if ($m): ?><div class="kpi"><span class="eyebrow">Mortgage balance</span><div class="v neg">-<?= e(usd($m['balance'])) ?></div></div><?php endif; ?>
+    <?php if (isset($dv['appreciation'])): $up = $dv['appreciation'] >= 0; ?><div class="kpi"><span class="eyebrow">Since purchase</span><div class="v <?= $up ? 'pos' : 'neg' ?>"><?= e(($up ? '+' : '−') . usd(abs($dv['appreciation']))) ?></div></div><?php endif; ?>
+    <?php if (isset($dv['appreciation_annual_pct'])): ?><div class="kpi"><span class="eyebrow">Appreciation / yr</span><div class="v"><?= e($pct($dv['appreciation_annual_pct'])) ?></div></div><?php endif; ?>
+</div>
 
 <!-- Equity over time -->
 <?php if (!empty($ch['equity'])): ?>
