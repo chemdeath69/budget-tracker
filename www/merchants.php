@@ -23,6 +23,11 @@ $from = date('Y-m-d', strtotime("-{$days} days"));
 render_header('Top merchants', 'merchants', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Insights</p>
+    <h1>Top merchants</h1>
+</div>
+
 <form class="filter-bar" method="get" action="/merchants.php">
     <div class="filter-row">
         <select name="days" class="select" data-autosubmit aria-label="Period">

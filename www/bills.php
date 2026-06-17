@@ -62,6 +62,11 @@ function bill_day_header(string $ymd, DateTimeImmutable $today): string {
 render_header('Upcoming bills', 'bills', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Everyday</p>
+    <h1>Upcoming bills</h1>
+</div>
+
 <!-- Hero: total due in the next 14 days -->
 <section class="hero card">
     <div class="hero-top">

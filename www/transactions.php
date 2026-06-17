@@ -49,6 +49,11 @@ $exportHref = '/api/export.php' . ($filters ? '?' . http_build_query($filters) :
 render_header('Transactions', 'transactions', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Everyday</p>
+    <h1>Transactions</h1>
+</div>
+
 <form class="filter-bar" method="get" action="/transactions.php">
     <div class="filter-search">
         <input type="search" name="q" class="search-input" value="<?= e($fQ) ?>" placeholder="Search merchant, category, or owner…">

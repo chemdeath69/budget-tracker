@@ -24,9 +24,14 @@ $overallPct   = $totalTarget > 0 ? min(100, $totalCurrent / $totalTarget * 100) 
 render_header('Savings goals', 'goals', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Worth</p>
+    <h1>Savings goals</h1>
+</div>
+
 <section class="block">
     <div class="block-head">
-        <h2>Savings goals</h2>
+        <h2>Your goals</h2>
         <button class="btn-ghost" id="add-goal-btn" type="button">+ Add</button>
     </div>
 

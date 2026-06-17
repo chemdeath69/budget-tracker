@@ -45,6 +45,11 @@ function recurring_rows(array $rows, array $logos): void
 }
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Insights</p>
+    <h1>Recurring</h1>
+</div>
+
 <?php if (!$rows): ?>
     <div class="empty-state card">
         <span class="empty-ic"><?= nav_icon('repeat') ?></span>

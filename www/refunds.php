@@ -34,9 +34,14 @@ function refund_subline(array $row): string
 render_header('Refunds', 'refunds', ['narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Everyday</p>
+    <h1>Refunds</h1>
+</div>
+
 <section class="block">
     <div class="block-head">
-        <h2>Refunds</h2>
+        <h2>Tracked refunds</h2>
         <a class="block-link" href="/transactions.php">Transactions ›</a>
     </div>
 
