@@ -46,41 +46,22 @@ $deltaChip = function (float $cur, float $base): string {
     return '<span class="delta-chip ' . $cls . '">' . $arr . ' ' . number_format(abs($pct), 0) . '%</span>';
 };
 
+/** KPI delta: arrow + |%| text + a colour class (for SPENDING an increase is "worse" → neg/red). */
+$kpiDelta = function (float $cur, float $base): array {
+    if ($base <= 0) return ['—', ''];
+    $pct = ($cur - $base) / $base * 100;
+    if (abs($pct) < 0.5) return ['≈ flat', ''];
+    $up = $pct > 0;
+    return [($up ? '▲ ' : '▼ ') . number_format(abs($pct), 0) . '%', $up ? 'neg' : 'pos'];
+};
+
 render_header('Spending trends', 'trends', ['chart' => true]);
 ?>
 
-<form class="filter-bar" method="get" action="/trends.php">
-    <div class="filter-row">
-        <select name="months" class="select" data-autosubmit aria-label="Period">
-            <option value="6"<?=  $months === 6  ? ' selected' : '' ?>>Last 6 months</option>
-            <option value="12"<?= $months === 12 ? ' selected' : '' ?>>Last 12 months</option>
-            <option value="24"<?= $months === 24 ? ' selected' : '' ?>>Last 24 months</option>
-        </select>
-        <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
-    </div>
-</form>
-
-<!-- This-month hero: total spend so far, vs recent history -->
-<section class="hero card">
-    <div class="hero-top">
-        <span class="hero-label">Spending · <?= e($tr['month_label']) ?></span>
-        <span class="delta-sub muted">so far this month</span>
-    </div>
-    <div class="hero-value"><?= e(usd($tr['this_total'])) ?></div>
-
-    <div class="hero-split">
-        <div class="split-cell">
-            <span class="split-label">vs 3-month avg</span>
-            <span class="split-value"><?= $deltaChip($tr['this_total'], $tr['avg3_total']) ?>
-                <span class="muted">of <?= e(usd($tr['avg3_total'])) ?></span></span>
-        </div>
-        <div class="split-cell">
-            <span class="split-label">vs <?= e(date('M Y', strtotime('first day of this month -12 months'))) ?></span>
-            <span class="split-value"><?= $deltaChip($tr['this_total'], $tr['lastyear_total']) ?>
-                <span class="muted">of <?= e(usd($tr['lastyear_total'])) ?></span></span>
-        </div>
-    </div>
-</section>
+<div class="page-head">
+    <p class="eyebrow">Spend</p>
+    <h1>Spending trends</h1>
+</div>
 
 <?php if (!$hasData): ?>
     <div class="empty-state card">
@@ -90,11 +71,21 @@ render_header('Spending trends', 'trends', ['chart' => true]);
     </div>
 <?php else: ?>
 
-    <!-- Stacked spend-by-category bars across the window -->
+    <!-- Chart leads: this-month spend + period selector, then the stacked bars -->
     <section class="card">
-        <div class="block-head">
-            <h2>By month</h2>
-            <span class="muted">top 7 categories</span>
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Spending · <?= e($tr['month_label']) ?> · so far this month</span>
+                <div class="big"><?= e(usd($tr['this_total'])) ?></div>
+            </div>
+            <form method="get" action="/trends.php" class="head-form">
+                <select name="months" class="select" data-autosubmit aria-label="Period">
+                    <option value="6"<?=  $months === 6  ? ' selected' : '' ?>>Last 6 months</option>
+                    <option value="12"<?= $months === 12 ? ' selected' : '' ?>>Last 12 months</option>
+                    <option value="24"<?= $months === 24 ? ' selected' : '' ?>>Last 24 months</option>
+                </select>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
         </div>
         <div class="chart-wrap tall">
             <canvas id="trend-chart" data-chart="stackbars" data-src="trend-data"></canvas>
@@ -107,8 +98,18 @@ render_header('Spending trends', 'trends', ['chart' => true]);
             // regardless of what feeds it). app.js reads via textContent + JSON.parse.
             ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </div>
-        <p class="muted load-note">Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice. The current month is still filling in.</p>
+        <p class="muted load-note">Top 7 categories. Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice. The current month is still filling in.</p>
     </section>
+
+    <!-- KPI strip: this month vs recent history -->
+    <?php [$d3txt, $d3cls] = $kpiDelta($tr['this_total'], $tr['avg3_total']);
+          [$dytxt, $dycls] = $kpiDelta($tr['this_total'], $tr['lastyear_total']); ?>
+    <div class="kpis">
+        <div class="kpi"><span class="eyebrow">3-month avg</span><div class="v"><?= e(usd($tr['avg3_total'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">vs 3-mo avg</span><div class="v <?= $d3cls ?>"><?= e($d3txt) ?></div></div>
+        <div class="kpi"><span class="eyebrow"><?= e(date('M Y', strtotime('first day of this month -12 months'))) ?></span><div class="v"><?= e(usd($tr['lastyear_total'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">vs last year</span><div class="v <?= $dycls ?>"><?= e($dytxt) ?></div></div>
+    </div>
 
     <!-- This month by category → click a row to see those transactions -->
     <section class="block">

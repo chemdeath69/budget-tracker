@@ -32,16 +32,10 @@ $netChange = $fc['end_balance'] - $fc['start_balance'];
 render_header('Cash flow forecast', 'forecast', ['chart' => true, 'narrow' => true]);
 ?>
 
-<form class="filter-bar" method="get" action="/forecast.php">
-    <div class="filter-row">
-        <select name="horizon" class="select" data-autosubmit aria-label="Forecast horizon">
-            <option value="30"<?= $horizon === 30 ? ' selected' : '' ?>>Next 30 days</option>
-            <option value="60"<?= $horizon === 60 ? ' selected' : '' ?>>Next 60 days</option>
-            <option value="90"<?= $horizon === 90 ? ' selected' : '' ?>>Next 90 days</option>
-        </select>
-        <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
-    </div>
-</form>
+<div class="page-head">
+    <p class="eyebrow">Worth</p>
+    <h1>Cash flow forecast</h1>
+</div>
 
 <?php if (!$hasCash): ?>
     <div class="empty-state card">
@@ -52,37 +46,38 @@ render_header('Cash flow forecast', 'forecast', ['chart' => true, 'narrow' => tr
     </div>
 <?php else: ?>
 
-    <!-- Projected-low hero: the dip the forecast is all about. -->
-    <section class="hero card">
-        <div class="hero-top">
-            <span class="hero-label">Projected low</span>
-            <span class="delta-sub muted">next <?= (int)$horizon ?> days</span>
+    <!-- Chart leads: the projected low + horizon selector, then the balance line -->
+    <section class="card">
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Projected low · next <?= (int)$horizon ?> days</span>
+                <div class="big <?= $fc['goes_negative'] ? 'neg' : '' ?>"><?= ($fc['min_balance'] < 0 ? '−' : '') . e(usd(abs($fc['min_balance']))) ?></div>
+                <span class="muted">around <strong><?= e((new DateTimeImmutable($fc['min_date']))->format('D, M j')) ?></strong></span>
+            </div>
+            <form method="get" action="/forecast.php" class="head-form">
+                <select name="horizon" class="select" data-autosubmit aria-label="Forecast horizon">
+                    <option value="30"<?= $horizon === 30 ? ' selected' : '' ?>>Next 30 days</option>
+                    <option value="60"<?= $horizon === 60 ? ' selected' : '' ?>>Next 60 days</option>
+                    <option value="90"<?= $horizon === 90 ? ' selected' : '' ?>>Next 90 days</option>
+                </select>
+                <noscript><button class="btn-ghost" type="submit">Apply</button></noscript>
+            </form>
         </div>
-        <div class="hero-value <?= $fc['goes_negative'] ? 'neg' : '' ?>">
-            <?= ($fc['min_balance'] < 0 ? '−' : '') . e(usd(abs($fc['min_balance']))) ?>
+        <div class="chart-wrap tall">
+            <canvas id="fc-chart" data-chart="line" data-src="fc-data"></canvas>
+            <script type="application/json" id="fc-data"><?= json_encode([
+                'labels' => array_map(fn($d) => (new DateTimeImmutable($d))->format('M j'), $fc['series']['labels']),
+                'values' => $fc['series']['values'],
+            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
         </div>
-        <p class="muted" style="margin:2px 0 0">
-            around <strong><?= e((new DateTimeImmutable($fc['min_date']))->format('D, M j')) ?></strong>
+        <p class="muted load-note">
+            Starts from today's cash, adds projected recurring income, subtracts scheduled bills, and spreads
+            your average daily spending of <strong><?= e(usd($fc['discretionary_daily'])) ?>/day</strong>
+            <?php if ($fc['avg_daily_spend'] > $fc['discretionary_daily'] + 0.005): ?>
+                (everyday spend, after recurring bills)
+            <?php endif; ?>
+            across the <?= (int)$horizon ?> days. An estimate — irregular income isn't projected.
         </p>
-
-        <div class="hero-split tri">
-            <div class="split-cell">
-                <span class="split-label">Cash today</span>
-                <span class="split-value"><?= e(usd($fc['start_balance'])) ?></span>
-            </div>
-            <div class="split-cell">
-                <span class="split-label">Projected end</span>
-                <span class="split-value <?= $fc['end_balance'] < 0 ? 'neg' : '' ?>">
-                    <?= ($fc['end_balance'] < 0 ? '−' : '') . e(usd(abs($fc['end_balance']))) ?>
-                </span>
-            </div>
-            <div class="split-cell">
-                <span class="split-label">Net change</span>
-                <span class="split-value <?= $netChange < 0 ? 'neg' : 'pos' ?>">
-                    <?= ($netChange < 0 ? '−' : '+') . e(usd(abs($netChange))) ?>
-                </span>
-            </div>
-        </div>
     </section>
 
     <?php if ($fc['goes_negative']): ?>
@@ -103,28 +98,13 @@ render_header('Cash flow forecast', 'forecast', ['chart' => true, 'narrow' => tr
         </div>
     <?php endif; ?>
 
-    <!-- Projected balance line over the horizon -->
-    <section class="card">
-        <div class="block-head">
-            <h2>Projected balance</h2>
-            <span class="muted">checking + savings</span>
-        </div>
-        <div class="chart-wrap tall">
-            <canvas id="fc-chart" data-chart="line" data-src="fc-data"></canvas>
-            <script type="application/json" id="fc-data"><?= json_encode([
-                'labels' => array_map(fn($d) => (new DateTimeImmutable($d))->format('M j'), $fc['series']['labels']),
-                'values' => $fc['series']['values'],
-            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-        </div>
-        <p class="muted load-note">
-            Starts from today's cash, adds projected recurring income, subtracts scheduled bills, and spreads
-            your average daily spending of <strong><?= e(usd($fc['discretionary_daily'])) ?>/day</strong>
-            <?php if ($fc['avg_daily_spend'] > $fc['discretionary_daily'] + 0.005): ?>
-                (everyday spend, after recurring bills)
-            <?php endif; ?>
-            across the <?= (int)$horizon ?> days. An estimate — irregular income isn't projected.
-        </p>
-    </section>
+    <!-- KPI strip: the cash figures at a glance -->
+    <div class="kpis">
+        <div class="kpi"><span class="eyebrow">Cash today</span><div class="v"><?= e(usd($fc['start_balance'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Projected end</span><div class="v <?= $fc['end_balance'] < 0 ? 'neg' : '' ?>"><?= ($fc['end_balance'] < 0 ? '−' : '') . e(usd(abs($fc['end_balance']))) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Net change</span><div class="v <?= $netChange < 0 ? 'neg' : 'pos' ?>"><?= ($netChange < 0 ? '−' : '+') . e(usd(abs($netChange))) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Everyday spend</span><div class="v"><?= e(usd($fc['discretionary_daily'])) ?><span class="muted" style="font-size:.6em">/day</span></div></div>
+    </div>
 
     <!-- What-if: spend less / save more (#35) -->
     <?php

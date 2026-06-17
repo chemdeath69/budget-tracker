@@ -65,6 +65,11 @@ function ret_rate_note(array $view): string
 render_header('Retirement', 'retirement', ['chart' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Retirement</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>
@@ -79,57 +84,40 @@ render_header('Retirement', 'retirement', ['chart' => true]);
     </div>
 <?php else: ?>
 
-    <!-- Combined retirement total -->
-    <section class="hero card">
-        <div class="hero-top">
-            <span class="hero-label">Retirement total</span>
+    <!-- Chart leads: combined total + change, then the value-over-time line -->
+    <section class="card">
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Retirement total</span>
+                <div class="big"><?= e(usd($total)) ?></div>
+            </div>
             <?php if ($chgPct !== null): $up = $chgPct >= 0; ?>
-                <span class="delta <?= $up ? 'up' : 'down' ?>">
-                    <?= $up ? '▲' : '▼' ?> <?= number_format(abs($chgPct), 1) ?>%
-                    <span class="delta-sub">since last</span>
-                </span>
+            <div class="lead-deltas">
+                <span class="delta <?= $up ? 'up' : 'down' ?>"><?= $up ? '▲' : '▼' ?> <?= number_format(abs($chgPct), 1) ?>%<span class="delta-sub">since last</span></span>
+            </div>
             <?php endif; ?>
         </div>
-        <div class="hero-value"><?= e(usd($total)) ?></div>
-
         <?php if (count($vs) > 1): ?>
-            <div class="sparkline">
-                <canvas id="ret-spark" data-chart="spark" data-src="ret-spark-data" height="64"></canvas>
-            </div>
-            <script type="application/json" id="ret-spark-data"><?= json_encode([
-                'labels' => array_column($vs, 'date'),
-                'values' => array_map('floatval', array_column($vs, 'value')),
-            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-        <?php endif; ?>
-
-        <div class="hero-split">
-            <div class="split-cell">
-                <span class="split-label">Accounts</span>
-                <span class="split-value"><?= count($accounts) ?></span>
-            </div>
-            <div class="split-cell">
-                <span class="split-label">Contributed YTD</span>
-                <span class="split-value pos"><?= e(usd($view['ytd']['total'])) ?></span>
-            </div>
-        </div>
-    </section>
-
-    <div class="cols">
-    <!-- Value over time -->
-    <?php if (count($vs) > 1): ?>
-    <section class="block">
-        <div class="block-head"><h2>Value over time</h2><span class="muted">by statement</span></div>
-        <section class="card">
-            <div class="chart-wrap" style="height:240px">
-                <canvas data-chart="line" data-src="ret-value-data"></canvas>
-            </div>
+        <div class="chart-wrap tall">
+            <canvas data-chart="line" data-src="ret-value-data"></canvas>
             <script type="application/json" id="ret-value-data"><?= json_encode([
                 'labels' => array_column($vs, 'date'),
                 'values' => array_map('floatval', array_column($vs, 'value')),
             ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-        </section>
+        </div>
+        <p class="muted chart-cap">Value at each statement.</p>
+        <?php else: ?>
+        <p class="muted">Value history will appear as statements and balances accumulate.</p>
+        <?php endif; ?>
     </section>
-    <?php endif; ?>
+
+    <!-- KPI strip: accounts, contributions, growth at a glance -->
+    <div class="kpis">
+        <div class="kpi"><span class="eyebrow">Accounts</span><div class="v"><?= count($accounts) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Contributed YTD</span><div class="v pos"><?= e(usd($view['ytd']['total'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Last 12 months</span><div class="v"><?= e(usd($view['ttm_contrib'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Growth rate</span><div class="v"><?= e(number_format($view['rate'] * 100, 1)) ?>%</div></div>
+    </div>
 
     <!-- Contributions -->
     <section class="block">
@@ -153,7 +141,6 @@ render_header('Retirement', 'retirement', ['chart' => true]);
             <?php endif; ?>
         </section>
     </section>
-    </div><!-- /.cols -->
 
     <!-- Projection -->
     <section class="block">

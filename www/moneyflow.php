@@ -85,6 +85,11 @@ if ($savedAmt > 0) {
 render_header('Money flow', 'moneyflow', ['sankey' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Spend</p>
+    <h1>Money flow</h1>
+</div>
+
 <form class="filter-bar" method="get" action="/moneyflow.php">
     <div class="filter-row">
         <select name="month" class="select" data-autosubmit aria-label="Month">
@@ -96,32 +101,6 @@ render_header('Money flow', 'moneyflow', ['sankey' => true]);
     </div>
 </form>
 
-<!-- Hero: money in / out / net for the month -->
-<section class="hero card">
-    <div class="hero-top">
-        <span class="hero-label">Net · <?= e($mf['month_label']) ?></span>
-        <span class="delta-sub muted">income − spending</span>
-    </div>
-    <div class="hero-value <?= $mf['net'] < 0 ? 'neg' : '' ?>">
-        <?= ($mf['net'] < 0 ? '−' : '') . e(usd(abs($mf['net']))) ?>
-    </div>
-
-    <div class="hero-split tri">
-        <div class="split-cell">
-            <span class="split-label">Money in</span>
-            <span class="split-value pos"><?= e(usd($mf['income_total'])) ?></span>
-        </div>
-        <div class="split-cell">
-            <span class="split-label">Money out</span>
-            <span class="split-value neg"><?= e(usd($mf['expense_total'])) ?></span>
-        </div>
-        <div class="split-cell">
-            <span class="split-label">Savings rate</span>
-            <span class="split-value <?= $rate !== null && $rate < 0 ? 'neg' : '' ?>"><?= $rate === null ? '—' : number_format($rate, 0) . '%' ?></span>
-        </div>
-    </div>
-</section>
-
 <?php if (!$hasData): ?>
     <div class="empty-state card">
         <h2>No money flow for <?= e($mf['month_label']) ?></h2>
@@ -130,11 +109,13 @@ render_header('Money flow', 'moneyflow', ['sankey' => true]);
     </div>
 <?php else: ?>
 
-    <!-- The Sankey: income sources → Income → spending categories -->
+    <!-- Chart leads: net figure, then the income→spending Sankey -->
     <section class="card">
-        <div class="block-head">
-            <h2>Where the money went</h2>
-            <span class="muted"><?= e($mf['month_label']) ?></span>
+        <div class="chart-lead-head">
+            <div class="lead-fig">
+                <span class="eyebrow">Net · <?= e($mf['month_label']) ?> · income − spending</span>
+                <div class="big <?= $mf['net'] < 0 ? 'neg' : '' ?>"><?= ($mf['net'] < 0 ? '−' : '') . e(usd(abs($mf['net']))) ?></div>
+            </div>
         </div>
         <div class="chart-wrap sankey">
             <canvas id="flow-chart" data-chart="sankey" data-src="flow-data"></canvas>
@@ -150,6 +131,13 @@ render_header('Money flow', 'moneyflow', ['sankey' => true]);
         </div>
         <p class="muted load-note">Income (left) flows through the month's total into spending categories (right). Excludes internal transfers between your own accounts and credit-card payments, so money isn't counted twice.</p>
     </section>
+
+    <!-- KPI strip: in / out / savings rate -->
+    <div class="kpis">
+        <div class="kpi"><span class="eyebrow">Money in</span><div class="v pos"><?= e(usd($mf['income_total'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Money out</span><div class="v neg"><?= e(usd($mf['expense_total'])) ?></div></div>
+        <div class="kpi"><span class="eyebrow">Savings rate</span><div class="v <?= $rate !== null && $rate < 0 ? 'neg' : '' ?>"><?= $rate === null ? '—' : number_format($rate, 0) . '%' ?></div></div>
+    </div>
 
     <div class="cols">
         <!-- Money in → click a source to see those transactions -->

@@ -84,6 +84,11 @@ foreach (ALLOC_CLASSES as $key => $label) {
 render_header('Allocation', 'allocation', ['narrow' => true, 'chart' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Allocation</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>
@@ -122,16 +127,6 @@ if ($av['has_targets']) {
 }
 ?>
 
-<!-- Hero: total portfolio value + the headline drift. -->
-<section class="hero card">
-    <div class="hero-top">
-        <span class="hero-label">Portfolio</span>
-        <span class="delta-sub muted">whole portfolio · holdings</span>
-    </div>
-    <div class="hero-value"><?= e(usd($av['total'])) ?></div>
-    <p class="muted" style="margin:6px 0 0"><?= e($summary) ?></p>
-</section>
-
 <?php
 // Doughnut of the ACTUAL mix (classes with value > 0, in fixed order). Labels are our own
 // fixed strings (not raw Plaid data) but we keep JSON_HEX flags for consistency with the app.
@@ -141,25 +136,37 @@ foreach ($av['classes'] as $c) {
     if ($c['actual_val'] > 0) { $donutLabels[] = $c['label']; $donutVals[] = round($c['actual_val'], 2); }
 }
 ?>
+
+<!-- Chart leads: portfolio value + headline drift, then the current-mix doughnut -->
+<section class="card">
+    <div class="chart-lead-head">
+        <div class="lead-fig">
+            <span class="eyebrow">Portfolio · whole portfolio · holdings</span>
+            <div class="big"><?= e(usd($av['total'])) ?></div>
+        </div>
+    </div>
+    <p class="muted" style="margin:6px 0 0"><?= e($summary) ?></p>
+    <div class="chart-wrap">
+        <canvas id="alloc-chart" data-chart="doughnut" data-src="alloc-class-data"></canvas>
+        <script type="application/json" id="alloc-class-data"><?= json_encode([
+            'labels' => $donutLabels,
+            'values' => $donutVals,
+        ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+    </div>
+</section>
+
+<!-- Per-class actual vs target -->
 <section class="block">
     <div class="block-head"><h2>Current mix<?= $av['has_targets'] ? ' vs target' : '' ?></h2></div>
     <div class="card">
-        <div class="chart-wrap">
-            <canvas id="alloc-chart" data-chart="doughnut" data-src="alloc-class-data"></canvas>
-            <script type="application/json" id="alloc-class-data"><?= json_encode([
-                'labels' => $donutLabels,
-                'values' => $donutVals,
-            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-        </div>
-
         <?php if ($av['has_targets'] && abs($av['target_sum'] - 100) > 0.5): ?>
-            <div class="notice warn" style="margin-top:12px">
+            <div class="notice warn">
                 Your targets add up to <strong><?= e(number_format($av['target_sum'], 1)) ?>%</strong> —
                 set them to total 100% for the drift to balance.
             </div>
         <?php endif; ?>
 
-        <div class="alloc-list" style="margin-top:14px">
+        <div class="alloc-list">
             <?php $dHue = 0; foreach ($av['classes'] as $c):
                 $hue = $c['actual_val'] > 0 ? ($dHue * 67) % 360 : null;
                 if ($c['actual_val'] > 0) $dHue++;
