@@ -1009,6 +1009,43 @@ a.cat-row:hover { background: var(--surface-2); }
 .tax-year-head { margin-bottom: 4px; }
 
 /* ==========================================================================
+   Detail-page template — "Statement" (pattern A), UI redesign Phase 4.
+   .page-head (eyebrow + serif H1) → .stat-hero (the key figure) → content
+   lists, with a desktop .two-col split: a wide main column + a sticky rail
+   (a read-only Details .kv card + the Manage controls). On mobile the rail
+   stacks below the content. Reuses .card / .col / .control-row / .filter-bar.
+   ========================================================================== */
+.page-head { margin: 2px 2px 16px; }
+.page-head .eyebrow { margin-bottom: 5px; }
+.page-head h1 { font-family: var(--serif); font-weight: 600; font-size: 1.5rem;
+  letter-spacing: -.01em; line-height: 1.1; }
+.page-head .sub { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+
+.stat-hero { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-1); padding: 20px 22px; }
+.stat-hero .eyebrow { color: var(--muted); }
+.stat-hero .big { font-family: var(--serif); font-weight: 500;
+  font-size: clamp(2.1rem, 7vw, 2.8rem); line-height: 1.05; letter-spacing: -.02em;
+  margin: 6px 0 4px; font-variant-numeric: tabular-nums; }
+.stat-hero .big.neg { color: var(--neg); }
+.stat-hero .stat-sub { color: var(--muted); font-size: .85rem; }
+.stat-hero .stat-sub.neg { color: var(--neg); font-weight: 600; }
+
+/* .two-col = content + rail. Stacks until the desktop block turns it into a grid. */
+.two-col { display: flex; flex-direction: column; gap: var(--gap); }
+.rail { display: flex; flex-direction: column; gap: var(--gap); }
+.rail-head { font-size: .7rem; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.kv { display: flex; flex-direction: column; }
+.kv .r { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0;
+  border-bottom: 1px solid var(--line); font-size: .9rem; }
+.kv .r:last-child { border-bottom: 0; }
+.kv .k { color: var(--muted); }
+.kv .v { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.kv .v.neg { color: var(--neg); }
+.kv .v.pos { color: var(--pos); }
+
+/* ==========================================================================
    Responsive multi-column wrappers
    `.cols` auto-fits: one column when its container is narrow (mobile, where
    `.screen` is ~600px), two when it's wide (desktop). No media query needed —
@@ -1213,6 +1250,16 @@ a.cat-row:hover { background: var(--surface-2); }
     gap: var(--gap);
     align-items: start;
   }
+
+  /* Pattern-A detail template: a wide main column + a narrower sticky rail
+     (Details / Manage). The rail follows the content as you scroll the list. */
+  .two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 330px);
+    gap: 22px;
+    align-items: start;
+  }
+  .two-col .rail { position: sticky; top: calc(var(--banner-h) + 16px); }
 
   /* Category bar rows (spending/trends/moneyflow): give the amount a FIXED
      column so the bar track ends at the same right edge on every row. With
