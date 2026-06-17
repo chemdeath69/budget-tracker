@@ -56,6 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 render_header('Add manual account', 'settings', ['back' => '/settings.php', 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Setup</p>
+    <h1>Add manual account</h1>
+</div>
+
 <section class="card">
     <h2>Manually-updated account</h2>
     <p class="muted">For institutions that aren't connected through Plaid. You keep it current

@@ -192,6 +192,11 @@ render_header($editing ? 'Edit vehicle' : 'Add a vehicle', $editing ? '' : 'sett
     ['back' => $editing ? '/account.php?account_id=' . urlencode($accountId) : '/settings.php', 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Setup</p>
+    <h1><?= $editing ? 'Edit vehicle' : 'Add a vehicle' ?></h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>

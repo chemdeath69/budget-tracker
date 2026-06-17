@@ -216,6 +216,11 @@ if ($pf && !empty($prefill['account_id'])) $preAcct = (string)$prefill['account_
 render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Add a statement</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>

@@ -61,6 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 render_header('Add a 401(k)', 'retirement', ['back' => '/retirement.php', 'narrow' => true]);
 ?>
 
+<div class="page-head">
+    <p class="eyebrow">Invest</p>
+    <h1>Add a 401(k)</h1>
+</div>
+
 <?php foreach (flash_take() as $fl): ?>
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>
