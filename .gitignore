@@ -2,6 +2,10 @@
 www/lib/config.php
 docs/CREDENTIALS.local.md
 
+# Output of tools/install.sh (a generated config.php holding live secrets)
+config.generated.php
+*.generated.php
+
 # OS / editor
 .DS_Store
 *.swp
