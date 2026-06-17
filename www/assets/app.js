@@ -15,7 +15,23 @@ const usdCompact = n => {
   if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'k';
   return '$' + Math.round(n);
 };
-const sliceColor = i => `hsl(${(i * 67) % 360},65%,55%)`;
+/* Curated "Quiet Wealth" chart-series palette (brass · teal · slate · gold ·
+   sage · clay · rose · taupe), read from the CSS --ch-* tokens so it stays
+   theme-aware (light/dark). Mirrors the same tokens used by .cat-swatch /
+   chart_slice_color() (layout.php). Cached once — charts don't live-recolour on
+   a theme toggle (they recolour on the next page load, same as before). */
+let _chartPal = null;
+function chartPalette() {
+  if (_chartPal) return _chartPal;
+  const cs = getComputedStyle(document.body);
+  const v = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+  _chartPal = [
+    v('--ch-1', '#A8814C'), v('--ch-2', '#2C8C7A'), v('--ch-3', '#5E7A8C'), v('--ch-4', '#C8A24C'),
+    v('--ch-5', '#7E8B5A'), v('--ch-6', '#B4503F'), v('--ch-7', '#9C6B72'), v('--ch-8', '#7A6A57'),
+  ];
+  return _chartPal;
+}
+const sliceColor = i => { const p = chartPalette(); return p[(((i | 0) % p.length) + p.length) % p.length]; };
 
 const csrfToken = () => (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
@@ -325,6 +341,18 @@ function initCharts() {
         },
       });
     }
+  });
+}
+
+/* Colour the .cat-swatch legend chips from the SAME curated palette the charts
+   use, keyed off each chip's inline --i, so a legend matches its chart's slice
+   order. Runs on every page (independent of Chart.js). Plain .cat-swatch only —
+   the .pos/.neg/.other variants keep their explicit semantic tokens. */
+function initChartSwatches() {
+  $$('.cat-swatch').forEach(el => {
+    if (el.classList.contains('pos') || el.classList.contains('neg') || el.classList.contains('other')) return;
+    const i = parseInt(getComputedStyle(el).getPropertyValue('--i'), 10);
+    if (Number.isFinite(i)) el.style.background = sliceColor(i);
   });
 }
 
@@ -1392,6 +1420,7 @@ function initWhatif() {
 /* ---- Boot ---------------------------------------------------------------- */
 initDrawer();
 initCharts();
+initChartSwatches();
 initFilters();
 initAutoSubmit();
 initRecategorize();

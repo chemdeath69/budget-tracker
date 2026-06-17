@@ -224,6 +224,17 @@ function user_avatar_html(bool $large = false): string
          . 'aria-label="' . e($name) . '">' . e(user_initials($name)) . '</span>';
 }
 
+/**
+ * The curated "Quiet Wealth" chart-series colour for slice index $i, as a CSS
+ * var reference (theme-aware light/dark). Mirrors sliceColor()/chartPalette() in
+ * app.js and the --ch-* tokens in style.css — so a server-rendered legend swatch
+ * matches the JS-drawn chart slice it sits beside. 8-colour cycle.
+ */
+function chart_slice_color(int $i): string
+{
+    return 'var(--ch-' . ((($i % 8) + 8) % 8 + 1) . ')';
+}
+
 /* ---- Pagination --------------------------------------------------------- */
 
 /** Default rows shown per page in a paginated list. */

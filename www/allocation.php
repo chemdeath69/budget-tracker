@@ -167,10 +167,10 @@ foreach ($av['classes'] as $c) {
         <?php endif; ?>
 
         <div class="alloc-list">
-            <?php $dHue = 0; foreach ($av['classes'] as $c):
-                $hue = $c['actual_val'] > 0 ? ($dHue * 67) % 360 : null;
-                if ($c['actual_val'] > 0) $dHue++;
-                $swatch = $hue !== null ? "hsl($hue,65%,55%)" : 'var(--muted)';
+            <?php $dIdx = 0; foreach ($av['classes'] as $c):
+                // Value-bearing classes are the doughnut's slices, in this order —
+                // colour the swatch from the same curated palette as the chart.
+                $swatch = $c['actual_val'] > 0 ? chart_slice_color($dIdx++) : 'var(--muted)';
             ?>
             <div class="alloc-row">
                 <div class="alloc-head">

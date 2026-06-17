@@ -16,6 +16,7 @@ require_login();
 </head>
 <body class="link-page">
     <main class="link-card">
+        <p class="link-kicker">Banks &amp; accounts</p>
         <h1 id="title">Link a bank account</h1>
         <p class="muted" id="status">Preparing secure connection…</p>
         <script>if (new URLSearchParams(location.search).get('item_id')) { document.getElementById('title').textContent = 'Re-link / update bank'; }</script>

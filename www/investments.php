@@ -374,7 +374,7 @@ function div_freq_label(?int $f): string
                 <?php $i = 0; foreach ($alloc as $label => $val): if ($total <= 0) break; ?>
                 <div class="row">
                     <span class="row-main">
-                        <span class="row-title"><span class="cat-swatch" style="background:hsl(<?= ($i * 67) % 360 ?>,65%,55%)"></span> <?php if (!empty($allocSid[$label])): ?><a href="/security.php?security_id=<?= e(urlencode($allocSid[$label])) ?>&amp;from=investments"><?= e($label) ?></a><?php else: ?><?= e($label) ?><?php endif; ?></span>
+                        <span class="row-title"><span class="cat-swatch" style="background:<?= chart_slice_color($i) ?>"></span> <?php if (!empty($allocSid[$label])): ?><a href="/security.php?security_id=<?= e(urlencode($allocSid[$label])) ?>&amp;from=investments"><?= e($label) ?></a><?php else: ?><?= e($label) ?><?php endif; ?></span>
                     </span>
                     <span class="row-amt"><?= e(number_format($val / $total * 100, 1)) ?>%</span>
                 </div>

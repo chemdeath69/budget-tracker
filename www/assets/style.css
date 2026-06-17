@@ -23,13 +23,20 @@
   --surface-3: #EBE4D7;
   --ink: #1B1A17;
   --ink-2: #5C564C;
-  --muted: #938B7C;
+  /* Darkened from #938B7C (3.07:1 — failed WCAG AA) to ~4.6:1 on the warm bg /
+     5.1:1 on white cards, so all secondary/caption/eyebrow text meets AA while
+     staying clearly "muted" (lighter than --ink-2). Phase 5 a11y pass. */
+  --muted: #776D5E;
   --line: #E7E0D4;
   --line-2: #DED5C5;
   --brand: #A8814C;            /* brass — primary */
   --brand-ink: #ffffff;
   --brand-weak: rgba(168, 129, 76, .12);
   --brass: #A8814C; --brass-2: #C39A5E; --brass-weak: rgba(168, 129, 76, .12);
+  /* A deeper brass for SMALL accent text (kickers/eyebrows): plain --brass on
+     white is only 3.55:1 — below WCAG AA for <18px. This reaches ~5:1. Dark
+     mode keeps the bright brass (already AA on the dark surface). */
+  --brass-text: #8A6A3A;
   --teal: #2C8C7A; --teal-weak: rgba(44, 140, 122, .12);
   --pos: #2C8C7A;             /* teal — positive */
   --neg: #B4503F;             /* clay — negative */
@@ -39,6 +46,22 @@
   --shadow-1: 0 1px 2px rgba(40, 30, 15, .04), 0 14px 40px rgba(40, 30, 15, .06);
   --shadow-2: 0 18px 50px rgba(40, 30, 15, .16);
   --shadow-sm: 0 1px 2px rgba(40, 30, 15, .05);
+
+  /* Chart series palette (Quiet Wealth) — a curated warm/muted sequence for
+     MULTI-series charts (doughnut slices, stacked bars/area, Sankey nodes) and
+     the .cat-swatch legends beside them. Leads with the brand pair brass+teal,
+     then harmonious "private-bank" tones — no rainbow. Clay sits late (it's the
+     --neg "debt/negative" colour, so it must not lead an asset rotation nor
+     collide with the net-worth Debt band, which is drawn in --neg).
+     ⚠️ KEEP IN SYNC with sliceColor()/chartPalette() in app.js. */
+  --ch-1: #A8814C;  /* brass  */
+  --ch-2: #2C8C7A;  /* teal   */
+  --ch-3: #5E7A8C;  /* slate  */
+  --ch-4: #C8A24C;  /* gold   */
+  --ch-5: #7E8B5A;  /* sage   */
+  --ch-6: #B4503F;  /* clay   */
+  --ch-7: #9C6B72;  /* rose   */
+  --ch-8: #7A6A57;  /* taupe  */
 }
 
 /* Quiet Wealth — dark (deep ink) palette. Applied in TWO cases (UI redesign Phase 2):
@@ -56,7 +79,7 @@
     --surface-3: #2C2820;
     --ink: #ECE7DD;
     --ink-2: #B7AE9D;
-    --muted: #827A6B;
+    --muted: #948B79;  /* lightened from #827A6B (4.1:1) → ~5.2:1 on dark surface (WCAG AA) */
     --line: #2E2A22;
     --line-2: #39342A;
     --brand: #C9A164;
@@ -66,6 +89,7 @@
     --brand-ink: #1B1A17;
     --brand-weak: rgba(201, 161, 100, .16);
     --brass: #C9A164; --brass-2: #D9B57E; --brass-weak: rgba(201, 161, 100, .16);
+    --brass-text: #C9A164;
     --teal: #4FB89E; --teal-weak: rgba(79, 184, 158, .16);
     --pos: #4FB89E;
     --neg: #D9745F;
@@ -75,6 +99,8 @@
     --shadow-1: 0 14px 40px rgba(0, 0, 0, .5);
     --shadow-2: 0 18px 50px rgba(0, 0, 0, .6);
     --shadow-sm: none;
+    --ch-1: #C9A164; --ch-2: #4FB89E; --ch-3: #88A1B2; --ch-4: #D8B968;
+    --ch-5: #9DAB78; --ch-6: #D9745F; --ch-7: #C0939A; --ch-8: #A28D74;
   }
 }
 :root[data-theme="dark"] {
@@ -84,13 +110,14 @@
   --surface-3: #2C2820;
   --ink: #ECE7DD;
   --ink-2: #B7AE9D;
-  --muted: #827A6B;
+  --muted: #948B79;  /* lightened from #827A6B (4.1:1) → ~5.2:1 on dark surface (WCAG AA) */
   --line: #2E2A22;
   --line-2: #39342A;
   --brand: #C9A164;
   --brand-ink: #1B1A17;
   --brand-weak: rgba(201, 161, 100, .16);
   --brass: #C9A164; --brass-2: #D9B57E; --brass-weak: rgba(201, 161, 100, .16);
+  --brass-text: #C9A164;
   --teal: #4FB89E; --teal-weak: rgba(79, 184, 158, .16);
   --pos: #4FB89E;
   --neg: #D9745F;
@@ -100,6 +127,8 @@
   --shadow-1: 0 14px 40px rgba(0, 0, 0, .5);
   --shadow-2: 0 18px 50px rgba(0, 0, 0, .6);
   --shadow-sm: none;
+  --ch-1: #C9A164; --ch-2: #4FB89E; --ch-3: #88A1B2; --ch-4: #D8B968;
+  --ch-5: #9DAB78; --ch-6: #D9745F; --ch-7: #C0939A; --ch-8: #A28D74;
 }
 /* A forced theme also drives native UI (form controls, scrollbars, date pickers). */
 :root[data-theme="light"] { color-scheme: light; }
@@ -528,7 +557,10 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 /* ---- Category list (spending) ------------------------------------------ */
 .cat-list { margin-top: 16px; }
 .cat-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) 1.1fr auto; align-items: center; gap: 9px; font-size: .9rem; }
-.cat-swatch { width: 12px; height: 12px; border-radius: 4px; background: hsl(calc(var(--i) * 67), 65%, 55%); }
+/* The real per-slice colour is assigned from the curated palette at runtime by
+   initChartSwatches() (app.js), keyed off the inline --i, so legends track the
+   chart slices. --ch-1 (brass) is the no-JS fallback. */
+.cat-swatch { width: 12px; height: 12px; border-radius: 4px; background: var(--ch-1); }
 .cat-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-amt { font-weight: 650; font-variant-numeric: tabular-nums; text-align: right; }
 .cat-pct { color: var(--muted); font-weight: 500; font-size: .78rem; margin-left: 6px; }
@@ -951,23 +983,48 @@ a.cat-row:hover { background: var(--surface-2); }
 .action-card.danger .acct-icon { background: color-mix(in srgb, var(--neg) 14%, transparent); color: var(--neg); }
 .action-card.danger .acct-name { color: var(--neg); }
 
-/* ---- Login / link pages ------------------------------------------------- */
-.login-page, .link-page { display: grid; place-items: center; min-height: 100svh; padding: 24px; }
+/* ---- Login / link pages (Quiet Wealth) --------------------------------- */
+.login-page, .link-page {
+  display: grid; place-items: center; min-height: 100svh; padding: 24px;
+  /* a soft brass wash from the top ties the standalone pages to the app shell */
+  background:
+    radial-gradient(1100px 480px at 50% -12%, var(--brass-weak), transparent 70%),
+    var(--bg);
+}
 .login-card, .link-card {
+  position: relative; overflow: hidden;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
-  padding: 36px 28px; text-align: center; max-width: 380px; width: 100%; box-shadow: var(--shadow-1);
+  padding: 40px 30px 30px; text-align: center; max-width: 400px; width: 100%; box-shadow: var(--shadow-1);
 }
-.login-card h1, .link-card h1 { margin-bottom: 6px; }
+/* a hairline brass→teal accent across the top edge — the brand mark */
+.login-card::before, .link-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, var(--brass), var(--teal));
+}
+.login-kicker, .link-kicker {
+  margin: 0 0 8px; text-transform: uppercase; letter-spacing: .14em;
+  font-size: .7rem; font-weight: 600; color: var(--brass-text);
+}
+.login-card h1, .link-card h1 {
+  font-family: var(--serif); font-size: 1.7rem; letter-spacing: -.01em; margin: 0 0 10px;
+}
+.login-card .muted, .link-card .muted { font-size: .92rem; }
+.login-foot { margin-top: 22px; font-size: .76rem; color: var(--muted); }
+.link-card .btn { margin-top: 8px; }
 .btn-google {
-  display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
-  margin-top: 22px; padding: 13px 18px; border: 1px solid var(--line); border-radius: var(--r);
-  color: var(--ink); font-weight: 650; background: var(--surface-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 11px; width: 100%;
+  margin-top: 24px; padding: 13px 18px; border: 1px solid var(--line-2); border-radius: var(--r);
+  color: var(--ink); font-weight: 600; background: var(--surface);
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
 }
-.btn-google:active { filter: brightness(.96); }
+.btn-google svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.btn-google:hover { background: var(--surface-2); border-color: var(--brass); }
+.btn-google:active { transform: translateY(1px); }
+.btn-google:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .error { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); padding: 10px 14px; border-radius: var(--r-sm); margin-top: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .drawer, .scrim, .budget-bar > span { transition: none; }
+  .drawer, .scrim, .budget-bar > span, .btn-google { transition: none; }
 }
 
 /* ---- Manual accounts (add / upload / docs / tax) ------------------------ */
