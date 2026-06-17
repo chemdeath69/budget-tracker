@@ -45,6 +45,19 @@ render_header('Settings', 'settings', ['narrow' => true]);
     </div>
 </section>
 
+<!-- Home (Phase 3 — the customizable dashboard) -->
+<section class="block">
+    <div class="block-head"><h2>Home</h2></div>
+    <a class="card action-card" href="/customize_home.php">
+        <span class="acct-icon"><?= nav_icon('home') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Customize home</span>
+            <span class="acct-sub muted">Choose which cards show on your dashboard, their size &amp; order</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
+</section>
+
 <!-- Banks & accounts -->
 <section class="block">
     <div class="block-head"><h2>Banks &amp; accounts</h2></div>

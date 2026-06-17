@@ -702,6 +702,73 @@ function initAlertSettings() {
   controls.forEach(el => el.addEventListener('change', save));
 }
 
+/* ---- Customize home — dashboard designer (Phase 3) ----------------------- */
+/* customize_home.php: per-widget size segmented controls + ▲/▼ reorder + Reset +
+   Save. Vanilla, no drag library. Save gathers the DOM order + each row's active
+   size into the layout and POSTs it to /api/prefs.php (dashboard branch). */
+function initDashDesigner() {
+  const form = document.getElementById('dash-designer');
+  if (!form) return;
+  const list = document.getElementById('des-list');
+  const setSeg = (seg, v) => seg.querySelectorAll('.seg-btn').forEach(x => {
+    const on = x.dataset.v === v;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+
+  // Segmented size controls — activate the clicked button within its own .seg.
+  form.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('click', e => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      seg.querySelectorAll('.seg-btn').forEach(x => {
+        const on = x === b;
+        x.classList.toggle('on', on);
+        x.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      const row = b.closest('.des-row');
+      if (row && !row.hasAttribute('data-attention')) row.classList.toggle('off', b.dataset.v === 'off');
+    });
+  });
+
+  // Reorder via ▲/▼.
+  list.addEventListener('click', e => {
+    const row = e.target.closest('.des-row');
+    if (!row) return;
+    if (e.target.closest('.des-up')) { const p = row.previousElementSibling; if (p) list.insertBefore(row, p); }
+    else if (e.target.closest('.des-down')) { const n = row.nextElementSibling; if (n) list.insertBefore(n, row); }
+  });
+
+  // Reset to the shipped default (catalog order + default sizes, feed pinned on).
+  $('#dash-reset').addEventListener('click', () => {
+    Array.from(list.children)
+      .sort((a, b) => (+a.dataset.order) - (+b.dataset.order))
+      .forEach(r => {
+        list.appendChild(r);
+        setSeg(r.querySelector('.seg'), r.dataset.defaultSize);
+        r.classList.toggle('off', r.dataset.defaultSize === 'off');
+      });
+    const att = form.querySelector('[data-attention] .seg');
+    if (att) setSeg(att, 'on');
+  });
+
+  // Save → POST the gathered layout, then back to Home.
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const attBtn = form.querySelector('[data-attention] .seg-btn.on');
+    const attention_on = attBtn ? attBtn.dataset.v === 'on' : true;
+    const cards = Array.from(list.children).filter(r => r.dataset.widget).map(r => {
+      const on = r.querySelector('.seg-btn.on');
+      return { widget: r.dataset.widget, size: on ? on.dataset.v : 'off' };
+    });
+    const save = $('#dash-save');
+    save.disabled = true;
+    const out = await postJSON('/api/prefs.php', { dashboard: { attention_on, cards } });
+    if (out && out.ok) { location.href = '/index.php'; }
+    else { save.disabled = false; toast((out && out.error) || 'Could not save layout'); }
+  });
+}
+
 /* ---- Theme (Light/Dark/Auto) — Settings → Appearance (Phase 2) ----------- */
 /* The server already renders the saved theme onto <html data-theme> (no flash).
    This segmented control applies the choice instantly for live feedback, then
@@ -1338,6 +1405,7 @@ initBudgets();
 initGoals();
 initAlertSettings();
 initTheme();
+initDashDesigner();
 initTxNotes();
 initTxTags();
 initTxSplits();

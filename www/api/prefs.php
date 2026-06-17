@@ -8,6 +8,7 @@ require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
 require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/queries.php';
+require __DIR__ . '/../lib/dashboard.php';   // dash_sanitize_layout() for the dashboard branch (Phase 3)
 
 header('Content-Type: application/json');
 if (!is_logged_in()) {
@@ -43,6 +44,18 @@ try {
             exit;
         }
         $prefs['theme'] = $t;
+    }
+
+    // Dashboard layout (Phase 3) — the "Customize home" designer posts the full layout.
+    // dash_sanitize_layout keeps only known widgets + valid sizes (the security boundary).
+    if (array_key_exists('dashboard', $in)) {
+        $layout = dash_sanitize_layout($in['dashboard']);
+        if ($layout === null) {
+            http_response_code(422);
+            echo json_encode(['error' => 'invalid dashboard layout']);
+            exit;
+        }
+        $prefs['dashboard'] = $layout;
     }
 
     $pdo->prepare(

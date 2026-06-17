@@ -1103,6 +1103,71 @@ a.cat-row:hover { background: var(--surface-2); }
 .cr-disc { font-size: .74rem; }
 
 /* ==========================================================================
+   Customizable dashboard (UI redesign Phase 3) — greeting, Needs-Attention
+   feed, the bento snapshot, and the "Customize home" designer.
+   ========================================================================== */
+.dash-greet { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 2px 2px 8px; }
+.greet { font-family: var(--serif); font-weight: 500; font-size: 1.5rem; letter-spacing: -.01em; color: var(--ink); }
+.greet em { font-style: italic; color: var(--brand); }
+.edit-link { font-size: .82rem; color: var(--brand); font-weight: 600; white-space: nowrap; flex: none; }
+
+.attention { margin-bottom: 18px; }
+.feed { display: flex; flex-direction: column; gap: 10px; }
+.feed-item { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--brand); border-radius: var(--r); padding: 13px 15px; box-shadow: var(--shadow-sm); color: var(--ink); }
+.feed-item.warn { border-left-color: var(--neg); }
+.feed-item.go { border-left-color: var(--pos); }
+.feed-item .fi { width: 34px; height: 34px; border-radius: 10px; background: var(--brand-weak); color: var(--brand); display: grid; place-items: center; flex: none; font-size: 1rem; }
+.feed-item.warn .fi { background: var(--neg-weak); color: var(--neg); }
+.feed-item.go .fi { background: var(--teal-weak); color: var(--pos); }
+.feed-item .fm { flex: 1; min-width: 0; }
+.feed-item .ft { display: block; font-weight: 600; font-size: .93rem; }
+.feed-item .fs { display: block; color: var(--muted); font-size: .8rem; margin-top: 1px; }
+.feed-item .fx { font-family: var(--serif); font-weight: 500; font-size: 1.05rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.feed-item .fx.pos { color: var(--pos); }
+.feed-item .fx.neg { color: var(--neg); }
+.feed-item .chev { color: var(--muted); font-size: 1.3rem; flex: none; }
+.feed-clear { padding: 14px 16px; font-size: .9rem; }
+.feed-clear a { color: var(--brand); font-weight: 600; }
+
+.snapshot { margin-top: 4px; }
+.bento { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.bento .b-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 15px; box-shadow: var(--shadow-sm); color: var(--ink); min-height: 96px; }
+.eyebrow { font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.b-val { font-family: var(--serif); font-size: 1.5rem; font-weight: 500; letter-spacing: -.01em; margin-top: auto; font-variant-numeric: tabular-nums; }
+.b-val.pos { color: var(--pos); }
+.b-val.neg { color: var(--neg); }
+.b-sub { color: var(--ink-2); font-size: .78rem; margin-top: 3px; }
+.b-sub .pos { color: var(--pos); font-weight: 600; }
+.b-sub .neg { color: var(--neg); font-weight: 600; }
+.b-card.span2 { grid-column: span 2; }
+.b-card.feature { min-height: 138px; }
+.b-card.feature .b-val { font-size: 2.1rem; }
+.b-spark { margin-top: 8px; height: 30px; }
+.b-spark canvas { width: 100% !important; height: 30px !important; }
+
+/* "Customize home" designer */
+.cust-intro { color: var(--ink-2); font-size: .9rem; margin: 0 2px 16px; line-height: 1.5; }
+.des-list { display: flex; flex-direction: column; gap: 10px; }
+.des-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; box-shadow: var(--shadow-sm); }
+.des-row.pinned { border-left: 3px solid var(--pos); margin-bottom: 14px; }
+.des-row.off { opacity: .55; }
+.des-move { display: flex; flex-direction: column; gap: 3px; flex: none; }
+.des-move button { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); width: 27px; height: 19px; border-radius: 6px; cursor: pointer; font-size: .62rem; line-height: 1; display: grid; place-items: center; padding: 0; }
+.des-move button:hover { color: var(--brand); border-color: var(--brand); }
+.des-icon { width: 34px; height: 34px; border-radius: 10px; background: var(--brand-weak); color: var(--brand); display: grid; place-items: center; flex: none; }
+.des-icon svg { width: 18px; height: 18px; }
+.des-m { flex: 1; min-width: 0; }
+.des-n { display: block; font-weight: 600; font-size: .95rem; }
+.des-s { display: block; color: var(--muted); font-size: .78rem; margin-top: 1px; }
+.cust-actions { display: flex; gap: 10px; margin-top: 22px; }
+.cust-actions .btn, .cust-actions .btn-ghost { flex: 1; }
+@media (max-width: 560px) {
+  .des-row { flex-wrap: wrap; }
+  .des-row .seg { order: 3; width: 100%; margin-top: 8px; }
+  .des-row .seg-btn { flex: 1; }
+}
+
+/* ==========================================================================
    Desktop / wide screens (>= 1024px) — persistent sidebar + roomier content.
    Below this width the mobile-first single-column design is left untouched.
    ========================================================================== */
@@ -1122,6 +1187,9 @@ a.cat-row:hover { background: var(--surface-2); }
   }
   /* The mobile bottom tab bar is replaced by the sidebar. */
   .tabbar { display: none; }
+
+  /* Bento widens to a 4-column grid (span2 cards stay double-width). */
+  .bento { grid-template-columns: repeat(4, 1fr); }
 
   /* Banner: left-align the title, give it breathing room (no hamburger here). */
   .banner {

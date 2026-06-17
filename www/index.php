@@ -4,457 +4,425 @@ require __DIR__ . '/lib/db.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/queries.php';
 require __DIR__ . '/lib/fred.php';
+require __DIR__ . '/lib/dashboard.php';     // widget catalog, per-user layout, the feed (Phase 3)
 require __DIR__ . '/lib/layout.php';
 require_login();
 
 $pdo  = db();
 $uid  = current_user_id();
 $accounts = q_accounts($pdo, $uid);
-$homeVal  = q_home_value($pdo);            // estimated house value (0 if none)
-$stats    = q_stats($accounts, $homeVal);  // net worth includes the home as an asset
-$snaps    = q_networth($pdo);
-$change   = q_networth_change($pdo, $stats['net_worth'], 30);
-// Real (inflation-adjusted) 30-day net-worth change (#17) — reindex against the SAME
-// baseline snapshot the nominal chip used ($change['date']), so the two deltas can't
-// diverge off different clocks. Null when no CPI data / no baseline.
-$realChange = ['pct' => null, 'abs' => null];
-if (($change['date'] ?? null) !== null && fred_real_factor($pdo, date('Y-m-d')) !== null) {
-    $realChange = fred_real_change($pdo, $stats['net_worth'], (float)$change['from'], (string)$change['date']);
-}
-$spend30  = q_spending_total($pdo, $uid, 30);
-$topSpend = array_slice(q_spending($pdo, $uid, 30), 0, 4);
-$home     = q_home_equity($pdo, $accounts);
-$ret      = q_retirement_summary($pdo, $uid); // combined 401(k) total (0 accounts = hidden)
-$cf6      = q_cashflow($pdo, $uid, 6);         // compact cash-flow teaser (last 6 months)
-$cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null; // savings rate
-// Upcoming bills teaser (next 14 days) — liabilities + projected recurring (TODO #4).
-require_once __DIR__ . '/lib/bills.php';
-$liab = q_liabilities($pdo, $uid);
-$recur = q_recurring($pdo, $uid);
-$billsSoon  = bill_occurrences($liab, $recur,
-                               new DateTimeImmutable('today'), (new DateTimeImmutable('today'))->add(new DateInterval('P14D')));
-$billsTotal = 0.0;
-foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
-// Cash-flow forecast teaser (next 30 days) — projected checking+savings low (TODO2 #30).
-require_once __DIR__ . '/lib/forecast.php';
-$fcTeaser = forecast_build($accounts, $liab, $recur, q_avg_daily_spend($pdo, $uid, 90), 30, new DateTimeImmutable('today'));
-$fcHasCash = false;
-foreach ($accounts as $a) { if (in_array(account_group($a), FORECAST_CASH_GROUPS, true)) { $fcHasCash = true; break; } }
-// "Safe to spend" teaser (this month) — income − committed bills − savings target − spent (TODO2 #31).
-require_once __DIR__ . '/lib/safe_to_spend.php';
-$stsToday  = new DateTimeImmutable('today');
-$stsSpent  = q_true_expense_total($pdo, $uid,
-                                  $stsToday->modify('first day of this month')->format('Y-m-d'),
-                                  $stsToday->add(new DateInterval('P1D'))->format('Y-m-d'));
-$sts = safe_to_spend_build($recur, $liab, (float)q_spending_plan($pdo)['monthly_savings_target'], $stsSpent, $stsToday);
-$goals    = q_goals($pdo, $uid);                            // savings-goals teaser (TODO #9)
-// Debt payoff teaser (avalanche, no extra, mortgage excluded) — TODO2 #33.
-require_once __DIR__ . '/lib/debt.php';
-$debtPlan = build_debt_plan(q_debts($pdo, $uid), 0.0, false);
-// Refund tracking teaser (#34) — pending count + outstanding. The teaser needs no candidate
-// pool (counts/outstanding don't depend on it), so pass [] for credits to skip that query.
-require_once __DIR__ . '/lib/refunds.php';
-$rfView = build_refunds_view(q_refund_watches($pdo, $uid), [], date('Y-m-d'));
-$overdue  = q_manual_statement_status($pdo, $uid, true);     // manual accounts needing a new statement
-$overdueIds = array_column($overdue, 'account_id', 'account_id');
-$lastSync = q_last_synced($pdo);                             // most-recent Plaid sync (Refresh-now stamp)
-$hasPlaid = false;                                           // any live Plaid bank to refresh?
-foreach ($accounts as $a) { if (($a['source'] ?? 'plaid') === 'plaid') { $hasPlaid = true; break; } }
+
+// Per-user dashboard layout (UI redesign Phase 3). The bento, the Needs-Attention feed
+// and the designer all read this; absent/invalid → the shipped default (dash_layout).
+$layout   = dash_layout(q_user_prefs($pdo, $uid));
+$on = [];                                   // widget => size, for the size!='off' cards (in order)
+foreach ($layout['cards'] as $c) { if ($c['size'] !== 'off') $on[$c['widget']] = $c['size']; }
+$active = fn(string $k): bool => isset($on[$k]);
 
 render_header('Dashboard', 'dashboard', ['chart' => true]);
-?>
 
-<?php if (!$accounts): ?>
+if (!$accounts):
+?>
     <div class="empty-state card">
         <span class="empty-ic"><?= nav_icon('bank') ?></span>
         <h2>No accounts linked yet</h2>
         <p class="muted">Connect your first bank to start tracking balances, transactions, spending and net worth.</p>
         <a class="btn" href="/link.php">Link a bank account</a>
     </div>
-<?php else: ?>
+<?php
+    render_footer();
+    return;
+endif;
 
-    <?php if ($hasPlaid): ?>
-    <!-- On-demand refresh (TODO #13): forces a Plaid check now + pulls fresh balances. -->
-    <div class="refresh-row">
-        <button type="button" class="btn-ghost sm" data-refresh>Refresh</button>
-        <?php if ($lastSync): ?>
-        <span class="muted refresh-stamp">Updated <?= e(time_ago($lastSync)) ?></span>
-        <?php endif; ?>
+/* ---- Data ---------------------------------------------------------------- */
+// Core figures (cheap + reused by several widgets / the feed) are always computed.
+$homeVal  = q_home_value($pdo);
+$stats    = q_stats($accounts, $homeVal);
+$snaps    = q_networth($pdo);
+$change   = q_networth_change($pdo, $stats['net_worth'], 30);
+$home     = q_home_equity($pdo, $accounts);
+$ret      = q_retirement_summary($pdo, $uid);
+$cf6      = q_cashflow($pdo, $uid, 6);
+$cfRate   = $cf6['income'] > 0 ? ($cf6['net'] / $cf6['income']) * 100 : null;
+$spend30  = q_spending_total($pdo, $uid, 30);
+
+require_once __DIR__ . '/lib/bills.php';
+$liab  = q_liabilities($pdo, $uid);
+$recur = q_recurring($pdo, $uid);
+$today = new DateTimeImmutable('today');
+$billsSoon  = bill_occurrences($liab, $recur, $today, $today->add(new DateInterval('P14D')));
+$billsTotal = 0.0;
+foreach ($billsSoon as $b) $billsTotal += (float)($b['amount'] ?? 0);
+
+require_once __DIR__ . '/lib/safe_to_spend.php';
+$stsSpent = q_true_expense_total($pdo, $uid,
+                                 $today->modify('first day of this month')->format('Y-m-d'),
+                                 $today->add(new DateInterval('P1D'))->format('Y-m-d'));
+$sts = safe_to_spend_build($recur, $liab, (float)q_spending_plan($pdo)['monthly_savings_target'], $stsSpent, $today);
+
+require_once __DIR__ . '/lib/forecast.php';
+$fcTeaser = forecast_build($accounts, $liab, $recur, q_avg_daily_spend($pdo, $uid, 90), 30, $today);
+$fcHasCash = false;
+foreach ($accounts as $a) { if (in_array(account_group($a), FORECAST_CASH_GROUPS, true)) { $fcHasCash = true; break; } }
+
+require_once __DIR__ . '/lib/debt.php';
+$debtPlan = build_debt_plan(q_debts($pdo, $uid), 0.0, false);
+
+require_once __DIR__ . '/lib/refunds.php';
+$rfView = build_refunds_view(q_refund_watches($pdo, $uid), [], date('Y-m-d'));
+
+$goals    = q_goals($pdo, $uid);
+$overdue  = q_manual_statement_status($pdo, $uid, true);
+$overdueIds = array_column($overdue, 'account_id', 'account_id');
+$lastSync = q_last_synced($pdo);
+$hasPlaid = false;
+foreach ($accounts as $a) { if (($a['source'] ?? 'plaid') === 'plaid') { $hasPlaid = true; break; } }
+
+/* ---- Build the bento widget bundles (only for the active, data-bearing cards) ---- */
+$widgets = [];   // widget key => render bundle (see dash_card_html)
+
+if ($active('net_worth')) {
+    $sub = '';
+    if ($change['pct'] !== null) {
+        $up = $change['pct'] >= 0;
+        $sub = '<span class="' . ($up ? 'pos' : 'neg') . '">' . ($up ? '▲' : '▼') . ' ' . number_format(abs($change['pct']), 1) . '%</span> · 30d';
+    }
+    $sub .= ($sub ? ' · ' : '') . 'assets ' . e(usd($stats['assets'])) . ' · liabilities ' . e(usd($stats['liabilities']));
+    $widgets['net_worth'] = [
+        'href' => '/networth.php', 'eyebrow' => 'Net worth',
+        'value' => usd($stats['net_worth']), 'sub' => $sub,
+        'spark' => count($snaps) > 1 ? ['id' => 'nw-spark-data',
+            'labels' => array_column($snaps, 'snapshot_date'),
+            'values' => array_map('floatval', array_column($snaps, 'net_worth'))] : null,
+    ];
+}
+if ($active('safe_to_spend')) {
+    $widgets['safe_to_spend'] = [
+        'href' => '/safe_to_spend.php', 'eyebrow' => 'Safe to spend',
+        'value' => ($sts['safe'] < 0 ? '−' : '') . usd(abs($sts['safe'])),
+        'tone'  => $sts['over'] ? 'neg' : 'pos',
+        'sub'   => '≈ ' . e(usd(max(0, $sts['daily_left']))) . '/day left this month',
+    ];
+}
+if ($active('cash_flow') && ($cf6['income'] > 0 || $cf6['expense'] > 0)) {
+    $widgets['cash_flow'] = [
+        'href' => '/cashflow.php', 'eyebrow' => 'Cash flow · 6mo',
+        'value' => ($cf6['net'] < 0 ? '−' : '+') . usd(abs($cf6['net'])),
+        'tone'  => $cf6['net'] < 0 ? 'neg' : 'pos',
+        'sub'   => $cfRate !== null ? number_format($cfRate, 0) . '% saved' : 'net, 6 months',
+        'spark' => count($cf6['months']) > 1 ? ['id' => 'cf-spark-data',
+            'labels' => array_column($cf6['months'], 'label'),
+            'values' => array_map(fn($m) => round($m['net'], 2), $cf6['months'])] : null,
+    ];
+}
+if ($active('investments')) {
+    $holds = array_values(array_filter(q_holdings($pdo, $uid), fn($h) => !is_retirement_account($h)));
+    if ($holds) {
+        $iVal = 0.0; $iCost = 0.0; $iValCost = 0.0;
+        foreach ($holds as $h) {
+            $iVal += (float)($h['institution_value'] ?? 0);
+            if ($h['cost_basis'] !== null) { $iCost += (float)$h['cost_basis']; $iValCost += (float)($h['institution_value'] ?? 0); }
+        }
+        $gain = $iValCost - $iCost; $gpct = $iCost > 0 ? $gain / $iCost * 100 : null;
+        $widgets['investments'] = [
+            'href' => '/investments.php', 'eyebrow' => 'Investments',
+            'value' => usd($iVal),
+            'tone'  => $gpct === null ? '' : ($gain >= 0 ? 'pos' : 'neg'),
+            'sub'   => $gpct === null ? count($holds) . ' holding' . (count($holds) === 1 ? '' : 's')
+                                      : ($gain >= 0 ? '▲' : '▼') . ' ' . number_format(abs($gpct), 1) . '%',
+        ];
+    }
+}
+if ($active('retirement') && $ret['count'] > 0) {
+    $widgets['retirement'] = [
+        'href' => '/retirement.php', 'eyebrow' => 'Retirement',
+        'value' => usd($ret['total']),
+        'sub'   => $ret['count'] . ' account' . ($ret['count'] === 1 ? '' : 's'),
+    ];
+}
+if ($active('bills') && $billsSoon) {
+    $widgets['bills'] = [
+        'href' => '/bills.php', 'eyebrow' => 'Bills · 14d',
+        'value' => usd($billsTotal),
+        'sub'   => count($billsSoon) . ' due in 14 days',
+    ];
+}
+if ($active('spending')) {
+    $widgets['spending'] = [
+        'href' => '/spending.php', 'eyebrow' => 'Spending · 30d',
+        'value' => usd($spend30), 'sub' => 'spent in the last 30 days',
+    ];
+}
+if ($active('goals') && $goals) {
+    $gCur = 0.0; $gTar = 0.0; $gReached = 0;
+    foreach ($goals as $g) { $gCur += (float)($g['current'] ?? 0); $gTar += (float)($g['target'] ?? 0); if (!empty($g['reached'])) $gReached++; }
+    $widgets['goals'] = [
+        'href' => '/goals.php', 'eyebrow' => 'Savings goals',
+        'value' => usd($gCur),
+        'sub'   => 'of ' . e(usd($gTar)) . ' · ' . count($goals) . ' goal' . (count($goals) === 1 ? '' : 's')
+                   . ($gReached ? ' · ' . $gReached . ' reached' : ''),
+    ];
+}
+if ($active('forecast') && $fcHasCash) {
+    $widgets['forecast'] = [
+        'href' => '/forecast.php', 'eyebrow' => 'Cash forecast',
+        'value' => ($fcTeaser['min_balance'] < 0 ? '−' : '') . usd(abs($fcTeaser['min_balance'])),
+        'tone'  => $fcTeaser['goes_negative'] ? 'neg' : '',
+        'sub'   => 'projected low · ' . e((new DateTimeImmutable($fcTeaser['min_date']))->format('M j')),
+    ];
+}
+if ($active('debt') && $debtPlan['debts']) {
+    $widgets['debt'] = [
+        'href' => '/debt.php', 'eyebrow' => 'Debt payoff',
+        'value' => usd($debtPlan['total']),
+        'sub'   => count($debtPlan['debts']) . ' debt' . (count($debtPlan['debts']) === 1 ? '' : 's')
+                   . ($debtPlan['has_mortgage'] ? ' · excl. mortgage' : ''),
+    ];
+}
+if ($active('home_equity') && $home) {
+    $widgets['home_equity'] = [
+        'href' => '/property.php', 'eyebrow' => $home['equity'] !== null ? 'Home equity' : 'Home value',
+        'value' => usd($home['equity'] !== null ? $home['equity'] : $home['value']),
+        'sub'   => 'value ' . e(usd($home['value'])),
+    ];
+}
+if ($active('refunds')) {
+    $widgets['refunds'] = [
+        'href' => '/refunds.php', 'eyebrow' => 'Refunds',
+        'value' => usd($rfView['outstanding']),
+        'sub'   => $rfView['pending_count'] . ' to confirm',
+    ];
+}
+if ($active('allocation')) {
+    require_once __DIR__ . '/lib/allocation.php';
+    $allocHolds = q_holdings($pdo, $uid);
+    if ($allocHolds) {
+        $av = build_allocation_view($allocHolds, q_allocation_targets($pdo), q_security_asset_classes($pdo));
+        $widgets['allocation'] = [
+            'href' => '/allocation.php', 'eyebrow' => 'Allocation',
+            'value' => usd($av['total']),
+            'sub'   => $av['has_targets'] ? 'largest drift ' . e(usd(abs($av['max_drift_val']))) : 'set a target mix',
+        ];
+    }
+}
+if ($active('top_merchants')) {
+    $tm = q_top_merchants($pdo, $uid, 90, 1);
+    if ($tm) {
+        $widgets['top_merchants'] = [
+            'href' => '/merchants.php', 'eyebrow' => 'Top merchant · 90d',
+            'value' => usd((float)$tm[0]['total']),
+            'sub'   => e($tm[0]['merchant']),
+        ];
+    }
+}
+if ($active('recurring') && $recur) {
+    $widgets['recurring'] = [
+        'href' => '/recurring.php', 'eyebrow' => 'Recurring',
+        'value' => (string)count($recur),
+        'sub'   => 'subscriptions & recurring income',
+    ];
+}
+if ($active('credit')) {
+    require_once __DIR__ . '/lib/credit.php';
+    $cov = build_credit_overview($pdo, $uid);
+    // The overview cards carry a score (no health composite — that's in the detail view),
+    // so the widget shows the first card that has a score.
+    foreach (($cov['cards'] ?? []) as $r) {
+        if (($r['score'] ?? null) === null) continue;
+        $widgets['credit'] = [
+            'href' => '/credit.php', 'eyebrow' => 'Credit score',
+            'value' => (string)(int)$r['score'],
+            'sub'   => e((string)($r['bureau_label'] ?? $r['bureau'] ?? '')),
+        ];
+        break;
+    }
+}
+if ($active('economic')) {
+    $mr = q_fred_latest($pdo, 'MORTGAGE30US');
+    if ($mr && ($mr['value'] ?? null) !== null) {
+        $widgets['economic'] = [
+            'href' => '/economic.php', 'eyebrow' => 'Economic',
+            'value' => number_format((float)$mr['value'], 2) . '%',
+            'sub'   => '30-yr mortgage average',
+        ];
+    }
+}
+
+/* ---- Needs Attention feed ------------------------------------------------ */
+$feed = [];
+if ($layout['attention_on']) {
+    // Broken bank connections (per item, deduped by institution).
+    $broken = [];
+    foreach ($accounts as $a) {
+        if ((($a['item_status'] ?? '') === 'error' || !empty($a['error_code'])) && !empty($a['item_id'])) {
+            $broken[$a['item_id']] = $a['institution_name'] ?: 'A bank';
+        }
+    }
+    // Bills due within 5 days, with a known amount (top 3).
+    $billsDue = [];
+    $soonCut = $today->add(new DateInterval('P5D'));
+    foreach ($billsSoon as $b) {
+        if (($b['amount'] ?? null) === null) continue;
+        $d = new DateTimeImmutable($b['date']);
+        if ($d > $soonCut) continue;
+        $days = (int)$today->diff($d)->format('%r%a');
+        $due  = $days <= 0 ? 'today' : ($days === 1 ? 'tomorrow' : "in $days days");
+        $billsDue[] = ['label' => $b['label'], 'due_label' => $due, 'amount' => (float)$b['amount'], 'account_id' => $b['account_id'] ?? null];
+        if (count($billsDue) >= 3) break;
+    }
+    // Refunds with a suggested matching credit (needs the candidate pool — only if any pending).
+    $rfCount = 0; $rfAmt = 0.0;
+    if ($rfView['pending_count'] > 0) {
+        $rf2 = build_refunds_view(q_refund_watches($pdo, $uid), q_refund_credits($pdo, $uid, date('Y-m-d', strtotime('-120 days'))), date('Y-m-d'));
+        foreach ($rf2['pending'] as $p) { if (!empty($p['suggestions'])) { $rfCount++; $rfAmt += (float)($p['amount'] ?? 0); } }
+    }
+    // Overdue manual statements.
+    $odStmts = [];
+    foreach ($overdue as $o) {
+        $odStmts[] = ['name' => $o['name'] ?: 'Account', 'account_id' => $o['account_id'],
+                      'meta' => strtolower(statement_cadence_label($o['cadence'])) . ' · ' . statement_overdue_label($o)];
+    }
+    // Budgets exceeded this month.
+    $budOver = [];
+    foreach (q_budgets($pdo)['budgets'] as $bd) {
+        $avail = (float)($bd['available'] ?? 0);
+        $spent = (float)($bd['spent'] ?? 0);
+        if ($spent > $avail && $spent > 0) {
+            $budOver[] = ['label' => pretty_cat($bd['category']), 'pct' => $avail > 0 ? (int)round($spent / $avail * 100) : 100];
+        }
+    }
+    $feed = build_attention_feed([
+        'broken_banks'       => array_values($broken),
+        'bills_due'          => $billsDue,
+        'refunds_count'      => $rfCount,
+        'refunds_amount'     => $rfAmt,
+        'overdue_statements' => $odStmts,
+        'budgets_over'       => $budOver,
+    ]);
+}
+
+/* ---- Greeting ------------------------------------------------------------ */
+$hour  = (int)date('G');
+$partOfDay = $hour < 12 ? 'morning' : ($hour < 18 ? 'afternoon' : 'evening');
+$first = trim(explode(' ', (string)($_SESSION['name'] ?? ''))[0] ?? '');
+?>
+
+<?php if ($hasPlaid): ?>
+<div class="refresh-row">
+    <button type="button" class="btn-ghost sm" data-refresh>Refresh</button>
+    <?php if ($lastSync): ?><span class="muted refresh-stamp">Updated <?= e(time_ago($lastSync)) ?></span><?php endif; ?>
+</div>
+<?php endif; ?>
+
+<div class="dash-greet">
+    <p class="greet">Good <?= $partOfDay ?><?= $first ? ', <em>' . e($first) . '</em>' : '' ?>.</p>
+    <a class="edit-link" href="/customize_home.php">✎ Customize</a>
+</div>
+
+<?php if ($layout['attention_on']): ?>
+<section class="attention">
+    <div class="block-head"><h2>Needs your attention</h2><?php if ($feed): ?><span class="count-pill"><?= count($feed) ?></span><?php endif; ?></div>
+    <?php if ($feed): ?>
+    <div class="feed">
+        <?php foreach ($feed as $f): ?>
+        <a class="feed-item<?= $f['tone'] ? ' ' . $f['tone'] : '' ?>" href="<?= e($f['href']) ?>">
+            <span class="fi" aria-hidden="true"><?= e($f['icon']) ?></span>
+            <span class="fm">
+                <span class="ft"><?= e($f['title']) ?></span>
+                <?php if (!empty($f['sub'])): ?><span class="fs"><?= e($f['sub']) ?></span><?php endif; ?>
+            </span>
+            <?php if (!empty($f['amount'])): ?>
+                <span class="fx <?= e($f['amount_tone'] ?? '') ?>"><?= e($f['amount']) ?></span>
+            <?php else: ?>
+                <span class="chev" aria-hidden="true">›</span>
+            <?php endif; ?>
+        </a>
+        <?php endforeach; ?>
+    </div>
+    <?php else: ?>
+    <div class="card feed-clear muted">You're all caught up ✓</div>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
+
+<?php // The bento — the user's chosen cards, in order, at their sizes.
+$visible = array_filter($layout['cards'], fn($c) => $c['size'] !== 'off' && isset($widgets[$c['widget']])); ?>
+<section class="snapshot">
+    <div class="block-head"><h2>Your snapshot</h2><a class="block-link" href="/customize_home.php">Edit cards ›</a></div>
+    <?php if ($visible): ?>
+    <div class="bento">
+        <?php foreach ($visible as $c) echo dash_card_html($c['size'], $widgets[$c['widget']]); ?>
+    </div>
+    <?php else: ?>
+    <div class="card feed-clear muted">No cards on Home yet — <a href="/customize_home.php">choose some</a>.</div>
+    <?php endif; ?>
+</section>
+
+<div class="cols">
+<?php
+// Accounts (the account-centric anchor of the dashboard), grouped by category.
+$byCat = [];
+foreach ($accounts as $a) { $byCat[account_group($a)][] = $a; }
+foreach ($byCat as &$grp) {
+    usort($grp, fn($x, $y) => abs((float)($y['balance_current'] ?? 0)) <=> abs((float)($x['balance_current'] ?? 0)));
+}
+unset($grp);
+?>
+<section class="block" id="dash-accounts">
+    <div class="block-head">
+        <h2>Your accounts</h2>
+        <span class="count-pill"><?= count($accounts) ?></span>
+    </div>
+    <?php if (count($accounts) > 8): ?>
+    <div class="search-bar">
+        <input type="search" class="search-input" data-filter="#dash-accounts" placeholder="Filter by account or bank…">
     </div>
     <?php endif; ?>
 
-    <?php if ($overdue): ?>
-    <!-- Manual accounts overdue for a new statement (cadence + grace; see q_manual_statement_status) -->
-    <section class="notice warn overdue-card">
-        <strong><?= count($overdue) === 1 ? 'An account needs' : count($overdue) . ' accounts need' ?> a new statement</strong>
-        <ul class="overdue-list">
-            <?php foreach ($overdue as $o): ?>
-            <li>
-                <a href="/account.php?account_id=<?= e(urlencode($o['account_id'])) ?>"><?= e($o['name'] ?: 'Account') ?></a>
-                <span class="overdue-meta"><?= e(strtolower(statement_cadence_label($o['cadence']))) ?> · <?= e(statement_overdue_label($o)) ?></span>
-            </li>
-            <?php endforeach; ?>
-        </ul>
-    </section>
-    <?php endif; ?>
-
-    <!-- Net-worth hero -->
-    <a class="hero card hero-link" href="/networth.php">
-        <div class="hero-top">
-            <span class="hero-label">Net worth</span>
-            <?php if ($change['pct'] !== null): ?>
-                <?php $up = $change['pct'] >= 0; ?>
-                <span class="delta <?= $up ? 'up' : 'down' ?>">
-                    <?= $up ? '▲' : '▼' ?> <?= number_format(abs($change['pct']), 1) ?>%
-                    <span class="delta-sub">30d</span>
-                </span>
-            <?php endif; ?>
-            <?php if ($realChange['pct'] !== null): $ru = $realChange['pct'] >= 0; ?>
-                <span class="delta <?= $ru ? 'up' : 'down' ?>" title="Inflation-adjusted (CPI), vs ~30 days ago">
-                    <?= $ru ? '▲' : '▼' ?> <?= number_format(abs($realChange['pct']), 1) ?>%
-                    <span class="delta-sub">real 30d</span>
-                </span>
-            <?php endif; ?>
-        </div>
-        <div class="hero-value"><?= e(usd($stats['net_worth'])) ?></div>
-
-        <?php if (count($snaps) > 1): ?>
-            <div class="sparkline">
-                <canvas id="nw-spark" data-chart="spark" data-src="nw-spark-data" height="64"></canvas>
+    <?php foreach (ACCOUNT_GROUPS as $cat => $label):
+        if (empty($byCat[$cat])) continue;
+        $rows = $byCat[$cat];
+        $subtotal = 0.0;
+        foreach ($rows as $a) {
+            $bb = (float)($a['balance_current'] ?? 0);
+            $subtotal += is_liability($a) ? -abs($bb) : $bb;
+        }
+        $negTotal = $subtotal < 0;
+    ?>
+        <div class="inst-group" data-filter-group>
+            <div class="inst-name">
+                <span><?= e($label) ?></span>
+                <span class="inst-total <?= $negTotal ? 'neg' : '' ?>"><?= e(($negTotal ? '-' : '') . usd(abs($subtotal))) ?></span>
             </div>
-            <script type="application/json" id="nw-spark-data"><?= json_encode([
-                'labels' => array_column($snaps, 'snapshot_date'),
-                'values' => array_map('floatval', array_column($snaps, 'net_worth')),
-            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-        <?php endif; ?>
-
-        <div class="hero-split">
-            <div class="split-cell">
-                <span class="split-label">Assets</span>
-                <span class="split-value pos"><?= e(usd($stats['assets'])) ?></span>
-            </div>
-            <div class="split-cell">
-                <span class="split-label">Liabilities</span>
-                <span class="split-value neg"><?= e(usd($stats['liabilities'])) ?></span>
-            </div>
-        </div>
-    </a>
-
-    <?php if ($home): ?>
-    <!-- Home value vs. mortgage → equity (RentCast AVM, refreshed ~monthly) -->
-    <a class="hero card hero-link" href="/property.php">
-        <div class="hero-top">
-            <span class="hero-label"><?= $home['equity'] !== null ? 'Home equity' : 'Home value' ?></span>
-            <span class="delta-sub muted">est. <?= e($home['as_of']) ?></span>
-        </div>
-        <div class="hero-value"><?= e(usd($home['equity'] !== null ? $home['equity'] : $home['value'])) ?></div>
-        <div class="hero-split">
-            <div class="split-cell">
-                <span class="split-label">Home value<?php
-                    if ($home['value_low'] !== null && $home['value_high'] !== null)
-                        echo ' <span class="muted">(' . e(usd($home['value_low'])) . '–' . e(usd($home['value_high'])) . ')</span>';
-                ?></span>
-                <span class="split-value pos"><?= e(usd($home['value'])) ?></span>
-            </div>
-            <?php if ($home['mortgage_balance'] !== null): ?>
-            <div class="split-cell">
-                <span class="split-label"><?= e($home['mortgage_name']) ?></span>
-                <span class="split-value neg">-<?= e(usd($home['mortgage_balance'])) ?></span>
-            </div>
-            <?php endif; ?>
-        </div>
-    </a>
-    <?php endif; ?>
-
-    <?php if ($ret['count'] > 0): ?>
-    <!-- Retirement (manual 401(k)s) — combined total -->
-    <a class="hero card hero-link" href="/retirement.php">
-        <div class="hero-top">
-            <span class="hero-label">Retirement</span>
-            <?php if ($ret['latest']): ?><span class="delta-sub muted">as of <?= e($ret['latest']) ?></span><?php endif; ?>
-        </div>
-        <div class="hero-value"><?= e(usd($ret['total'])) ?></div>
-        <div class="hero-split">
-            <div class="split-cell">
-                <span class="split-label">Accounts</span>
-                <span class="split-value"><?= (int)$ret['count'] ?></span>
-            </div>
-            <div class="split-cell">
-                <span class="split-label">Projection</span>
-                <span class="split-value">View ›</span>
-            </div>
-        </div>
-    </a>
-    <?php endif; ?>
-
-    <?php if ($cf6['income'] > 0 || $cf6['expense'] > 0): ?>
-    <!-- Cash-flow teaser (last 6 months) → full cashflow.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Cash flow</h2>
-            <a class="block-link" href="/cashflow.php">Last 6 months ›</a>
-        </div>
-        <a class="card spend-card" href="/cashflow.php">
-            <div class="spend-total">
-                <span class="spend-amt <?= $cf6['net'] < 0 ? 'neg' : '' ?>">
-                    <?= ($cf6['net'] < 0 ? '−' : '+') . e(usd(abs($cf6['net']))) ?>
-                </span>
-                <span class="muted">net over the last 6 months<?= $cfRate !== null ? ' · ' . number_format($cfRate, 0) . '% saved' : '' ?></span>
-            </div>
-            <?php if (count($cf6['months']) > 1): ?>
-            <div class="sparkline">
-                <canvas id="cf-spark" data-chart="spark" data-src="cf-spark-data" height="56"></canvas>
-            </div>
-            <script type="application/json" id="cf-spark-data"><?= json_encode([
-                'labels' => array_column($cf6['months'], 'label'),
-                'values' => array_map(fn($m) => round($m['net'], 2), $cf6['months']),
-            ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
-            <?php endif; ?>
-            <div class="cf-mini">
-                <span class="pos">+<?= e(usd($cf6['income'])) ?> in</span>
-                <span class="neg"><?= e(usd($cf6['expense'])) ?> out</span>
-            </div>
-        </a>
-    </section>
-    <?php endif; ?>
-
-    <?php if ($billsSoon): ?>
-    <!-- Upcoming bills teaser (next 14 days) → full bills.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Upcoming bills</h2>
-            <a class="block-link" href="/bills.php">Next 14 days ›</a>
-        </div>
-        <div class="card">
-            <div class="spend-total">
-                <span class="spend-amt"><?= e(usd($billsTotal)) ?></span>
-                <span class="muted">due · <?= count($billsSoon) ?> bill<?= count($billsSoon) === 1 ? '' : 's' ?> in 14 days</span>
-            </div>
-            <div class="rows">
-                <?php foreach (array_slice($billsSoon, 0, 4) as $b): ?>
-                <a class="row bill-row" href="/account.php?account_id=<?= e($b['account_id']) ?>">
-                    <span class="row-main">
-                        <span class="row-title"><?= e($b['label']) ?><?= owner_suffix($b['owner_id']) ?></span>
-                        <span class="row-sub">
-                            <span class="bill-kind bill-kind-<?= $b['source'] ?>"><?= e($b['kind']) ?></span>
-                            <?= e((new DateTimeImmutable($b['date']))->format('D, M j')) ?>
+            <div class="acct-list">
+                <?php foreach ($rows as $a):
+                    $debt    = is_liability($a);
+                    $bal     = (float)($a['balance_current'] ?? 0);
+                    $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
+                    $sub = $a['institution_name'] ?: pretty_cat($a['subtype'] ?: $a['type']);
+                    $hay = strtolower(($a['name'] ?: '') . ' ' . ($a['official_name'] ?: '') . ' ' . ($a['institution_name'] ?: '') . ' ' . $sub);
+                ?>
+                <a class="acct-card" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>" data-search="<?= e($hay) ?>">
+                    <span class="acct-icon <?= $debt ? 'is-debt' : '' ?>"><?= nav_icon($debt ? 'invest' : 'bank') ?></span>
+                    <span class="acct-main">
+                        <span class="acct-name"><?= e($a['name'] ?: ($a['official_name'] ?: 'Account')) ?></span>
+                        <span class="acct-sub">
+                            <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?>
+                            <?php if ($a['visibility'] === 'private'): ?><span class="mini-tag">private</span><?php endif; ?>
+                            <?php if ($errored): ?><span class="mini-tag warn">needs attention</span><?php endif; ?>
+                            <?php if (isset($overdueIds[$a['account_id']])): ?><span class="mini-tag warn">needs update</span><?php endif; ?>
                         </span>
                     </span>
-                    <span class="row-amt"><?= $b['amount'] === null ? '—' : e(usd($b['amount'])) ?></span>
+                    <span class="acct-bal <?= $debt ? 'neg' : '' ?>">
+                        <?= e(($debt && $bal > 0 ? '-' : '') . usd(abs($bal))) ?>
+                    </span>
+                    <span class="chev" aria-hidden="true">›</span>
                 </a>
                 <?php endforeach; ?>
             </div>
-            <?php if (count($billsSoon) > 4): ?>
-            <a class="block-link bills-more" href="/bills.php">+<?= count($billsSoon) - 4 ?> more ›</a>
-            <?php endif; ?>
         </div>
-    </section>
-    <?php endif; ?>
-
-    <?php if ($fcHasCash): ?>
-    <!-- Cash-flow forecast teaser (next 30 days) → full forecast.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Cash forecast</h2>
-            <a class="block-link" href="/forecast.php">Next 30 days ›</a>
-        </div>
-        <a class="card spend-card" href="/forecast.php">
-            <div class="spend-total">
-                <span class="spend-amt <?= $fcTeaser['goes_negative'] ? 'neg' : '' ?>">
-                    <?= ($fcTeaser['min_balance'] < 0 ? '−' : '') . e(usd(abs($fcTeaser['min_balance']))) ?>
-                </span>
-                <span class="muted">projected low · around <?= e((new DateTimeImmutable($fcTeaser['min_date']))->format('M j')) ?></span>
-            </div>
-            <div class="cf-mini">
-                <span class="muted"><?= e(usd($fcTeaser['start_balance'])) ?> today</span>
-                <span class="<?= $fcTeaser['end_balance'] < $fcTeaser['start_balance'] ? 'neg' : 'pos' ?>"><?= e(usd($fcTeaser['end_balance'])) ?> in 30 days</span>
-            </div>
-        </a>
-    </section>
-    <?php endif; ?>
-
-    <!-- Safe-to-spend teaser (this month) → full safe_to_spend.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Safe to spend</h2>
-            <a class="block-link" href="/safe_to_spend.php"><?= e($sts['month_label']) ?> ›</a>
-        </div>
-        <a class="card spend-card" href="/safe_to_spend.php">
-            <div class="spend-total">
-                <span class="spend-amt <?= $sts['over'] ? 'neg' : '' ?>">
-                    <?= ($sts['safe'] < 0 ? '−' : '') . e(usd(abs($sts['safe']))) ?>
-                </span>
-                <span class="muted">left to spend this month</span>
-            </div>
-            <div class="cf-mini">
-                <span class="muted"><?= e(usd($sts['plan'])) ?> free to spend</span>
-                <span class="muted"><?= e(usd($sts['spent'])) ?> spent so far</span>
-            </div>
-        </a>
-    </section>
-
-    <?php if ($rfView['pending_count'] > 0): ?>
-    <!-- Refund tracking teaser (#34) → full refunds.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Refunds</h2>
-            <a class="block-link" href="/refunds.php">Track them ›</a>
-        </div>
-        <a class="card spend-card" href="/refunds.php">
-            <div class="spend-total">
-                <span class="spend-amt"><?= e(usd($rfView['outstanding'])) ?></span>
-                <span class="muted">outstanding across <?= (int)$rfView['pending_count'] ?> refund<?= $rfView['pending_count'] === 1 ? '' : 's' ?></span>
-            </div>
-        </a>
-    </section>
-    <?php endif; ?>
-
-    <?php if ($goals): ?>
-    <!-- Savings goals teaser → full goals.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Savings goals</h2>
-            <a class="block-link" href="/goals.php">All goals ›</a>
-        </div>
-        <div class="card">
-            <?php foreach (array_slice($goals, 0, 3) as $g): ?>
-            <a class="goal-mini" href="/goals.php">
-                <div class="b-head">
-                    <span><?= e($g['name']) ?></span>
-                    <span class="muted"><?= e(usd($g['current'])) ?> / <?= e(usd($g['target'])) ?></span>
-                </div>
-                <div class="budget-bar<?= $g['reached'] ? ' reached' : '' ?>"><span style="width:<?= round($g['pct']) ?>%"></span></div>
-            </a>
-            <?php endforeach; ?>
-            <?php if (count($goals) > 3): ?>
-            <a class="block-link" href="/goals.php">+<?= count($goals) - 3 ?> more ›</a>
-            <?php endif; ?>
-        </div>
-    </section>
-    <?php endif; ?>
-
-    <?php if ($debtPlan['debts']): $da = $debtPlan['scenarios']['avalanche']; ?>
-    <!-- Debt payoff teaser (avalanche, mortgage excluded) → full debt.php -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Debt payoff</h2>
-            <a class="block-link" href="/debt.php">Plan it ›</a>
-        </div>
-        <a class="card spend-card" href="/debt.php">
-            <div class="spend-total">
-                <span class="spend-amt"><?= e(usd($debtPlan['total'])) ?></span>
-                <span class="muted"><?= count($debtPlan['debts']) ?> debt<?= count($debtPlan['debts']) === 1 ? '' : 's' ?><?= $debtPlan['has_mortgage'] ? ' · excl. mortgage' : '' ?></span>
-            </div>
-            <div class="cf-mini">
-                <?php if ($da['infeasible']): ?>
-                    <span class="muted">add an extra payment to build a plan</span>
-                <?php else: ?>
-                    <span class="muted">avalanche · debt-free <?= e((new DateTimeImmutable('first day of this month'))->modify('+' . $da['months'] . ' months')->format('M Y')) ?></span>
-                    <?php if (!empty($da['interest_saved'])): ?>
-                        <span class="pos"><?= e(usd($da['interest_saved'])) ?> saved</span>
-                    <?php endif; ?>
-                <?php endif; ?>
-            </div>
-        </a>
-    </section>
-    <?php endif; ?>
-
-    <div class="cols">
-    <!-- Accounts (the hero of an account-centric dashboard), grouped by category -->
-    <?php
-    // Bucket by category, then keep ACCOUNT_GROUPS' canonical order. Within a group,
-    // biggest balance first (debts compared by amount owed).
-    $byCat = [];
-    foreach ($accounts as $a) { $byCat[account_group($a)][] = $a; }
-    foreach ($byCat as &$grp) {
-        usort($grp, fn($x, $y) => abs((float)($y['balance_current'] ?? 0)) <=> abs((float)($x['balance_current'] ?? 0)));
-    }
-    unset($grp);
-    ?>
-    <section class="block" id="dash-accounts">
-        <div class="block-head">
-            <h2>Your accounts</h2>
-            <span class="count-pill"><?= count($accounts) ?></span>
-        </div>
-        <?php if (count($accounts) > 8): ?>
-        <div class="search-bar">
-            <input type="search" class="search-input" data-filter="#dash-accounts" placeholder="Filter by account or bank…">
-        </div>
-        <?php endif; ?>
-
-        <?php foreach (ACCOUNT_GROUPS as $cat => $label):
-            if (empty($byCat[$cat])) continue;
-            $rows = $byCat[$cat];
-            // Group subtotal: assets add, debts subtract (so the figure reads as net for the group).
-            $subtotal = 0.0;
-            foreach ($rows as $a) {
-                $b = (float)($a['balance_current'] ?? 0);
-                $subtotal += is_liability($a) ? -abs($b) : $b;
-            }
-            $negTotal = $subtotal < 0;
-        ?>
-            <div class="inst-group" data-filter-group>
-                <div class="inst-name">
-                    <span><?= e($label) ?></span>
-                    <span class="inst-total <?= $negTotal ? 'neg' : '' ?>"><?= e(($negTotal ? '-' : '') . usd(abs($subtotal))) ?></span>
-                </div>
-                <div class="acct-list">
-                    <?php foreach ($rows as $a):
-                        $debt    = is_liability($a);
-                        $bal     = (float)($a['balance_current'] ?? 0);
-                        $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
-                        // Bank name now lives on the card (the group header is the category).
-                        $sub = $a['institution_name'] ?: pretty_cat($a['subtype'] ?: $a['type']);
-                        $hay = strtolower(($a['name'] ?: '') . ' ' . ($a['official_name'] ?: '') . ' ' . ($a['institution_name'] ?: '') . ' ' . $sub);
-                    ?>
-                    <a class="acct-card" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>" data-search="<?= e($hay) ?>">
-                        <span class="acct-icon <?= $debt ? 'is-debt' : '' ?>"><?= nav_icon($debt ? 'invest' : 'bank') ?></span>
-                        <span class="acct-main">
-                            <span class="acct-name"><?= e($a['name'] ?: ($a['official_name'] ?: 'Account')) ?></span>
-                            <span class="acct-sub">
-                                <?= e($sub) ?><?= $a['mask'] ? ' · ••' . e($a['mask']) : '' ?><?= owner_suffix($a['owner_id'] ?? null) ?>
-                                <?php if ($a['visibility'] === 'private'): ?><span class="mini-tag">private</span><?php endif; ?>
-                                <?php if ($errored): ?><span class="mini-tag warn">needs attention</span><?php endif; ?>
-                                <?php if (isset($overdueIds[$a['account_id']])): ?><span class="mini-tag warn">needs update</span><?php endif; ?>
-                            </span>
-                        </span>
-                        <span class="acct-bal <?= $debt ? 'neg' : '' ?>">
-                            <?= e(($debt && $bal > 0 ? '-' : '') . usd(abs($bal))) ?>
-                        </span>
-                        <span class="chev" aria-hidden="true">›</span>
-                    </a>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-        <?php endforeach; ?>
-    </section>
-
-    <!-- Spending snapshot -->
-    <section class="block">
-        <div class="block-head">
-            <h2>Spending</h2>
-            <a class="block-link" href="/spending.php">Last 30 days ›</a>
-        </div>
-        <a class="card spend-card" href="/spending.php">
-            <div class="spend-total">
-                <span class="spend-amt"><?= e(usd($spend30)) ?></span>
-                <span class="muted">spent in the last 30 days</span>
-            </div>
-            <?php if ($topSpend): $maxCat = (float)$topSpend[0]['total']; ?>
-            <div class="spend-bars">
-                <?php foreach ($topSpend as $c): $w = $maxCat > 0 ? max(4, ($c['total'] / $maxCat) * 100) : 0; ?>
-                <div class="spend-row">
-                    <span class="spend-cat"><?= e(pretty_cat($c['category'])) ?></span>
-                    <span class="spend-track"><span style="width:<?= round($w) ?>%"></span></span>
-                    <span class="spend-val"><?= e(usd($c['total'])) ?></span>
-                </div>
-                <?php endforeach; ?>
-            </div>
-            <?php endif; ?>
-        </a>
-    </section>
-    </div><!-- /.cols -->
-
-<?php endif; ?>
+    <?php endforeach; ?>
+</section>
+</div><!-- /.cols -->
 
 <?php render_footer(); ?>
