@@ -97,6 +97,7 @@ render_header('Investment fees', 'fees', ['narrow' => true]);
 
 <?php if ($fv['total'] <= 0): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('percent') ?></span>
         <h2>No holdings to analyze yet</h2>
         <p class="muted">The fee analyzer estimates the expense ratios you're paying across your
             investment &amp; retirement <em>holdings</em>. Once a brokerage or retirement account

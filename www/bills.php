@@ -80,6 +80,7 @@ render_header('Upcoming bills', 'bills', ['narrow' => true]);
 
 <?php if (!$hasAny): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('calendar') ?></span>
         <h2>No bills to show yet</h2>
         <p class="muted">Once a bank is linked, your credit-card / loan due dates and recurring payments appear here.</p>
         <a class="btn" href="/link.php">Link a bank account</a>

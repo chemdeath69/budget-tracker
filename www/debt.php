@@ -42,6 +42,7 @@ render_header('Debt payoff', 'debt', ['narrow' => true, 'chart' => true]);
 
 <?php if (!$plan['debts']): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('debt') ?></span>
         <h2>No debts to plan<?= $plan['has_mortgage'] && !$includeMortgage ? ' (except your mortgage)' : '' ?></h2>
         <p class="muted">A debt payoff plan works from your credit cards and loans — their balance,
             interest rate and minimum payment. None are showing here right now.

@@ -109,7 +109,9 @@ render_header('Categories & rules', 'rules', ['narrow' => true]);
     <div class="block-head"><h2>Your rules</h2><span class="count-pill"><?= count($rules) ?></span></div>
     <?php if (!$rules): ?>
         <div class="empty-state card">
-            <p class="muted">No rules yet. Add one above, or use the “＋ rule” shortcut next to any transaction.</p>
+            <span class="empty-ic"><?= nav_icon('rules') ?></span>
+            <h2>No rules yet</h2>
+            <p class="muted">Add one above, or use the “＋ rule” shortcut next to any transaction.</p>
         </div>
     <?php else: ?>
         <div class="rule-list card">

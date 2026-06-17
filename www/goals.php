@@ -78,7 +78,11 @@ render_header('Savings goals', 'goals', ['narrow' => true]);
 
     <div id="goals-list" class="budgets-list">
         <?php if (!$goals): ?>
-            <p class="muted" id="goals-empty">No goals yet. Add one to track progress toward a savings target.</p>
+            <div class="empty-state card" id="goals-empty">
+                <span class="empty-ic"><?= nav_icon('target') ?></span>
+                <h2>No goals yet</h2>
+                <p class="muted">Add one above to track progress toward a savings target.</p>
+            </div>
         <?php else: foreach ($goals as $g):
             $tied   = $g['tied'];
             // A goal tied to an account this viewer can't see (another user's private/hidden):

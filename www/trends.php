@@ -65,6 +65,7 @@ render_header('Spending trends', 'trends', ['chart' => true]);
 
 <?php if (!$hasData): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('bars') ?></span>
         <h2>No spending trend yet</h2>
         <p class="muted">Once a bank is linked and transactions have synced, your month-by-month spending by category appears here.</p>
         <a class="btn" href="/link.php">Link a bank account</a>

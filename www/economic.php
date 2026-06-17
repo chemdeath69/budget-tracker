@@ -29,6 +29,7 @@ render_header('Economic', 'economic', ['chart' => true, 'narrow' => true]);
 
 <?php if (!$view['has_data']): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('globe') ?></span>
         <h2>No economic data yet</h2>
         <p class="muted">This page pulls free macro data from <strong>FRED</strong> (the St. Louis
             Fed) — inflation (CPI), the 30-year mortgage rate and Treasury / Fed-funds yields — to

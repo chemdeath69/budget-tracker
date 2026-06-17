@@ -72,10 +72,14 @@ if (!$view) {
         <?php endif; ?>
 
         <?php if (!$ov['has_any']): ?>
-            <p class="muted">No credit reports yet. Download your free report from
-                <a href="https://www.annualcreditreport.com" target="_blank" rel="noopener">AnnualCreditReport.com</a>
-                and import it to see utilization, account age, inquiries, credit mix, and how it lines up with
-                your tracked accounts.</p>
+            <div class="empty-state">
+                <span class="empty-ic"><?= nav_icon('credit') ?></span>
+                <h2>No credit reports yet</h2>
+                <p class="muted">Download your free report from
+                    <a href="https://www.annualcreditreport.com" target="_blank" rel="noopener">AnnualCreditReport.com</a>
+                    and import it to see utilization, account age, inquiries, credit mix, and how it lines up with
+                    your tracked accounts.</p>
+            </div>
         <?php else: ?>
             <div class="cr-grid">
                 <?php foreach ($ov['cards'] as $c): ?>

@@ -103,12 +103,14 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
 <?php if (!$txns): ?>
     <?php if ($hasFilters): ?>
         <div class="empty-state card">
+            <span class="empty-ic"><?= nav_icon('list') ?></span>
             <h2>No matching transactions</h2>
             <p class="muted">No transactions match these filters<?= $page > 1 ? ' on this page' : '' ?>.</p>
             <a class="btn" href="/transactions.php">Clear filters</a>
         </div>
     <?php else: ?>
         <div class="empty-state card">
+            <span class="empty-ic"><?= nav_icon('list') ?></span>
             <h2>No transactions yet</h2>
             <p class="muted">Once a bank is linked and synced, your transactions appear here.</p>
             <a class="btn" href="/link.php">Link a bank account</a>

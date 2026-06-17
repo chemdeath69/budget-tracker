@@ -51,6 +51,7 @@ render_header('Spending vs typical', 'peers', ['narrow' => true]);
 
 <?php if (!$view['has_data']): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('peers') ?></span>
         <h2>Spending vs typical</h2>
         <p class="muted">This compares your spending against the <strong>typical U.S. household</strong>
             in your income bracket, using the free <strong>Bureau of Labor Statistics Consumer

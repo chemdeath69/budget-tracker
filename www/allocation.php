@@ -95,6 +95,7 @@ render_header('Allocation', 'allocation', ['narrow' => true, 'chart' => true]);
 
 <?php if ($av['total'] <= 0): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('pie') ?></span>
         <h2>No holdings to allocate yet</h2>
         <p class="muted">Asset allocation compares your investment &amp; retirement <em>holdings</em>
             against a target mix. Once a brokerage or retirement account reports holdings, they'll

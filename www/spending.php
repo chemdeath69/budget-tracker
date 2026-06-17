@@ -116,7 +116,11 @@ render_nav_chips('spend', 'spending');
 
     <div id="budgets-list" class="budgets-list">
         <?php if (!$bud['budgets']): ?>
-            <p class="muted" id="budgets-empty">No budgets yet. Add one to track spending against a monthly limit.</p>
+            <div class="empty-state card" id="budgets-empty">
+                <span class="empty-ic"><?= nav_icon('wallet') ?></span>
+                <h2>No budgets yet</h2>
+                <p class="muted">Add one above to track spending against a monthly limit.</p>
+            </div>
         <?php else:
             // Carry q_budgets' calendar-month window into the link. (Same caveat as the
             // spending links above: the destination is the full ledger, a superset of the

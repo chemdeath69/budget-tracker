@@ -39,6 +39,7 @@ render_header('Cash flow forecast', 'forecast', ['chart' => true, 'narrow' => tr
 
 <?php if (!$hasCash): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('forecast') ?></span>
         <h2>No cash accounts to forecast</h2>
         <p class="muted">The forecast projects your checking + savings balance forward. Link a bank account
             (or add a manual one) and the projection appears here.</p>

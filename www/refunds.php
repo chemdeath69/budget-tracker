@@ -46,9 +46,14 @@ render_header('Refunds', 'refunds', ['narrow' => true]);
     </div>
 
     <?php if (!$watches): ?>
-        <p class="empty-state">No refunds tracked yet. On any purchase (in
-            <a href="/transactions.php">Transactions</a> or an account), tap <strong>⟳ expect refund</strong>
-            to flag it — this page then watches for the matching credit to land.</p>
+        <div class="empty-state card">
+            <span class="empty-ic"><?= nav_icon('refund') ?></span>
+            <h2>No refunds tracked yet</h2>
+            <p class="muted">On any purchase (in <a href="/transactions.php">Transactions</a> or an account),
+                tap <strong>⟳ expect refund</strong> to flag it — this page then watches for the matching
+                credit to land.</p>
+            <a class="btn" href="/transactions.php">Go to transactions</a>
+        </div>
     <?php else: ?>
 
     <section class="hero card">

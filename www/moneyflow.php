@@ -103,6 +103,7 @@ render_header('Money flow', 'moneyflow', ['sankey' => true]);
 
 <?php if (!$hasData): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('sankey') ?></span>
         <h2>No money flow for <?= e($mf['month_label']) ?></h2>
         <p class="muted">Pick another month, or once transactions have synced for this period your income sources and spending categories will flow here.</p>
         <a class="btn" href="/link.php">Link a bank account</a>

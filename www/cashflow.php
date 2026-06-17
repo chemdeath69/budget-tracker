@@ -31,6 +31,7 @@ render_header('Cash flow', 'cashflow', ['chart' => true]);
 
 <?php if (!$hasData): ?>
     <div class="empty-state card">
+        <span class="empty-ic"><?= nav_icon('flow') ?></span>
         <h2>No cash flow to show yet</h2>
         <p class="muted">Once a bank is linked and transactions have synced, your monthly income vs. expenses appear here.</p>
         <a class="btn" href="/link.php">Link a bank account</a>
