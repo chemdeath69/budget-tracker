@@ -138,3 +138,15 @@ function plaid_refresh_transactions(string $accessToken): array
 {
     return plaid_call('/transactions/refresh', ['access_token' => $accessToken]);
 }
+
+/**
+ * Remove an Item at Plaid (/item/remove) — revokes the access token so the bank
+ * stops syncing and Plaid stops billing for it. Once removed the token is dead and
+ * the bank must be re-linked from scratch to reconnect. Returns {request_id}.
+ * Throws PlaidException on error; the caller treats the "already gone" codes
+ * (ITEM_NOT_FOUND / INVALID_ACCESS_TOKEN) as success since our intent is removal.
+ */
+function plaid_item_remove(string $accessToken): array
+{
+    return plaid_call('/item/remove', ['access_token' => $accessToken]);
+}

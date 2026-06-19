@@ -12,6 +12,10 @@ $uid  = current_user_id();
 // accounts here — settings is the only surface that shows them (they're invisible
 // everywhere else in the app, including their own account.php drill-down).
 $owned  = q_owned_accounts($pdo, $uid);
+// How many accounts each Item owns — for the "Remove bank" confirm (removal is
+// per-Item, so it deletes every account of that bank, not just the clicked row).
+$itemAcctCount = [];
+foreach ($owned as $a) { $itemAcctCount[$a['item_id']] = ($itemAcctCount[$a['item_id']] ?? 0) + 1; }
 $alerts = q_alert_settings($pdo);   // household-shared notification prefs (TODO #14)
 $theme  = user_prefs_theme(q_user_prefs($pdo, $uid));  // per-user Light/Dark/Auto (Phase 2)
 
@@ -118,6 +122,12 @@ render_header('Settings', 'settings', ['narrow' => true]);
                 <?php else: ?>
                     <button type="button" class="btn-ghost sm" data-refresh data-item="<?= e($a['item_id']) ?>">Refresh</button>
                     <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
+                    <?php if ((int)$a['owner_id'] === (int)$uid): ?>
+                    <button type="button" class="btn-ghost sm danger" data-unlink
+                            data-item="<?= e($a['item_id']) ?>"
+                            data-institution="<?= e($a['institution_name'] ?: 'this bank') ?>"
+                            data-accounts="<?= (int)($itemAcctCount[$a['item_id']] ?? 1) ?>">Remove</button>
+                    <?php endif; ?>
                 <?php endif; ?>
             </span>
         </div>

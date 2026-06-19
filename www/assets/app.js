@@ -612,6 +612,32 @@ function initRefresh() {
   });
 }
 
+/* ---- Unlink (remove) a Plaid bank — destructive, owner-only -------------- */
+function initUnlink() {
+  $$('[data-unlink]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const inst = btn.dataset.institution || 'this bank';
+      const n = parseInt(btn.dataset.accounts || '0', 10);
+      const acctText = n > 0 ? `${n} account${n === 1 ? '' : 's'}` : 'its accounts';
+      const msg = `Remove ${inst}?\n\nThis permanently deletes ${acctText} and ALL their transactions, holdings and history, and revokes access at Plaid. This cannot be undone.`;
+      if (!confirm(msg)) return;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Removing…';
+      const out = await postJSON('/api/unlink.php', { item_id: btn.dataset.item });
+      if (out && out.ok) {
+        toast(`Removed ${out.removed || inst}.`);
+        setTimeout(() => location.reload(), 600);
+      } else {
+        btn.disabled = false;
+        btn.textContent = label;
+        toast((out && out.error) || 'Could not remove the bank.');
+      }
+    });
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -1455,6 +1481,7 @@ initAllocation();
 initRename();
 initStatementCadence();
 initRefresh();
+initUnlink();
 initBudgets();
 initGoals();
 initAlertSettings();

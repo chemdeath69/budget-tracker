@@ -355,6 +355,9 @@ body.menu-open .scrim { opacity: 1; pointer-events: auto; }
 .btn-ghost.sm { padding: 6px 11px; font-size: .8rem; }
 .btn-ghost:active { background: var(--line); }
 .btn-ghost:disabled { opacity: .55; cursor: default; }
+/* Destructive ghost button (e.g. Remove a linked bank) */
+.btn-ghost.danger { color: var(--neg); border-color: var(--neg-weak); }
+.btn-ghost.danger:hover { background: var(--neg-weak); }
 
 /* On-demand refresh control (dashboard global row + per-bank on settings) */
 .refresh-row { display: flex; align-items: center; gap: 10px; margin: 0 2px 14px; }
