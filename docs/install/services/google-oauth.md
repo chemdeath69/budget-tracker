@@ -27,7 +27,7 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 2. Top bar → project dropdown → **New Project**. Name it e.g. `budget-tracker`. **Create**, then
    select it.
 
-![New Project form](img/google-01-new-project.png)
+![New Project form](../img/google-01-new-project.png)
 
 ## 2. Configure the OAuth consent screen (Google Auth Platform)
 
@@ -36,11 +36,11 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 2. **App Information** — **App name** `Budget Tracker` (anything) + **User support email** (pick your
    address from the dropdown). **Next.**
 
-   ![App Information step](img/google-02-app-info.png)
+   ![App Information step](../img/google-02-app-info.png)
 
 3. **Audience** — choose **External** (Internal is only for Google Workspace orgs). **Next.**
 
-   ![Audience → External](img/google-03-audience-external.png)
+   ![Audience → External](../img/google-03-audience-external.png)
 
 4. **Contact Information** — your email. **Next.**
 5. **Finish** — tick the **Google API Services: User Data Policy** agreement → **Continue** →
@@ -53,7 +53,7 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
    - *(Optional)* **Publish app** moves to Production; with only non-sensitive scopes Google does
      **not** require verification. Either way, your `allowed_emails` list is the real gatekeeper.
 
-   ![Adding test users](img/google-06-test-users.png)
+   ![Adding test users](../img/google-06-test-users.png)
 
 ## 3. Create the OAuth client ID
 
@@ -69,12 +69,12 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
      just the one HTTPS URI.
    - You do **not** need to add an "Authorized JavaScript origin".
 
-   ![Creating the Web application client + redirect URI](img/google-04-create-web-client.png)
+   ![Creating the Web application client + redirect URI](../img/google-04-create-web-client.png)
 
 4. **Create.** Google shows your **Client ID** (`…apps.googleusercontent.com`) and **Client secret**
    (`GOCSPX-…`).
 
-   ![Client created — copy or Download JSON NOW](img/google-05-client-created.png)
+   ![Client created — copy or Download JSON NOW](../img/google-05-client-created.png)
 
 > ### ⚠️ The client secret is shown only ONCE (new-console gotcha)
 > On the current console the **Client secret is displayed in full only at creation** — in the

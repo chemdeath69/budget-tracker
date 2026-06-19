@@ -46,6 +46,11 @@ You now have `budget-www.zip` containing `index.php`, `lib/`, `cron/`, `assets/`
    see `index.php`, `lib/`, `cron/`, `assets/` directly inside `www/<sub>`.
 5. Delete the uploaded `budget-www.zip` to keep things tidy.
 
+After extracting, the web root should list the app's folders (`api/`, `assets/`, `cron/`, `lib/`,
+`storage/`, …) and `index.php` directly inside `www/<sub>`:
+
+![File Manager showing the extracted app files in the web root](img/upload-01-file-manager.png)
+
 > **API equivalent** (used by the guided installer's optional helper): after you upload the zip,
 > `POST /api/v1/files/unarchive` with `archive=/www/<sub>/budget-www.zip`, `subdir=0`, `overwrite=1`
 > extracts it. (There is **no** binary-upload API endpoint, which is why the zip upload itself is a

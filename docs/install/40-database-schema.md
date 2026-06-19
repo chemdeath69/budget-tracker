@@ -56,8 +56,6 @@ The schema is plain text, so you can put it on the server with the Files API and
 
 The **guided installer** does all of this (create-file → write-file → import → poll the task) for you.
 
-The **guided installer** does exactly this for you.
-
 ---
 
 <a name="method-3"></a>
@@ -101,7 +99,11 @@ $pdo=new PDO("mysql:unix_socket={$d["socket"]};dbname={$d["name"]}",$d["user"],$
 echo implode("\n",$pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN)),"\n";'
 ```
 
-Or just look at the table list in phpMyAdmin. You want to see ~47 tables.
+Or just look at the table list in phpMyAdmin — open your **`<cpuser>_budget`** database on the
+**MySQL 8** server and you should see ~47 tables (`accounts`, `transactions`, `holdings`, `items`,
+`users`, …):
+
+![phpMyAdmin showing the loaded schema tables on MySQL 8](img/schema-01-phpmyadmin-tables.png)
 
 ---
 
