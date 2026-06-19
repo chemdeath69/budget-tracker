@@ -22,3 +22,10 @@ preview/
 # Kept manual-account documents (server-side data; never commit). Keep the deny .htaccess.
 www/storage/manual/
 !www/storage/.htaccess
+
+# Walkthrough screenshots (committed) — exception to the *.png ignore above
+!docs/install/img/
+!docs/install/img/*.png
+
+# Live secrets for the in-progress example-instance deployment (NEVER commit)
+docs/install/*.local.md

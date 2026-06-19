@@ -1,10 +1,12 @@
-# Service · Plaid — bank, credit, loan & investment data   ✅ REQUIRED · Free trial
+# Service · Plaid — bank, credit, loan & investment data   ✅ REQUIRED · Free
 
 [← Back to the Installation Guide](../../INSTRUCTIONS.md) · [Service index](../../INSTRUCTIONS.md#third-party-services)
 
 Plaid is the engine that pulls your real accounts (checking, savings, credit cards, loans,
-brokerages, retirement) into the app. The **free trial includes Production access** for up to **10
-linked institutions** — more than enough for a 2-person household.
+brokerages, retirement) into the app. **Production** access (for real bank data) is free for personal
+use up to **10 linked institutions** — more than enough for a 2-person household — but as of 2025 you
+must **request it** (a short questionnaire + a quick review); it is no longer granted automatically on
+signup. See **[1. Create a Plaid account](#1-create-a-plaid-account)** below.
 
 **config keys this fills:** `plaid.env`, `plaid.client_id`, `plaid.secret`, `plaid.webhook_url`
 
@@ -15,13 +17,34 @@ linked institutions** — more than enough for a 2-person household.
 
 ## 1. Create a Plaid account
 
-1. Go to **<https://dashboard.plaid.com/signup>** and create an account (Google SSO works).
-2. You'll land on the dashboard at **<https://dashboard.plaid.com>**. You're on a **free trial** with
-   **Production** access enabled (a "connection" = one linked institution; the trial allows up to 10).
+1. Go to **<https://dashboard.plaid.com/signup>** and create an account (Google SSO works). Use an
+   email you control — verification + the access review go there.
+2. You'll land on the dashboard at **<https://dashboard.plaid.com>**. **New accounts start in
+   Sandbox only.** On **Developers → Keys** you'll see a **Client ID** and a **Sandbox secret**, but
+   the **Production secret** reads *"You don't have access"* with a **Request access** button.
 
-> You do **not** need to request "full production access" / fill out the company questionnaire for a
-> 2-person personal install — the trial's 10 Production connections are enough. (You'd only do that to
-> scale beyond 10 or leave the trial.)
+   ![Keys page on a fresh account — no Production secret yet](img/plaid-01-keys.png)
+
+3. **Request Production access** — click **Get full access** (top-left nav, or the **Request access**
+   button on the Keys page). Fill out the questionnaire: business + personal details including your
+   **address, date of birth, last-4 of SSN, and citizenship**, plus a short product description (e.g.
+   *"A personal finance dashboard that aggregates my own household's bank, card, loan and brokerage
+   accounts to track spending and net worth."*). Submit it.
+4. Plaid puts the request **under review** — the dashboard shows **"Free trial: Pending / Under
+   review"** and the access checklist as "X of 3 complete". For a simple personal-use app this is
+   typically approved quickly. **Wait for approval before continuing.**
+
+   ![Free trial / production access pending review](img/plaid-03-production-access-pending.png)
+
+5. Once approved, **Developers → Keys** shows your **Production secret**. Copy the **Client ID** +
+   the **Production secret** (you want **Production**, not Sandbox).
+
+   ![Keys page after approval — Production secret issued](img/plaid-04-keys-production.png)
+
+> **Don't want to wait for approval?** You can deploy immediately against **Sandbox** (`plaid.env =
+> sandbox` + the Sandbox secret) and test with Plaid's fake bank (`user_good` / `pass_good`), then
+> flip to `production` + the Production secret once it's granted. See the Sandbox tip under
+> [step 5](#5-put-the-keys-in-configphp).
 
 ## 2. Enable the products the app uses
 
@@ -37,7 +60,12 @@ In the dashboard, make sure these **products** are enabled for your Production e
 | **Recurring Transactions** *(add-on)* | The subscriptions / recurring-bills view |
 | **Transactions Refresh** *(add-on)* | The on-demand "Refresh now" button + proactive new-transaction sync |
 
-All six are available on the trial without extra approval for US/CA institutions.
+All six are available for US/CA institutions. **Note (current dashboard):** you don't pre-toggle
+products on a per-team page — the app **requests the products it needs per `link_token`** at bank-link
+time, and Plaid grants them based on your access. The **Products** page just shows what's available
+(each reads "Trial" until you're fully live).
+
+![Products available to the account](img/plaid-06-products.png)
 
 ## 3. Get your API keys
 
@@ -48,23 +76,27 @@ All six are available on the trial without extra approval for US/CA institutions
 > The app uses base URL `https://production.plaid.com` (set automatically when `plaid.env` is
 > `production`). All Plaid endpoints are `POST` + JSON.
 
-## 4. Set the webhook (and redirect URI for OAuth banks)
+## 4. Webhook + redirect URI
 
-1. Dashboard → **Developers → API** (or **Webhooks** / **Allowed redirect URIs** section).
-2. **Webhook URL** — add:
-   ```
-   https://<sub>.<domain>/webhook.php
-   ```
-   This lets Plaid notify the app the moment new transactions/holdings are available (so data shows
-   up without waiting for the nightly cron). The app also passes this per `link_token`, but setting
-   it here is good practice.
-3. **Allowed redirect URIs** *(only needed for banks that use an OAuth login flow)* — add the page
-   where Plaid Link runs in the app:
+1. **Webhook — nothing to do in the dashboard.** The app sends `plaid.webhook_url` from `config.php`
+   on **every** `link_token`, so Plaid notifies the right instance per linked item automatically (so
+   new transactions/holdings show up without waiting for the nightly cron). The dashboard's
+   **Developers → Webhooks** page is for *account-level, per-event* webhooks, which this app doesn't
+   need — leave it empty. Just make sure `webhook_url` in `config.php` is
+   `https://<sub>.<domain>/webhook.php` (see [step 5](#5-put-the-keys-in-configphp)).
+2. **Allowed redirect URIs** *(only needed for banks that use an OAuth login flow)* — Dashboard →
+   **Developers → API → Allowed redirect URIs → Configure → Add new URI**:
    ```
    https://<sub>.<domain>/link.php
    ```
    If you skip this, non-OAuth banks still link fine; some large banks that require OAuth will need
    it. You can add it later if a bank link fails with a redirect error.
+
+   ![Adding the link.php redirect URI](img/plaid-05-redirect-uri.png)
+
+> **⚠️ Identity re-verification gate.** Saving a redirect-URI/webhook change pops a *"Verify your
+> identity → Verify with Google"* modal — re-authenticate with the Google account you signed up with,
+> and the change saves.
 
 ## 5. Put the keys in `config.php`
 

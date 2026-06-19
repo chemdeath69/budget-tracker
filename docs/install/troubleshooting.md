@@ -81,7 +81,9 @@ hasn't fired yet, not that it failed.)
 |---|---|
 | `redirect_uri_mismatch` | The Cloud Console redirect URI must equal `config.php` `redirect_uri` **exactly** (`https`, host, `/oauth-callback.php`, no trailing slash). |
 | Signs in then bounced out | The Google email isn't in `allowed_emails`, or differs (`googlemail.com` vs `gmail.com`). |
-| "App not verified" | You published with sensitive scopes. The app uses only `openid email profile`; keep it in **Testing** with test users, or publish (no verification needed for non-sensitive scopes). |
+| "App not verified" warning | Expected in **Testing** mode → **Advanced → Continue** (it's your own app). The app uses only `openid email profile`, so no verification is required. |
+| **Lost the client secret** | The new console shows it **only once at creation** (Download JSON / copy). Afterward it's `••••last4`. Open the client → **Additional information → Add client secret**, copy the new one, update `config.php`. |
+| Console looks different than the docs | Newer console nests consent + clients under **APIs & Services → Google Auth Platform** (`/auth/overview`). Same fields, new wrapper. |
 
 See [services/google-oauth.md](services/google-oauth.md).
 
@@ -91,9 +93,11 @@ See [services/google-oauth.md](services/google-oauth.md).
 
 | Symptom | Fix |
 |---|---|
-| Link won't open | `client_id`/`secret` must be the **Production** pair and `env: 'production'`. |
-| Bank fails with a redirect/OAuth error | Register `https://<sub>.<domain>/link.php` under **Allowed redirect URIs** in the Plaid dashboard. |
-| Linked but empty | Data arrives on the first webhook/sync — click **Refresh** or run the cron once. |
+| **No Production secret** ("You don't have access") | New accounts are **Sandbox-only**. Click **Get full access**, complete the questionnaire (address/DOB/last-4 SSN/citizenship + a short product description), and wait for Plaid's review. Until then, deploy on **Sandbox** (`env: 'sandbox'` + the Sandbox secret, test bank `user_good`/`pass_good`) and flip to Production once granted. |
+| "Verify your identity" popup when saving a redirect URI/webhook | Plaid gates dashboard changes behind a re-auth — click **Verify with Google** with your signup account, then the change saves. |
+| Link won't open | `client_id`/`secret` must match `env` (the **Production** pair for `env: 'production'`). |
+| Bank fails with a redirect/OAuth error | Register `https://<sub>.<domain>/link.php` under **Developers → API → Allowed redirect URIs** in the Plaid dashboard. |
+| Linked but empty | Data arrives on the first webhook/sync — click **Refresh** or run the cron once. The webhook is sent per `link_token` from `config.php` `webhook_url`; no dashboard webhook config is needed. |
 
 See [services/plaid.md](services/plaid.md).
 

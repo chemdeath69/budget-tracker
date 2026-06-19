@@ -116,6 +116,10 @@ still upload the code and should verify.)
    covers HTTPS within a few minutes — verify under **SSL/HTTPS** (`/ssl`). If HTTPS isn't active
    shortly, issue/enable a Let's Encrypt cert for the subdomain there.
 
+![Creating the subdomain in the control panel](img/hosting-01-subdomain-create.png)
+
+![The new subdomain listed after creation](img/hosting-02-subdomain-created.png)
+
 > **API equivalent** — `POST /api/v1/subdomains/create` with `subdomain=<sub>`, `domain=<domain>`.
 
 ### B.2 Create the MySQL **8** database + user
@@ -133,6 +137,15 @@ still upload the code and should verify.)
      username gives `1045 Access denied`. **Use exactly what the panel displays for each.**
 4. **Add the user to the database** and grant **ALL PRIVILEGES** (or at minimum
    `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES`).
+
+![Creating the database — be sure the MySQL 8 tab/server is selected](img/hosting-03-db-create.png)
+
+![The MySQL 8 database after creation](img/hosting-04-db-mysql8-created.png)
+
+> ⚠️ **MySQL 5 vs 8 trap (real, hit during the reference deployment):** the panel shows **both** a
+> MySQL 5 and a MySQL 8 panel, and it's easy to create the DB on the wrong one — a "created
+> successfully" toast appears either way. If you land on MySQL 5, **delete it and recreate on MySQL
+> 8**, then verify with `GET /api/v1/databases/8` (the `8` selects the MySQL 8 server).
 
 You'll put these into `config.php` later:
 
@@ -162,8 +175,11 @@ You'll put these into `config.php` later:
 
 1. Go to **PHP Settings** (`/php`). PHP version is set **per subdomain** here.
 2. For **`<sub>.<domain>`**, choose **PHP 8.3** with the **FPM** handler (the reference deployment
-   uses "FPM with max OPcache memory"; plain FPM is fine).
+   uses "FPM with max OPcache memory"; plain FPM is fine — only a couple of "max OPcache" slots
+   exist, and **default-OPcache FPM works equally well**).
 3. Save and confirm it persists on reload.
+
+![Setting the subdomain to PHP 8.3 / FPM](img/hosting-05-php.png)
 
 > Confirm the **`sodium`** extension is enabled for 8.3 (it is by default on this host). The app
 > uses libsodium to encrypt Plaid tokens — without it, linking banks fails. Check under PHP

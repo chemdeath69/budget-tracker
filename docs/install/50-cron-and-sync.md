@@ -49,8 +49,18 @@ Two things in that line are **not optional** on this host:
    | Command | *(the full command from step 1)* |
 3. Save.
 
+> **Simplest path:** in the panel's cron dialog leave **Advanced Mode off** and pick the **"Every
+> day"** preset — it produces a once-daily schedule (the host fills in the minute slot, e.g.
+> `13 1 * * *`). You don't need to set an explicit time.
+
+![Scheduling the cron job (basic mode, "Every day")](img/cron-01-schedule-form.png)
+
 > ⚠️ **This host does not allow an arbitrary minute** (e.g. `0`) — it slots cron jobs to specific
 > minutes. The panel UI will only offer the allowed minutes; just pick one.
+
+> **Verify it saved via the API, not just the toast:** `GET /api/v1/crons` lists every cron. (On this
+> host the panel stores crons in its own location, so `crontab -l` over SSH may show **nothing** even
+> though the cron exists — the **API is the authoritative check**.)
 
 > **API equivalent** — `POST /api/v1/crons/create` with
 > `minute=*/60`, `hour=3`, `day=*`, `month=*`, `weekday=*`, and `command=<the full command>`.

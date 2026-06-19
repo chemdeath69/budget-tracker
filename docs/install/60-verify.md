@@ -9,19 +9,34 @@ Final step: sign in, link a real bank, pull data, and smoke-test the app.
 ## 1. Load the site & sign in
 
 1. Open **`https://<sub>.<domain>`** in a browser.
-2. You should see the **login page** with a **Sign in with Google** button (page = `login.php`).
+2. You should see the **login page** with a **Continue with Google** button (page = `login.php`).
    - *Blank page / HTTP 500?* `display_errors` is off in production, so a fatal shows as an empty
      500. Almost always a `config.php` problem (DB creds / MySQL 8 socket) or schema not loaded. See
      [troubleshooting](troubleshooting.md).
-3. Click **Sign in with Google** and choose an account that is in your `allowed_emails`.
+
+   ![The Budget Tracker login page](img/verify-01-login.png)
+
+3. Click **Continue with Google** and choose an account that is in your `allowed_emails`.
+
+   ![Google account chooser](img/verify-02-google-account-chooser.png)
+
+   - In **Testing** mode Google may first warn *"Google hasn't verified this app"* → **Advanced →
+     Continue** (it's your own app). Then grant the **email + profile** consent:
+
+   ![Google consent — grant email + profile](img/verify-03-google-consent.png)
+
    - It redirects to Google, then back to **`/oauth-callback.php`**, then into the dashboard.
    - *"Redirect URI mismatch"* from Google → the redirect URI in the Cloud Console doesn't exactly
      match `https://<sub>.<domain>/oauth-callback.php`. Fix it in
      [services/google-oauth.md](services/google-oauth.md).
    - *Signed out / "not allowed"* → the Google account's email isn't in `allowed_emails`, or it's
-     spelled differently. Fix `config.php` and re-upload.
+     spelled differently (e.g. `gmail.com` vs `googlemail.com`). Fix `config.php` and re-upload.
 
-You should land on the **dashboard** (empty — no accounts yet).
+You should land on the **dashboard** — empty, with a **"No accounts linked yet → Link a bank
+account"** card. That confirms the whole chain works: Google OAuth (redirect URI + test users +
+`allowed_emails`), the DB connection, and the schema.
+
+![Empty dashboard on a fresh, working install](img/verify-04-dashboard-empty.png)
 
 ---
 

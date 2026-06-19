@@ -15,6 +15,11 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 
 ---
 
+> **⚠️ Newer console layout (2025+).** Google has consolidated the old "OAuth consent screen" and
+> "Credentials" pages under **APIs & Services → Google Auth Platform** (`/auth/overview`). The steps
+> below describe that newer flow; older screenshots online may show separate pages, but the fields are
+> the same (project → app info → audience → client). The screenshots here are from a real run.
+
 ## 1. Create a Google Cloud project
 
 1. Go to **<https://console.cloud.google.com/>** and sign in with the Google account that will
@@ -22,31 +27,40 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 2. Top bar → project dropdown → **New Project**. Name it e.g. `budget-tracker`. **Create**, then
    select it.
 
-## 2. Configure the OAuth consent screen
+![New Project form](img/google-01-new-project.png)
 
-1. Left menu → **APIs & Services → OAuth consent screen** (newer consoles: **Branding** under the
-   *Google Auth platform*).
-2. **User type: External** → **Create**.
-3. Fill the required fields:
-   - **App name:** `Budget Tracker` (anything)
-   - **User support email:** your email
-   - **Developer contact email:** your email
-   - Logo/links optional — skip.
-4. **Scopes:** you don't need to add any restricted scopes. The app requests only
-   `openid email profile`, which are the default non-sensitive scopes — no verification needed.
-5. **Test users** (while the app is in "Testing"): **Add** every email that will sign in (your
-   `allowed_emails`). In Testing mode, only listed test users can complete sign-in — which is exactly
-   what you want for a 2-person app, so you can leave it in **Testing** indefinitely.
-   - *(Optional)* If you'd rather, click **Publish app** to move to Production. With only
-     non-sensitive scopes, Google does **not** require app verification. Either Testing-with-test-users
-     or Published works; your `allowed_emails` list is the real gatekeeper.
+## 2. Configure the OAuth consent screen (Google Auth Platform)
+
+1. Left menu → **APIs & Services → Google Auth Platform → Overview** (`/auth/overview`) → **Get
+   started**. This opens a short wizard:
+2. **App Information** — **App name** `Budget Tracker` (anything) + **User support email** (pick your
+   address from the dropdown). **Next.**
+
+   ![App Information step](img/google-02-app-info.png)
+
+3. **Audience** — choose **External** (Internal is only for Google Workspace orgs). **Next.**
+
+   ![Audience → External](img/google-03-audience-external.png)
+
+4. **Contact Information** — your email. **Next.**
+5. **Finish** — tick the **Google API Services: User Data Policy** agreement → **Continue** →
+   **Create.** The app starts in **Testing** mode, which is exactly what you want.
+6. **Scopes/Data Access:** nothing to add. The app requests only `openid email profile` (default
+   non-sensitive scopes) — **no verification needed**.
+7. **Test users** — left menu → **Audience** → **Test users → Add users**: add **every** email that
+   will sign in (your `allowed_emails`). In Testing mode only listed test users can complete sign-in —
+   perfect for a 1–2-person app, so you can leave it in **Testing** indefinitely.
+   - *(Optional)* **Publish app** moves to Production; with only non-sensitive scopes Google does
+     **not** require verification. Either way, your `allowed_emails` list is the real gatekeeper.
+
+   ![Adding test users](img/google-06-test-users.png)
 
 ## 3. Create the OAuth client ID
 
-1. Left menu → **APIs & Services → Credentials**.
-2. **+ Create Credentials → OAuth client ID**.
-3. **Application type: Web application**. Name it `budget-web`.
-4. Under **Authorized redirect URIs**, **+ Add URI**:
+1. Left menu → **Google Auth Platform → Clients** (`/auth/clients`) → **Create client** (older
+   consoles: **APIs & Services → Credentials → + Create Credentials → OAuth client ID**).
+2. **Application type: Web application**. Name it `budget-web`.
+3. Under **Authorized redirect URIs**, **+ Add URI**:
    ```
    https://<sub>.<domain>/oauth-callback.php
    ```
@@ -54,8 +68,21 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
    - *(Optional)* You can also add `http://localhost/...` only if you test locally; for production
      just the one HTTPS URI.
    - You do **not** need to add an "Authorized JavaScript origin".
-5. **Create.** Google shows your **Client ID** (`…apps.googleusercontent.com`) and **Client secret**
-   (`GOCSPX-…`). Copy both.
+
+   ![Creating the Web application client + redirect URI](img/google-04-create-web-client.png)
+
+4. **Create.** Google shows your **Client ID** (`…apps.googleusercontent.com`) and **Client secret**
+   (`GOCSPX-…`).
+
+   ![Client created — copy or Download JSON NOW](img/google-05-client-created.png)
+
+> ### ⚠️ The client secret is shown only ONCE (new-console gotcha)
+> On the current console the **Client secret is displayed in full only at creation** — in the
+> "OAuth client created" dialog, via **Download JSON** (or the copy button). **Copy it immediately.**
+> Afterward the Clients → *(your client)* → **Additional information** panel shows only `••••last4`
+> with *"Viewing and downloading client secrets is no longer available."* If you miss it, open the
+> client → **Additional information** → **Add client secret** to mint a fresh secret (copy it at
+> once), then optionally disable + delete the old one. Put the secret in `config.php` (never commit it).
 
 ## 4. Put them in `config.php`
 
