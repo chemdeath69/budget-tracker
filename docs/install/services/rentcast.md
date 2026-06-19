@@ -17,10 +17,40 @@ shown against your linked mortgage balance, plus property/market detail on the P
 
 ## Get a key
 
-1. Go to **<https://app.rentcast.io/>** → sign up (free tier).
-2. In the dashboard, create / copy your **API key**.
-3. Note the free tier: **50 requests/month**. The app refreshes a home value at most ~monthly, well
-   within that.
+### 1. Create an account
+
+Go to **<https://app.rentcast.io/>** and **Sign up for free** (a Sign In modal opens — use the
+"Sign up for free." link). Sign in afterward.
+
+![RentCast Sign In / Sign up](../img/rentcast-01-signin.png)
+
+### 2. Open the API Dashboard and create a key
+
+In the top nav, open **API Dashboard**. A new account has no keys yet — click **Create API Key**.
+
+![RentCast API Dashboard — no keys yet](../img/rentcast-02-api-dashboard.png)
+
+Give the key a **Name** (e.g. `example-instance`) and click **Create API Key** in the dialog. The full key
+value is shown here — copy it.
+
+![RentCast — New API Key dialog](../img/rentcast-03-new-key.png)
+
+### 3. ⚠️ Activate the free "developer" plan (card required)
+
+The key is created but shows **Inactive** until you choose a billing plan.
+
+![RentCast — key created but Inactive](../img/rentcast-04-api-key-created.png)
+
+Under **API Billing**, click **Select Plan** → choose **developer** (**$0/month**, 50 requests,
+$0.20/request *only* past 50). RentCast still requires a **credit/debit card on file** and accepting
+the terms before it will activate, even though **"Total billed now: $0.00"**.
+
+![RentCast — select the $0/month developer plan](../img/rentcast-05-select-plan.png)
+
+Enter your card, tick the Terms checkbox, and click **Activate Plan**. The key then shows **Active**
+and the plan reads **"API developer - active · $0.00/month"**. Because the app **hard-caps at 50
+calls/month** and refreshes a home value at most ~monthly, you stay on the $0 tier and the
+$0.20/request overage is never reached.
 
 ## Add it to `config.php`
 
@@ -38,6 +68,14 @@ home-value card simply doesn't appear.
 
 Re-upload `config.php`. The nightly cron fetches the valuation ~monthly (and on first run); the
 Property page + dashboard home-equity card populate after that.
+
+## Verify
+
+Run the cron once — the log should show `home value: stored $NNN,NNN — quota 1/50 this month`. Then
+open the **Property** page: the **Home value** estimate, value chart, property details, and local
+market stats populate from RentCast:
+
+![Property page populated from RentCast](../img/rentcast-06-property-verified.png)
 
 ## Notes / safety
 

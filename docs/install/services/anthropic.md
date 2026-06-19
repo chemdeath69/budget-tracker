@@ -20,10 +20,29 @@ leave `api_key` `''` (hides **both** features)
 
 ## Get a key + credits
 
-1. Go to **<https://console.anthropic.com>** and sign up / sign in.
-2. **API Keys** → **Create Key**. Copy it (`sk-ant-…`).
-3. **Billing** → add a payment method and **load credits** (e.g. $5 to start — that lasts a long time
-   for personal use).
+### 1. Sign up for the Claude Console
+
+Go to **<https://console.anthropic.com>** — it now redirects to **platform.claude.com**. Sign up /
+sign in (Continue with Google, or email). ⚠️ This is the **developer API console**, a *separate*
+account from Claude.ai — even if you use Claude.ai, the API console needs its own sign-up + credits.
+
+![Claude Console / platform.claude.com sign-in](../img/anthropic-01-signin.png)
+
+A brand-new account completes a short **onboarding** (your name + accept terms) before the keys page
+unlocks.
+
+### 2. Add credits
+
+Go to **Settings → Billing**, add a **payment method**, and **purchase credits** (e.g. $5 — that lasts
+a long time for personal use; the loaded balance shows as **Credits** in the sidebar).
+
+### 3. Create the API key
+
+Go to **Settings → API keys → Create key**, give it a **Name** (e.g. `example-instance`), and click **Add**.
+The full key (`sk-ant-…`) is shown **once** in a *"Save your API key"* dialog — **copy it now**, you
+can't view it again.
+
+![Create an API key — shown once](../img/anthropic-02-api-key.png)
 
 ## Add it to `config.php`
 
@@ -43,6 +62,13 @@ leave `api_key` `''` (hides **both** features)
 Re-upload `config.php`. The "Import from photo" button appears on the retirement-statement page and
 the **AI assistant** page becomes available. With an empty `api_key`, both are hidden/disabled (the
 assistant endpoint returns 503, the importer is hidden).
+
+## Verify
+
+Open the **Assistant** page and ask a question — it should answer from your data (it's read-only). A
+working reply confirms the key + credits are live:
+
+![Assistant page answering a question](../img/anthropic-03-assistant-verified.png)
 
 ## Notes
 
