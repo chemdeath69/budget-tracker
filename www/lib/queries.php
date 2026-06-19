@@ -311,14 +311,40 @@ function q_stats(array $accounts, float $extraAssets = 0.0): array
     ];
 }
 
-/** Latest estimated home value for the configured address (0 if none). */
+/**
+ * Optional ownership factor applied to the home value wherever it counts toward
+ * NET WORTH — the dashboard / Net-Worth-page net-worth line + composition, and the
+ * dashboard Home-equity card. Defaults to 1.0 (full value) when unset, which is the
+ * normal case. The Property page is deliberately NOT scaled (it always shows the
+ * home's full market value).
+ *
+ * Use case (rare): a co-owned home where only your share should count toward net
+ * worth — e.g. a 50/50 home → set config['home']['value_factor'] = 0.5. Multiplies
+ * the VALUE only; the mortgage balance is left at full (the documented decision).
+ * Clamped to [0,1]; a missing / non-numeric / non-finite value → 1.0 (no scaling),
+ * so a typo can never silently inflate or zero out net worth.
+ */
+function home_value_factor(): float
+{
+    $f = $GLOBALS['CONFIG']['home']['value_factor'] ?? null;
+    if ($f === null || $f === '' || !is_numeric($f)) return 1.0;
+    $f = (float)$f;
+    if (!is_finite($f)) return 1.0;
+    return max(0.0, min(1.0, $f));
+}
+
+/**
+ * Latest estimated home value applicable to NET WORTH for the configured address
+ * (0 if none), already scaled by home_value_factor() so a co-owned home counts only
+ * the owner's share. (The Property page reads q_value_history() for the full value.)
+ */
 function q_home_value(PDO $pdo): float
 {
     $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
     if ($addr === '') return 0.0;
     $st = $pdo->prepare("SELECT value FROM home_values WHERE address = :a ORDER BY as_of DESC, id DESC LIMIT 1");
     $st->execute([':a' => $addr]);
-    return (float)($st->fetchColumn() ?: 0);
+    return (float)($st->fetchColumn() ?: 0) * home_value_factor();
 }
 
 /**
@@ -339,7 +365,11 @@ function nw_home_timeline(PDO $pdo): array
     return ['vals' => $vals, 'pp' => $row['purchase_price'] ?? null, 'pd' => $row['purchase_date'] ?? null];
 }
 
-/** Home value applicable at $date (YYYY-MM-DD) from a preloaded timeline. */
+/**
+ * Home value applicable at $date (YYYY-MM-DD) from a preloaded timeline, scaled by
+ * home_value_factor() so the net-worth history line + composition count only the
+ * owner's share of a co-owned home (default 1.0 = full value).
+ */
 function nw_home_at(array $tl, string $date): float
 {
     $h = 0.0;
@@ -350,7 +380,7 @@ function nw_home_at(array $tl, string $date): float
         if ((string)$v['as_of'] <= $date) $h = (float)$v['value'];
         else break;
     }
-    return $h;
+    return $h * home_value_factor();
 }
 
 /**
@@ -3300,12 +3330,16 @@ function q_home_equity(PDO $pdo, array $accounts): ?array
     if (!$mort) { foreach ($accounts as $a) { if (($a['type'] ?? '') === 'loan') { $mort = $a; break; } } }
     $bal = $mort ? (float)($mort['balance_current'] ?? 0) : null;
 
-    $value = (float)$hv['value'];
+    // Net-worth scope → scale the VALUE by the ownership factor (default 1.0). The
+    // mortgage stays full (the value-only decision), so equity = your share of the
+    // house minus the full loan.
+    $f = home_value_factor();
+    $value = (float)$hv['value'] * $f;
     return [
         'address'          => $addr,
         'value'            => $value,
-        'value_low'        => $hv['value_low']  !== null ? (float)$hv['value_low']  : null,
-        'value_high'       => $hv['value_high'] !== null ? (float)$hv['value_high'] : null,
+        'value_low'        => $hv['value_low']  !== null ? (float)$hv['value_low']  * $f : null,
+        'value_high'       => $hv['value_high'] !== null ? (float)$hv['value_high'] * $f : null,
         'as_of'            => (string)$hv['as_of'],
         'mortgage_name'    => $mort ? ($mort['name'] ?: 'Mortgage') : null,
         'mortgage_balance' => $bal,

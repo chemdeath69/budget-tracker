@@ -131,5 +131,12 @@ return [
     // "Street, City, State, Zip". LEAVE EMPTY to disable the home-value feature.
     'home' => [
         'address' => '',   // e.g. '123 Main St, Springfield, IL, 62704'
+        // OPTIONAL (rarely used) ownership factor for the home's NET-WORTH contribution.
+        // Leave unset/empty for the full value (the normal case). Set to a fraction in
+        // (0,1] when the home is co-owned and only your share should count toward net
+        // worth — e.g. 0.5 for a 50/50 home. Applies ONLY to net worth + the dashboard
+        // Home-equity card; the Property page always shows the full market value. Scales
+        // the VALUE only (the mortgage balance is not scaled). Clamped to [0,1].
+        // 'value_factor' => 0.5,
     ],
 ];
