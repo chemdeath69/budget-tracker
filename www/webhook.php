@@ -20,8 +20,13 @@ $itemId = $body['item_id'] ?? null;
 [$verified, $reason] = verify_plaid_webhook($raw);
 
 $pdo = db();
+// This endpoint is intentionally public (it verifies Plaid's signed JWT below instead of
+// requiring login), and it logs EVERY hit — including unverified ones — before the bail-out.
+// Cap the stored payload so an unauthenticated caller can't write arbitrarily large rows
+// (storage amplification); a genuine Plaid webhook body is well under 16 KB.
+$logPayload = strlen($raw) > 16384 ? substr($raw, 0, 16384) : $raw;
 $pdo->prepare('INSERT INTO webhook_log (webhook_type, webhook_code, item_id, verified, payload) VALUES (?,?,?,?,?)')
-    ->execute([$type, $code, $itemId, $verified ? 1 : 0, $raw]);
+    ->execute([$type, $code, $itemId, $verified ? 1 : 0, $logPayload]);
 
 if (!$verified) {
     error_log('Rejected Plaid webhook: ' . $reason);

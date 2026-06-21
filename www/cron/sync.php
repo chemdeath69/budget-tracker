@@ -92,27 +92,44 @@ try {
 // mortgage-balance-over-time chart (balance_snapshots only stores household totals).
 // 'hidden' accounts stop accruing recorded history while hidden (registered nowhere).
 // Existing rows are left in place — if un-hidden later the chart resumes with a gap.
-$abh = $pdo->prepare(
-    "INSERT INTO account_balance_history (account_id, snapshot_date, balance)
-     SELECT account_id, :d, COALESCE(balance_current, 0) FROM accounts
-     WHERE visibility <> 'hidden'
-     ON DUPLICATE KEY UPDATE balance = VALUES(balance)"
-);
-$abh->execute([':d' => date('Y-m-d')]);
-echo "[" . date('Y-m-d H:i:s T') . "] account balance history: {$abh->rowCount()} row(s)\n";
-sync_run_step($pdo, $runId, 'balance_history', true, "{$abh->rowCount()} row(s)");
+// Wrapped in try/catch per the Session 22 resilience contract — a transient PDOException
+// (deadlock / lock-wait timeout) here must not abort the run before prices/fred/digest/
+// spend-alerts/prune/sync_run_finish below. Self-heals on the next run.
+try {
+    $abh = $pdo->prepare(
+        "INSERT INTO account_balance_history (account_id, snapshot_date, balance)
+         SELECT account_id, :d, COALESCE(balance_current, 0) FROM accounts
+         WHERE visibility <> 'hidden'
+         ON DUPLICATE KEY UPDATE balance = VALUES(balance)"
+    );
+    $abh->execute([':d' => date('Y-m-d')]);
+    echo "[" . date('Y-m-d H:i:s T') . "] account balance history: {$abh->rowCount()} row(s)\n";
+    sync_run_step($pdo, $runId, 'balance_history', true, "{$abh->rowCount()} row(s)");
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] account balance history: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'balance_history', false, 'FAILED — ' . $e->getMessage());
+}
 
 // Refresh security prices (daily close per held ticker). No-op without a key.
 // Only here in the daily cron — NOT in lib/sync.php — so webhook-triggered syncs
 // don't burn Twelve Data credits on every fire.
-$pr = prices_refresh_latest($pdo);
-$prMsg = $pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
-                   . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
-                   : "skipped ({$pr['error']})";
-echo "[" . date('Y-m-d H:i:s T') . "] prices: {$prMsg}\n";
-// Informational step: a no-key skip or a single bad-ticker error isn't banner-worthy
-// (captured in the message for visibility) — only a thrown exception marks a step failed.
-sync_run_step($pdo, $runId, 'prices', true, $prMsg);
+// In a try/catch per the Session 22 resilience contract — prices_refresh_latest() maps
+// per-ticker HTTP errors into its returned 'errors' array, but the DB I/O underneath
+// (tracked-securities read + the upsert loop) can throw an uncaught PDOException that would
+// otherwise abort the run before fred/digest/spend-alerts/prune/sync_run_finish.
+try {
+    $pr = prices_refresh_latest($pdo);
+    $prMsg = $pr['ok'] ? "{$pr['updated']} close(s) across {$pr['symbols']} symbol(s)"
+                       . (empty($pr['errors']) ? '' : '; errors: ' . implode(', ', array_keys($pr['errors'])))
+                       : "skipped ({$pr['error']})";
+    echo "[" . date('Y-m-d H:i:s T') . "] prices: {$prMsg}\n";
+    // Informational step: a no-key skip or a single bad-ticker error isn't banner-worthy
+    // (captured in the message for visibility) — only a thrown exception marks a step failed.
+    sync_run_step($pdo, $runId, 'prices', true, $prMsg);
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] prices: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'prices', false, 'FAILED — ' . $e->getMessage());
+}
 
 // Refresh per-security dividend data (Polygon.io free feed → security_dividends).
 // Staleness-gated (≤weekly per security) so the nightly cost stays near zero and the
@@ -135,34 +152,43 @@ try {
 // in lib/home_value.php so an overage charge can never occur. No-op without a key.
 // The address now comes from the UI-managed home_config row (migration 031); a
 // removed (sold) home is skipped so we don't keep paying RentCast for a sold house.
-$hc       = home_config($pdo);
-$homeAddr = $hc['removed_now'] ? '' : $hc['address'];
-if ($homeAddr !== '') {
-    $hv = home_value_refresh_if_stale($pdo, $homeAddr);
-    $u  = hv_usage($pdo);
-    $msg = $hv['ok']
-        ? (isset($hv['skipped']) ? "fresh as of {$hv['as_of']}" : "stored \$" . number_format((float)$hv['value']))
-        : "skipped ({$hv['error']})";
-    $hvMsg = "$msg — quota {$u['used']}/{$u['cap']} this month";
-    echo "[" . date('Y-m-d H:i:s T') . "] home value: {$hvMsg}\n";
+// In a try/catch per the Session 22 resilience contract — RentCast transport errors are soft-handled
+// by the lib, but the DB ops underneath (hv_reserve_slot / *_store INSERTs, home_config read) can throw
+// an uncaught PDOException that would otherwise abort the run before fred/digest/spend-alerts/
+// prune/sync_run_finish below.
+try {
+    $hc       = home_config($pdo);
+    $homeAddr = $hc['removed_now'] ? '' : $hc['address'];
+    if ($homeAddr !== '') {
+        $hv = home_value_refresh_if_stale($pdo, $homeAddr);
+        $u  = hv_usage($pdo);
+        $msg = $hv['ok']
+            ? (isset($hv['skipped']) ? "fresh as of {$hv['as_of']}" : "stored \$" . number_format((float)$hv['value']))
+            : "skipped ({$hv['error']})";
+        $hvMsg = "$msg — quota {$u['used']}/{$u['cap']} this month";
+        echo "[" . date('Y-m-d H:i:s T') . "] home value: {$hvMsg}\n";
 
-    // Property record (~quarterly) + zip market data (~monthly). Same capped path.
-    $prc = property_record_refresh_if_stale($pdo, $homeAddr);
-    $prcMsg = $prc['ok'] ? ($prc['skipped'] ?? 'stored') : "skipped ({$prc['error']})";
-    echo "[" . date('Y-m-d H:i:s T') . "] property record: {$prcMsg}\n";
+        // Property record (~quarterly) + zip market data (~monthly). Same capped path.
+        $prc = property_record_refresh_if_stale($pdo, $homeAddr);
+        $prcMsg = $prc['ok'] ? ($prc['skipped'] ?? 'stored') : "skipped ({$prc['error']})";
+        echo "[" . date('Y-m-d H:i:s T') . "] property record: {$prcMsg}\n";
 
-    $zip = hv_zip_from_address($homeAddr);
-    $mk  = market_refresh_if_stale($pdo, $zip);
-    $u   = hv_usage($pdo);
-    $mkMsg = ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
-           . " — quota {$u['used']}/{$u['cap']} this month";
-    echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): {$mkMsg}\n";
+        $zip = hv_zip_from_address($homeAddr);
+        $mk  = market_refresh_if_stale($pdo, $zip);
+        $u   = hv_usage($pdo);
+        $mkMsg = ($mk['ok'] ? ($mk['skipped'] ?? 'stored') : "skipped ({$mk['error']})")
+               . " — quota {$u['used']}/{$u['cap']} this month";
+        echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): {$mkMsg}\n";
 
-    sync_run_step($pdo, $runId, 'home_value', true, "value: {$hvMsg}; property: {$prcMsg}; market ($zip): {$mkMsg}");
-} else {
-    $skip = $hc['address'] === '' ? 'no home configured' : 'home removed';
-    echo "[" . date('Y-m-d H:i:s T') . "] home value: skipped ({$skip})\n";
-    sync_run_step($pdo, $runId, 'home_value', true, "skipped ({$skip})");
+        sync_run_step($pdo, $runId, 'home_value', true, "value: {$hvMsg}; property: {$prcMsg}; market ($zip): {$mkMsg}");
+    } else {
+        $skip = $hc['address'] === '' ? 'no home configured' : 'home removed';
+        echo "[" . date('Y-m-d H:i:s T') . "] home value: skipped ({$skip})\n";
+        sync_run_step($pdo, $runId, 'home_value', true, "skipped ({$skip})");
+    }
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] home value: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'home_value', false, 'FAILED — ' . $e->getMessage());
 }
 
 // FRED economic series (TODO #17) — refresh CPI / 30-yr mortgage rate / Treasury +
