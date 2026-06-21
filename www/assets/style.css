@@ -1100,6 +1100,11 @@ a.row:hover, .acct-card:hover, .action-card:hover { background: var(--surface-2)
 .veh-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0 2px; }
 .veh-section-note { font-size: .85rem; margin: 0; }
 
+/* Home value & property setup (home_settings.php, migration 031) */
+.home-hint { font-size: .8rem; margin: -6px 0 2px; }
+.radio-row { flex-direction: row; align-items: flex-start; gap: 10px; font-weight: 400; font-size: .9rem; cursor: pointer; }
+.radio-row input[type="radio"] { margin-top: 3px; accent-color: var(--brand); flex: 0 0 auto; }
+
 .upload-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .file-input { padding: 9px; cursor: pointer; }
 .file-input::file-selector-button { font: inherit; font-weight: 600; margin-right: 10px;

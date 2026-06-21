@@ -253,6 +253,30 @@ CREATE TABLE api_usage (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- home_config — single household-shared row (id=1) for the UI-managed home setup
+-- (Settings → Home value). Replaces the hardcoded config['home'] keys: address +
+-- value_factor (co-ownership fraction (0,1] scaling the net-worth contribution),
+-- an optional hand-entered manual_value (works without a RentCast key, written as a
+-- source='manual' home_values row), an optional purchase basis, and removed_on (set
+-- when the home is removed but net-worth history is KEPT to that date — the "erase"
+-- removal clears the row instead). NOT VIS-scoped. Read via home_config() (queries.php,
+-- defensive → config fallback). See migration 031_home_config.php.
+-- ---------------------------------------------------------------------------
+CREATE TABLE home_config (
+  id                TINYINT UNSIGNED NOT NULL,
+  address           VARCHAR(255)  NULL,
+  value_factor      DECIMAL(5,4)  NULL,
+  manual_value      DECIMAL(15,2) NULL,
+  manual_value_date DATE          NULL,
+  purchase_price    DECIMAL(15,2) NULL,
+  purchase_date     DATE          NULL,
+  removed_on        DATE          NULL,
+  updated_by        INT           NULL,
+  updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- home_values — one row per AVM valuation run (RentCast), keyed by address, so
 -- the dashboard can show home value (+ low/high range) vs. the mortgage balance
 -- and a value-over-time history. See migration 004_home_values.php.

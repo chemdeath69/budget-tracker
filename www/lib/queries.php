@@ -312,6 +312,62 @@ function q_stats(array $accounts, float $extraAssets = 0.0): array
 }
 
 /**
+ * The single household home-config row (migration 031) — the UI-managed home setup
+ * (Settings → Home value). Static-cached per request (this is read inside loops over
+ * net-worth dates, so it must be cheap). Returns address / value_factor / manual_value
+ * (+date) / purchase_price (+date) / removed_on.
+ *
+ * DEFENSIVE: if the table is missing (pre-migration) or the row is absent, it falls
+ * back to the legacy config['home'] keys for address/value_factor, so a deploy can't
+ * 500 between code + migration. After migration the DB row is authoritative and the
+ * config block is just the migration seed / fallback.
+ *
+ * `removed_on` set = the home was removed (sold) with history KEPT to that date: the
+ * address stays so net-worth HISTORY still reads home_values, but every CURRENT read
+ * (q_home_value / q_home_equity / property page) treats the home as gone. The "erase"
+ * removal clears the row entirely instead, so address='' = no home anywhere.
+ */
+function home_config(PDO $pdo): array
+{
+    static $cache = null;
+    if ($cache !== null) return $cache;
+
+    $cfg = $GLOBALS['CONFIG']['home'] ?? [];
+    $fallback = [
+        'address'           => trim((string)($cfg['address'] ?? '')),
+        'value_factor'      => $cfg['value_factor'] ?? null,
+        'manual_value'      => null,
+        'manual_value_date' => null,
+        'purchase_price'    => null,
+        'purchase_date'     => null,
+        'removed_on'        => null,
+        'removed_now'       => false,   // removed AND the removal date has arrived
+    ];
+    try {
+        $row = $pdo->query("SELECT * FROM home_config WHERE id = 1")->fetch();
+        if ($row) {
+            $rem = $row['removed_on'];
+            return $cache = [
+                'address'           => trim((string)($row['address'] ?? '')),
+                'value_factor'      => $row['value_factor'],
+                'manual_value'      => $row['manual_value'],
+                'manual_value_date' => $row['manual_value_date'],
+                'purchase_price'    => $row['purchase_price'],
+                'purchase_date'     => $row['purchase_date'],
+                'removed_on'        => $rem,
+                // CURRENT reads gate on removed_now (a future-dated removal still
+                // counts until the date arrives); the net-worth HISTORY uses the
+                // per-date cutoff in nw_home_at() instead.
+                'removed_now'       => ($rem !== null && (string)$rem <= date('Y-m-d')),
+            ];
+        }
+    } catch (Throwable $e) {
+        // table missing (pre-migration 031) → fall back to config below
+    }
+    return $cache = $fallback;
+}
+
+/**
  * Optional ownership factor applied to the home value wherever it counts toward
  * NET WORTH — the dashboard / Net-Worth-page net-worth line + composition, and the
  * dashboard Home-equity card. Defaults to 1.0 (full value) when unset, which is the
@@ -319,14 +375,14 @@ function q_stats(array $accounts, float $extraAssets = 0.0): array
  * home's full market value).
  *
  * Use case (rare): a co-owned home where only your share should count toward net
- * worth — e.g. a 50/50 home → set config['home']['value_factor'] = 0.5. Multiplies
- * the VALUE only; the mortgage balance is left at full (the documented decision).
- * Clamped to [0,1]; a missing / non-numeric / non-finite value → 1.0 (no scaling),
- * so a typo can never silently inflate or zero out net worth.
+ * worth — e.g. a 50/50 home → set the ownership share to 50% (value_factor 0.5) in
+ * Settings → Home value. Multiplies the VALUE only; the mortgage balance is left at
+ * full (the documented decision). Clamped to [0,1]; a missing / non-numeric /
+ * non-finite value → 1.0 (no scaling), so a typo can never inflate or zero net worth.
  */
 function home_value_factor(): float
 {
-    $f = $GLOBALS['CONFIG']['home']['value_factor'] ?? null;
+    $f = home_config(db())['value_factor'] ?? null;
     if ($f === null || $f === '' || !is_numeric($f)) return 1.0;
     $f = (float)$f;
     if (!is_finite($f)) return 1.0;
@@ -340,8 +396,10 @@ function home_value_factor(): float
  */
 function q_home_value(PDO $pdo): float
 {
-    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
-    if ($addr === '') return 0.0;
+    $hc = home_config($pdo);
+    $addr = $hc['address'];
+    // No address, or removed (sold) → the home no longer has a CURRENT value.
+    if ($addr === '' || $hc['removed_now']) return 0.0;
     $st = $pdo->prepare("SELECT value FROM home_values WHERE address = :a ORDER BY as_of DESC, id DESC LIMIT 1");
     $st->execute([':a' => $addr]);
     return (float)($st->fetchColumn() ?: 0) * home_value_factor();
@@ -354,15 +412,24 @@ function q_home_value(PDO $pdo): float
  */
 function nw_home_timeline(PDO $pdo): array
 {
-    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
-    if ($addr === '') return ['vals' => [], 'pp' => null, 'pd' => null];
+    $hc = home_config($pdo);
+    $addr = $hc['address'];
+    if ($addr === '') return ['vals' => [], 'pp' => null, 'pd' => null, 'removed' => null];
     $st = $pdo->prepare("SELECT as_of, value FROM home_values WHERE address = :a ORDER BY as_of ASC");
     $st->execute([':a' => $addr]);
     $vals = $st->fetchAll();
-    $pf = $pdo->prepare("SELECT purchase_price, purchase_date FROM property_facts WHERE address = :a");
-    $pf->execute([':a' => $addr]);
-    $row = $pf->fetch() ?: [];
-    return ['vals' => $vals, 'pp' => $row['purchase_price'] ?? null, 'pd' => $row['purchase_date'] ?? null];
+    // Purchase price/date anchor (covers dates before any valuation): prefer the
+    // owner-entered manual basis (home_config), else the RentCast property record.
+    $pp = $hc['purchase_price'] ?? null;
+    $pd = $hc['purchase_date'] ?? null;
+    if ($pp === null || $pd === null) {
+        $pf = $pdo->prepare("SELECT purchase_price, purchase_date FROM property_facts WHERE address = :a");
+        $pf->execute([':a' => $addr]);
+        $row = $pf->fetch() ?: [];
+        if ($pp === null) $pp = $row['purchase_price'] ?? null;
+        if ($pd === null) $pd = $row['purchase_date'] ?? null;
+    }
+    return ['vals' => $vals, 'pp' => $pp, 'pd' => $pd, 'removed' => $hc['removed_on']];
 }
 
 /**
@@ -372,6 +439,10 @@ function nw_home_timeline(PDO $pdo): array
  */
 function nw_home_at(array $tl, string $date): float
 {
+    // Removed (sold) with history kept: the home counts for dates BEFORE the removal
+    // date and drops to 0 from the removal date onward — so the net-worth line/
+    // composition on the removal day matches q_home_value()'s "removed → 0" current read.
+    if (!empty($tl['removed']) && $date >= (string)$tl['removed']) return 0.0;
     $h = 0.0;
     // Baseline: purchase price once we owned it (covers dates before any valuation).
     if ($tl['pp'] !== null && $tl['pd'] && (string)$tl['pd'] <= $date) $h = (float)$tl['pp'];
@@ -3314,8 +3385,10 @@ function q_manual_statement_status(PDO $pdo, int $uid, bool $overdueOnly = false
  */
 function q_home_equity(PDO $pdo, array $accounts): ?array
 {
-    $addr = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
-    if ($addr === '') return null;
+    $hc = home_config($pdo);
+    $addr = $hc['address'];
+    // No address, or removed (sold) → no current home-equity card.
+    if ($addr === '' || $hc['removed_now']) return null;
 
     $st = $pdo->prepare(
         'SELECT value, value_low, value_high, as_of

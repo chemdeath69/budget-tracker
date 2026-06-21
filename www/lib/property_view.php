@@ -56,11 +56,15 @@ function pv_year(?string $d): ?int
 
 function build_property_view(PDO $pdo, int $uid): ?array
 {
-    $address = trim((string)($GLOBALS['CONFIG']['home']['address'] ?? ''));
+    $hc      = home_config($pdo);
+    // A removed (sold) home has no CURRENT value/property data on this page; its
+    // net-worth HISTORY is retained separately via nw_home_at()'s removal cutoff.
+    $active  = $hc['address'] !== '' && !$hc['removed_now'];
+    $address = $active ? $hc['address'] : '';
     $mort    = q_mortgage($pdo, $uid);
     $valRows = $address !== '' ? q_value_history($pdo, $address) : [];
     $facts   = $address !== '' ? q_property_facts($pdo, $address) : null;
-    $zip     = function_exists('hv_zip_from_address') ? hv_zip_from_address($address) : '';
+    $zip     = ($address !== '' && function_exists('hv_zip_from_address')) ? hv_zip_from_address($address) : '';
     $market  = $zip !== '' ? q_market_stats($pdo, $zip) : null;
 
     $latestVal = $valRows ? (float)end($valRows)['value'] : null;
@@ -165,8 +169,8 @@ function build_property_view(PDO $pdo, int $uid): ?array
         $derived['equity']     = $bal !== null ? round($latestVal - $bal, 2) : null;
         $derived['equity_pct'] = $bal !== null && $latestVal > 0 ? ($latestVal - $bal) / $latestVal : null;
         $derived['ltv']        = $bal !== null && $latestVal > 0 ? $bal / $latestVal : null;
-        $pp = $facts['purchase_price'] ?? null;
-        $pd = $facts['purchase_date'] ?? null;
+        $pp = $facts['purchase_price'] ?? $hc['purchase_price'] ?? null;
+        $pd = $facts['purchase_date'] ?? $hc['purchase_date'] ?? null;
         if ($pp) {
             $derived['appreciation']     = round($latestVal - (float)$pp, 2);
             $derived['appreciation_pct'] = (float)$pp > 0 ? ($latestVal - (float)$pp) / (float)$pp : null;

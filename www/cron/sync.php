@@ -19,6 +19,7 @@ if (PHP_SAPI !== 'cli') {
 
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
+require_once __DIR__ . '/../lib/queries.php';   // home_config() (the UI-managed home address)
 require __DIR__ . '/../lib/sync.php';
 require __DIR__ . '/../lib/prices.php';
 require __DIR__ . '/../lib/dividends.php';
@@ -131,9 +132,11 @@ try {
 }
 
 // Refresh the home value (RentCast AVM) at most ~monthly. Hard-capped at 50 req/mo
-// in lib/home_value.php so an overage charge can never occur. No-op without a key
-// or a configured 'home.address'.
-$homeAddr = trim((string)($CONFIG['home']['address'] ?? ''));
+// in lib/home_value.php so an overage charge can never occur. No-op without a key.
+// The address now comes from the UI-managed home_config row (migration 031); a
+// removed (sold) home is skipped so we don't keep paying RentCast for a sold house.
+$hc       = home_config($pdo);
+$homeAddr = $hc['removed_now'] ? '' : $hc['address'];
 if ($homeAddr !== '') {
     $hv = home_value_refresh_if_stale($pdo, $homeAddr);
     $u  = hv_usage($pdo);
@@ -156,6 +159,10 @@ if ($homeAddr !== '') {
     echo "[" . date('Y-m-d H:i:s T') . "] market ($zip): {$mkMsg}\n";
 
     sync_run_step($pdo, $runId, 'home_value', true, "value: {$hvMsg}; property: {$prcMsg}; market ($zip): {$mkMsg}");
+} else {
+    $skip = $hc['address'] === '' ? 'no home configured' : 'home removed';
+    echo "[" . date('Y-m-d H:i:s T') . "] home value: skipped ({$skip})\n";
+    sync_run_step($pdo, $runId, 'home_value', true, "skipped ({$skip})");
 }
 
 // FRED economic series (TODO #17) — refresh CPI / 30-yr mortgage rate / Treasury +

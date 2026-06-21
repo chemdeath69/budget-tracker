@@ -18,6 +18,10 @@ $itemAcctCount = [];
 foreach ($owned as $a) { $itemAcctCount[$a['item_id']] = ($itemAcctCount[$a['item_id']] ?? 0) + 1; }
 $alerts = q_alert_settings($pdo);   // household-shared notification prefs (TODO #14)
 $theme  = user_prefs_theme(q_user_prefs($pdo, $uid));  // per-user Light/Dark/Auto (Phase 2)
+$home   = home_config($pdo);        // UI-managed home/property setup (migration 031)
+$homeStatus = $home['removed_on'] !== null
+    ? 'Removed ' . (string)$home['removed_on']
+    : ($home['address'] !== '' ? (string)$home['address'] : 'Not set — add your home to track its value');
 
 render_header('Settings', 'settings', ['narrow' => true]);
 ?>
@@ -57,6 +61,19 @@ render_header('Settings', 'settings', ['narrow' => true]);
         <span class="acct-main">
             <span class="acct-name">Customize home</span>
             <span class="acct-sub muted">Choose which cards show on your dashboard, their size &amp; order</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
+</section>
+
+<!-- Home value & property (migration 031 — UI-managed home address + ownership %) -->
+<section class="block">
+    <div class="block-head"><h2>Home value &amp; property</h2></div>
+    <a class="card action-card" href="/home_settings.php">
+        <span class="acct-icon"><?= nav_icon('house') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Home value &amp; property</span>
+            <span class="acct-sub muted"><?= e($homeStatus) ?></span>
         </span>
         <span class="chev" aria-hidden="true">›</span>
     </a>

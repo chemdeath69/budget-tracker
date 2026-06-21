@@ -126,17 +126,19 @@ return [
         'assistant_model' => '',   // optional override for the chat assistant; empty = use `model` above
     ],
 
-    // The property to value with RentCast (refreshed ~monthly by cron/sync.php) and
-    // show against the linked mortgage balance on the dashboard. Use the format
-    // "Street, City, State, Zip". LEAVE EMPTY to disable the home-value feature.
+    // The home/property to value with RentCast (refreshed ~monthly by cron/sync.php)
+    // and show against the linked mortgage balance. ⚠️ As of migration 031 the home is
+    // **UI-managed** — set the address + ownership % in Settings → Home value (stored in
+    // the `home_config` DB row), where you can also add/edit/remove it. This config block
+    // is now only a FALLBACK / first-run SEED: migration 031 copies these values into the
+    // DB row once, and home_config() (queries.php) falls back to them only if the table is
+    // missing. Editing them after migration has no effect — change the home in the UI.
+    // 'address' format "Street, City, State, Zip". LEAVE EMPTY to start with no home.
     'home' => [
-        'address' => '',   // e.g. '123 Main St, Springfield, IL, 62704'
-        // OPTIONAL (rarely used) ownership factor for the home's NET-WORTH contribution.
-        // Leave unset/empty for the full value (the normal case). Set to a fraction in
-        // (0,1] when the home is co-owned and only your share should count toward net
-        // worth — e.g. 0.5 for a 50/50 home. Applies ONLY to net worth + the dashboard
-        // Home-equity card; the Property page always shows the full market value. Scales
-        // the VALUE only (the mortgage balance is not scaled). Clamped to [0,1].
+        'address' => '',   // seed only — e.g. '123 Main St, Springfield, IL, 62704'
+        // OPTIONAL seed for the ownership factor (the Settings UI's "ownership share %"):
+        // a fraction in (0,1]; 0.5 = a 50/50 co-owned home (only your share counts toward
+        // net worth). Leave unset for the full value (the normal case). Clamped to [0,1].
         // 'value_factor' => 0.5,
     ],
 ];
