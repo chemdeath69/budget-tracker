@@ -612,15 +612,17 @@ function initRefresh() {
   });
 }
 
-/* ---- Unlink (remove) a Plaid bank — destructive, owner-only -------------- */
+/* ---- Remove an account source (Plaid bank or manual account) — destructive, owner-only -- */
 function initUnlink() {
   $$('[data-unlink]').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
-      const inst = btn.dataset.institution || 'this bank';
+      const kind = btn.dataset.kind || 'plaid';
+      const inst = btn.dataset.institution || (kind === 'manual' ? 'this account' : 'this bank');
       const n = parseInt(btn.dataset.accounts || '0', 10);
       const acctText = n > 0 ? `${n} account${n === 1 ? '' : 's'}` : 'its accounts';
-      const msg = `Remove ${inst}?\n\nThis permanently deletes ${acctText} and ALL their transactions, holdings and history, and revokes access at Plaid. This cannot be undone.`;
+      const tail = kind === 'plaid' ? ', and revokes access at Plaid' : '';
+      const msg = `Remove ${inst}?\n\nThis permanently deletes ${acctText} and ALL their transactions, holdings and history${tail}. This cannot be undone.`;
       if (!confirm(msg)) return;
       const label = btn.textContent;
       btn.disabled = true;
@@ -632,7 +634,7 @@ function initUnlink() {
       } else {
         btn.disabled = false;
         btn.textContent = label;
-        toast((out && out.error) || 'Could not remove the bank.');
+        toast((out && out.error) || 'Could not remove the account.');
       }
     });
   });

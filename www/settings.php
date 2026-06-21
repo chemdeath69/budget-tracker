@@ -119,11 +119,17 @@ render_header('Settings', 'settings', ['narrow' => true]);
                 </select>
                 <?php if (($a['source'] ?? 'plaid') === 'manual'): ?>
                     <a class="btn-ghost sm" href="/account.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Update</a>
+                    <?php if ((int)$a['owner_id'] === (int)$uid): ?>
+                    <button type="button" class="btn-ghost sm danger" data-unlink data-kind="manual"
+                            data-item="<?= e($a['item_id']) ?>"
+                            data-institution="<?= e($a['name'] ?: ($a['institution_name'] ?: 'this account')) ?>"
+                            data-accounts="<?= (int)($itemAcctCount[$a['item_id']] ?? 1) ?>">Remove</button>
+                    <?php endif; ?>
                 <?php else: ?>
                     <button type="button" class="btn-ghost sm" data-refresh data-item="<?= e($a['item_id']) ?>">Refresh</button>
                     <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
                     <?php if ((int)$a['owner_id'] === (int)$uid): ?>
-                    <button type="button" class="btn-ghost sm danger" data-unlink
+                    <button type="button" class="btn-ghost sm danger" data-unlink data-kind="plaid"
                             data-item="<?= e($a['item_id']) ?>"
                             data-institution="<?= e($a['institution_name'] ?: 'this bank') ?>"
                             data-accounts="<?= (int)($itemAcctCount[$a['item_id']] ?? 1) ?>">Remove</button>

@@ -1,14 +1,16 @@
 <?php
 /**
- * Unlink (remove) a Plaid bank — owner-only, DESTRUCTIVE.
+ * Remove an account source — owner-only, DESTRUCTIVE. Works for BOTH a Plaid bank
+ * AND a manual account / vehicle / 401(k) (every `source='manual'` item).
  *
  * Body (JSON): { "item_id": string }
  *
  * Steps:
- *   1. Revoke the Item at Plaid (/item/remove) so it stops syncing + billing.
- *      The benign "already gone" codes are treated as success; any other Plaid /
- *      transport failure ABORTS (we keep our row so the user can retry, rather than
- *      orphan a still-active Plaid item we can no longer see).
+ *   1. (Plaid only) Revoke the Item at Plaid (/item/remove) so it stops syncing +
+ *      billing. The benign "already gone" codes are treated as success; any other
+ *      Plaid / transport failure ABORTS (we keep our row so the user can retry, rather
+ *      than orphan a still-active Plaid item we can no longer see). A manual item has
+ *      no token, so this step is skipped.
  *   2. Permanently DELETE the Item, its accounts, and ALL their child rows.
  *      There are NO ON DELETE cascades on the items→accounts→children chain, so the
  *      deletes are issued explicitly, child-first, inside one transaction. (The side
@@ -16,9 +18,9 @@
  *      transactions, so deleting transactions clears them.)
  *   3. Rewrite the household net-worth snapshot so the removal shows immediately.
  *
- * Owner-only (mirrors rename/visibility/cadence): only the user who linked the Item
- * may remove it. Plaid items only — a manual account has no token to revoke and is
- * managed by re-uploading documents.
+ * Owner-only (mirrors rename/visibility/cadence): only the user who linked/created the
+ * Item may remove it. (settings.php only lists the viewer's own items, so the button is
+ * never shown for someone else's account, but the server enforces it regardless.)
  */
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
@@ -63,49 +65,57 @@ $st = $pdo->prepare(
 );
 $st->execute([$itemId]);
 $item = $st->fetch();
-if (!$item) { http_response_code(404); echo json_encode(['error' => 'bank not found']); exit; }
+if (!$item) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
 if ((int)$item['user_id'] !== $uid) {
     http_response_code(403);
-    echo json_encode(['error' => 'only the owner can remove this bank']);
+    echo json_encode(['error' => 'only the owner can remove this account']);
     exit;
 }
-if (($item['source'] ?? 'plaid') !== 'plaid') {
-    http_response_code(400);
-    echo json_encode(['error' => 'manual accounts are not removed here']);
-    exit;
-}
-$institution = (string)($item['institution_name'] ?: 'this bank');
+$institution = (string)($item['institution_name'] ?: 'this account');
+$isPlaid     = (($item['source'] ?? 'plaid') === 'plaid');
 
-// 1) Revoke at Plaid. Benign "already gone" codes are fine; anything else aborts so
-//    we never delete our copy while the token is still live + billing at Plaid.
-$token = $item['access_token_enc'] !== null ? decrypt_secret($item['access_token_enc']) : null;
-if ($token) {
-    try {
-        plaid_item_remove($token);
-    } catch (PlaidException $e) {
-        $code = $e->plaidCode ?? '';
-        if (!in_array($code, ['ITEM_NOT_FOUND', 'INVALID_ACCESS_TOKEN'], true)) {
-            error_log('unlink: plaid /item/remove failed for ' . $itemId . ' — ' . $e->getMessage());
+// The accounts this Item owns (drives the per-account deletes + the response label).
+// For a manual account the account's own (possibly renamed) name is the friendliest
+// label — e.g. "F-150" / "Webull Brokerage"; for a Plaid bank the institution is.
+$ac = $pdo->prepare(
+    "SELECT account_id, COALESCE(NULLIF(display_name, ''), name) AS name
+     FROM accounts WHERE item_id = ?"
+);
+$ac->execute([$itemId]);
+$accountRows = $ac->fetchAll(PDO::FETCH_ASSOC);
+$accountIds  = array_column($accountRows, 'account_id');
+$label = $isPlaid
+    ? $institution
+    : (($accountRows[0]['name'] ?? '') !== '' ? (string)$accountRows[0]['name'] : $institution);
+
+// 1) Revoke at Plaid (Plaid items only — a manual account has no token to revoke).
+//    Benign "already gone" codes are fine; anything else aborts so we never delete our
+//    copy while the token is still live + billing at Plaid.
+if ($isPlaid) {
+    $token = $item['access_token_enc'] !== null ? decrypt_secret($item['access_token_enc']) : null;
+    if ($token) {
+        try {
+            plaid_item_remove($token);
+        } catch (PlaidException $e) {
+            $code = $e->plaidCode ?? '';
+            if (!in_array($code, ['ITEM_NOT_FOUND', 'INVALID_ACCESS_TOKEN'], true)) {
+                error_log('unlink: plaid /item/remove failed for ' . $itemId . ' — ' . $e->getMessage());
+                http_response_code(502);
+                echo json_encode(['error' => 'Could not revoke access at Plaid — please try again in a moment.']);
+                exit;
+            }
+            // else: already gone at Plaid → proceed with the local delete.
+        } catch (Throwable $e) {
+            error_log('unlink: plaid /item/remove transport error for ' . $itemId . ' — ' . $e->getMessage());
             http_response_code(502);
-            echo json_encode(['error' => 'Could not revoke access at Plaid — please try again in a moment.']);
+            echo json_encode(['error' => 'Could not reach Plaid — please try again in a moment.']);
             exit;
         }
-        // else: already gone at Plaid → proceed with the local delete.
-    } catch (Throwable $e) {
-        error_log('unlink: plaid /item/remove transport error for ' . $itemId . ' — ' . $e->getMessage());
-        http_response_code(502);
-        echo json_encode(['error' => 'Could not reach Plaid — please try again in a moment.']);
-        exit;
     }
 }
 
 // 2) Local purge — child-first, in one transaction.
 try {
-    // The accounts this Item owns (drives the per-account deletes).
-    $ac = $pdo->prepare('SELECT account_id FROM accounts WHERE item_id = ?');
-    $ac->execute([$itemId]);
-    $accountIds = $ac->fetchAll(PDO::FETCH_COLUMN);
-
     $pdo->beginTransaction();
 
     if ($accountIds) {
@@ -156,6 +166,6 @@ try {
 
 echo json_encode([
     'ok'       => true,
-    'removed'  => $institution,
+    'removed'  => $label,
     'accounts' => count($accountIds),
 ]);
