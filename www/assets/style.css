@@ -1349,6 +1349,26 @@ a.row:hover, .acct-card:hover, .action-card:hover { background: var(--surface-2)
 }
 
 /* ==========================================================================
+   Users & access (admin allowlist, migration 032) + Factory reset (danger zone)
+   ========================================================================== */
+.user-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.user-add .input { flex: 1 1 12rem; min-width: 0; }     /* 2-class beats .input{width:100%} */
+.user-add .select { flex: 0 0 auto; }
+.user-oauth-note { margin: 12px 0 0; font-size: .85rem; line-height: 1.5; }
+.user-row.is-disabled .row-title,
+.user-row.is-disabled .row-sub { opacity: .6; }
+.user-row .manage-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.fr-card { border: 1px solid var(--neg); }
+.fr-lead { margin: 0 0 14px; line-height: 1.55; }
+.fr-label { display: block; font-size: .9rem; margin-bottom: 6px; }
+.fr-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fr-row .fr-input { flex: 1 1 12rem; min-width: 0; }    /* 2-class beats .input{width:100%} */
+.fr-btn { flex: 0 0 auto; background: var(--neg); color: #fff; border-color: var(--neg); }
+.fr-btn:hover { filter: brightness(1.05); }
+.fr-btn:disabled { opacity: .6; cursor: default; }
+
+/* ==========================================================================
    Desktop / wide screens (>= 1024px) — persistent sidebar + roomier content.
    Below this width the mobile-first single-column design is left untouched.
    ========================================================================== */

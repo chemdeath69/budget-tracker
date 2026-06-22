@@ -7,13 +7,22 @@ SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
 -- ---------------------------------------------------------------------------
--- users — the 2 allowlisted Google accounts
+-- users — the DB-backed access allowlist (migration 032). A status='active' row
+-- IS the allowlist entry: that email may sign in. role='admin' may manage users +
+-- run Factory Reset. A pre-authorized person who has never logged in is a row with
+-- a NULL google_sub (pending). lib/auth.php layers two safety nets on top: BOOTSTRAP
+-- (first login when the table is empty → admin) and BREAK-GLASS (config['allowed_emails']
+-- are always allowed + always admin). Managed at Settings → Users & access (users.php /
+-- api/users.php). role/status/added_by added by migration 032.
 -- ---------------------------------------------------------------------------
 CREATE TABLE users (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   email         VARCHAR(255) NOT NULL,
   name          VARCHAR(255) NULL,
-  google_sub    VARCHAR(255) NULL,                 -- Google subject id from id_token
+  role          ENUM('admin','member') NOT NULL DEFAULT 'member',   -- migration 032
+  status        ENUM('active','disabled') NOT NULL DEFAULT 'active', -- 'disabled' = access revoked, data kept (migration 032)
+  added_by      INT UNSIGNED NULL,                 -- who invited this user (NULL = bootstrap/self/config seed) (migration 032)
+  google_sub    VARCHAR(255) NULL,                 -- Google subject id from id_token; NULL = pending (never signed in)
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_login_at DATETIME NULL,
   PRIMARY KEY (id),

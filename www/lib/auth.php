@@ -34,6 +34,119 @@ function require_login(): void
     }
 }
 
+/**
+ * The signed-in user's role ('admin' | 'member'), or null if not logged in.
+ * Set at login from access_decision(). Defensively backfilled for a session that
+ * predates roles (logged in before migration 032) — config break-glass emails are
+ * always admin, else the stored users.role, else 'member'.
+ */
+function current_user_role(): ?string
+{
+    if (!is_logged_in()) {
+        return null;
+    }
+    if (isset($_SESSION['role'])) {
+        return $_SESSION['role'];
+    }
+    $email = strtolower((string)current_user_email());
+    $role  = 'member';
+    try {
+        global $CONFIG;
+        $allow = array_map('strtolower', array_map('trim', (array)($CONFIG['allowed_emails'] ?? [])));
+        if (in_array($email, $allow, true)) {
+            $role = 'admin';                       // break-glass — always admin
+        } else {
+            $st = db()->prepare('SELECT role FROM users WHERE email = :e');
+            $st->execute([':e' => $email]);
+            $stored = $st->fetchColumn();
+            if ($stored !== false) {
+                $role = ($stored === 'admin') ? 'admin' : 'member';
+            }
+        }
+    } catch (Throwable $e) {
+        // Pre-migration DB / transient — default to the least privilege.
+    }
+    $_SESSION['role'] = $role;
+    return $role;
+}
+
+function is_admin(): bool
+{
+    return current_user_role() === 'admin';
+}
+
+/** Page guard: must be a logged-in admin, else bounce to Settings with a flash. */
+function require_admin(): void
+{
+    require_login();
+    if (!is_admin()) {
+        flash_set('error', 'That page is for administrators only.');
+        header('Location: /settings.php');
+        exit;
+    }
+}
+
+/**
+ * The config['allowed_emails'] break-glass set (lowercased). These accounts are
+ * always allowed + always admin and are PROTECTED from demote/disable/delete in the
+ * Users UI (a UI change wouldn't stick — they re-promote on next login).
+ */
+function config_break_glass_emails(): array
+{
+    global $CONFIG;
+    return array_values(array_unique(array_map(
+        'strtolower',
+        array_map('trim', (array)($CONFIG['allowed_emails'] ?? []))
+    )));
+}
+
+/** True on a brand-new install — the allowlist (users table) is empty. */
+function is_fresh_install(PDO $pdo): bool
+{
+    try {
+        return (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0;
+    } catch (Throwable $e) {
+        return false;   // pre-migration / transient — never claim "fresh"
+    }
+}
+
+/**
+ * Decide whether $email may sign in and at what role. Two safety layers sit on top
+ * of the DB allowlist (users.status='active'):
+ *   - BREAK-GLASS: config['allowed_emails'] are always allowed + always admin (so an
+ *     admin can never be locked out via the UI). force_admin makes the stored row match.
+ *   - BOOTSTRAP: if the users table is empty, the first login is allowed + admin.
+ * Returns ['allow'=>bool, 'role'=>?string, 'force_admin'=>bool, 'reason'=>?string].
+ */
+function access_decision(PDO $pdo, string $email): array
+{
+    global $CONFIG;
+    $email = strtolower(trim($email));
+    $allow = array_map('strtolower', array_map('trim', (array)($CONFIG['allowed_emails'] ?? [])));
+
+    if (in_array($email, $allow, true)) {
+        return ['allow' => true, 'role' => 'admin', 'force_admin' => true, 'reason' => 'break_glass'];
+    }
+
+    $st = $pdo->prepare('SELECT role, status FROM users WHERE email = :e');
+    $st->execute([':e' => $email]);
+    $row = $st->fetch();
+
+    if ($row) {
+        if (($row['status'] ?? 'active') === 'disabled') {
+            return ['allow' => false, 'role' => null, 'force_admin' => false, 'reason' => 'disabled'];
+        }
+        $role = ($row['role'] ?? 'member') === 'admin' ? 'admin' : 'member';
+        return ['allow' => true, 'role' => $role, 'force_admin' => false, 'reason' => null];
+    }
+
+    if (is_fresh_install($pdo)) {
+        return ['allow' => true, 'role' => 'admin', 'force_admin' => true, 'reason' => 'bootstrap'];
+    }
+
+    return ['allow' => false, 'role' => null, 'force_admin' => false, 'reason' => 'not_allowed'];
+}
+
 /** Build the Google consent-screen URL and remember an anti-CSRF state + nonce. */
 function google_auth_url(): string
 {
@@ -147,23 +260,37 @@ function google_handle_callback(): ?string
         return 'Your Google email is not verified.';
     }
 
-    $allow = array_map('strtolower', $CONFIG['allowed_emails']);
-    if (!in_array($email, $allow, true)) {
-        error_log('Rejected login attempt from: ' . $email);
-        access_log_record(db(), null, 'login', 'rejected', $email);   // audit (best-effort)
-        return 'This account is not authorised to use this site.';
-    }
-
-    // Upsert the user and load their id.
+    // DB-backed allowlist + bootstrap (first login → admin) + config break-glass.
     $pdo = db();
+    $decision = access_decision($pdo, $email);
+    if (!$decision['allow']) {
+        error_log('Rejected login attempt from: ' . $email . ' (' . ($decision['reason'] ?? '') . ')');
+        access_log_record($pdo, null, 'login', 'rejected', $email);   // audit (best-effort)
+        return ($decision['reason'] ?? '') === 'disabled'
+            ? 'Your access to this site has been disabled. Contact an administrator.'
+            : 'This account is not authorised to use this site.';
+    }
+    $role      = $decision['role'] ?? 'member';
+    $bootstrap = ($decision['reason'] ?? '') === 'bootstrap';
+
+    // Upsert the user and load their id. On CREATE the role/status come from the
+    // decision; an existing row KEEPS its stored role/status (login never downgrades).
     $stmt = $pdo->prepare(
-        'INSERT INTO users (email, name, google_sub, last_login_at)
-         VALUES (:email, :name, :sub, NOW())
+        'INSERT INTO users (email, name, role, status, google_sub, last_login_at)
+         VALUES (:email, :name, :role, \'active\', :sub, NOW())
          ON DUPLICATE KEY UPDATE name = VALUES(name),
                                  google_sub = VALUES(google_sub),
                                  last_login_at = NOW()'
     );
-    $stmt->execute([':email' => $email, ':name' => $name, ':sub' => $sub]);
+    $stmt->execute([':email' => $email, ':name' => $name, ':role' => $role, ':sub' => $sub]);
+
+    // Break-glass / bootstrap: ensure the stored row is admin + active (so the Users
+    // page reflects it and a config-listed admin can never be locked out).
+    if (!empty($decision['force_admin'])) {
+        $pdo->prepare("UPDATE users SET role = 'admin', status = 'active' WHERE email = :e")
+            ->execute([':e' => $email]);
+        $role = 'admin';
+    }
 
     $uid = (int)$pdo->query('SELECT id FROM users WHERE email = ' . $pdo->quote($email))->fetchColumn();
 
@@ -172,7 +299,11 @@ function google_handle_callback(): ?string
     $_SESSION['user_id']    = $uid;
     $_SESSION['user_email'] = $email;
     $_SESSION['name']       = $name;
+    $_SESSION['role']       = $role;
     $_SESSION['picture']    = $picture; // Google profile photo URL (may be empty)
+    if ($bootstrap) {
+        $_SESSION['needs_setup'] = true;  // first-run → oauth-callback redirects to /setup.php
+    }
 
     access_log_record($pdo, $uid, 'login', null, $email);   // audit (best-effort)
     return null;

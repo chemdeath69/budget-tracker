@@ -3057,6 +3057,29 @@ function household_users(): array
     return $cache;
 }
 
+/**
+ * Full user/allowlist roster for the admin Users page (migration 032). NOT VIS-scoped
+ * — this is account administration, not financial data; gated by require_admin() at the
+ * page/endpoint. Returns each user with role/status, last-login, whether they've ever
+ * signed in (google_sub set), and how many feed Items they own (so the UI can note
+ * "data is kept" on disable). Defensive → [] before migration 032.
+ */
+function q_users(PDO $pdo): array
+{
+    try {
+        return $pdo->query(
+            "SELECT u.id, u.email, u.name, u.role, u.status, u.added_by,
+                    u.created_at, u.last_login_at,
+                    (u.google_sub IS NOT NULL) AS has_logged_in,
+                    (SELECT COUNT(*) FROM items i WHERE i.user_id = u.id) AS item_count
+             FROM users u
+             ORDER BY (u.role = 'admin') DESC, u.email"
+        )->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
 /** Owner's first name — a subtle "whose account is this" marker ('' if unknown). */
 function owner_first_name($ownerId): string
 {

@@ -640,6 +640,76 @@ function initUnlink() {
   });
 }
 
+/* ---- Users & access (admin) — invite / enable-disable / promote-demote --- */
+function initUsers() {
+  const addForm = $('#user-add');
+  if (addForm) {
+    addForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = ($('#user-add-email').value || '').trim();
+      const role  = $('#user-add-role').value;
+      if (!email) return;
+      const out = await postJSON('/api/users.php', { action: 'add', email, role });
+      if (out && out.ok) { if (out.note) toast(out.note); setTimeout(() => location.reload(), 700); }
+      else toast((out && out.error) || 'Could not add the user.');
+    });
+  }
+  $$('.role-select[data-uid]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const out = await postJSON('/api/users.php', { action: 'set_role', id: Number(sel.dataset.uid), role: sel.value });
+      if (out && out.ok) location.reload();
+      else { toast((out && out.error) || 'Could not change the role.'); location.reload(); }
+    });
+  });
+  $$('[data-user-status]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const status = btn.dataset.userStatus;
+      if (status === 'disabled' &&
+          !confirm("Remove this person's access?\n\nThey can no longer sign in, but their accounts, transactions and history are kept. You can re-enable them any time.")) return;
+      const out = await postJSON('/api/users.php', { action: 'set_status', id: Number(btn.dataset.uid), status });
+      if (out && out.ok) { if (out.note) toast(out.note); setTimeout(() => location.reload(), 500); }
+      else toast((out && out.error) || 'Could not update access.');
+    });
+  });
+  $$('[data-user-delete]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Delete the pending invite for ${btn.dataset.email}? (They have never signed in and own no accounts.)`)) return;
+      const out = await postJSON('/api/users.php', { action: 'delete', id: Number(btn.dataset.uid) });
+      if (out && out.ok) { if (out.note) toast(out.note); setTimeout(() => location.reload(), 500); }
+      else toast((out && out.error) || 'Could not delete.');
+    });
+  });
+}
+
+/* ---- Factory reset (admin, danger zone) ---------------------------------- */
+function initFactoryReset() {
+  const form = $('#factory-reset-form');
+  if (!form) return;
+  const input = $('#fr-confirm'), btn = $('#fr-btn');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const phrase = (input.value || '').trim();
+    if (phrase !== 'FACTORY RESET') { toast('Type FACTORY RESET exactly to confirm.'); input.focus(); return; }
+    if (!confirm('FACTORY RESET\n\nThis permanently deletes ALL financial data and unlinks every bank. Your login, roles and audit logs are kept. This cannot be undone.\n\nContinue?')) return;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Resetting…';
+    let out = await postJSON('/api/factory_reset.php', { confirm: phrase });
+    if (out && out.need_force) {
+      const names = (out.failed || []).join(', ');
+      if (confirm(`These banks could not be revoked at Plaid:\n${names}\n\nReset everything locally anyway? (Remove those banks in your Plaid dashboard to stop billing.)`)) {
+        out = await postJSON('/api/factory_reset.php', { confirm: phrase, force: true });
+      } else { btn.disabled = false; btn.textContent = label; return; }
+    }
+    if (out && out.ok) {
+      toast('Factory reset complete — starting fresh.');
+      setTimeout(() => { location.href = '/setup.php'; }, 1000);
+    } else {
+      btn.disabled = false; btn.textContent = label;
+      toast((out && out.error) || 'Reset failed.');
+    }
+  });
+}
+
 /* ---- Budgets ------------------------------------------------------------- */
 function initBudgets() {
   const btn = $('#add-budget-btn'), form = $('#add-budget-form');
@@ -1484,6 +1554,8 @@ initRename();
 initStatementCadence();
 initRefresh();
 initUnlink();
+initUsers();
+initFactoryReset();
 initBudgets();
 initGoals();
 initAlertSettings();

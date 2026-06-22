@@ -8,6 +8,11 @@ if (is_logged_in()) {
     exit;
 }
 $error = $_GET['error'] ?? '';
+
+// Fresh install (no users yet) → a "become the administrator" welcome. The first
+// successful Google sign-in is auto-allowed + made admin (see lib/auth.php bootstrap).
+$fresh = false;
+try { $fresh = is_fresh_install(db()); } catch (Throwable $e) { /* pre-migration/transient */ }
 ?>
 <!doctype html>
 <html lang="en">
@@ -19,9 +24,14 @@ $error = $_GET['error'] ?? '';
 </head>
 <body class="login-page">
     <main class="login-card">
-        <p class="login-kicker">Private finance</p>
+        <p class="login-kicker"><?= $fresh ? 'First-time setup' : 'Private finance' ?></p>
         <h1>Budget Tracker</h1>
-        <p class="muted">Sign in with your Google account to continue.</p>
+        <?php if ($fresh): ?>
+            <p class="muted">Welcome. Sign in with Google to <strong>become the administrator</strong> —
+                the first account to sign in sets up this install and can invite others afterward.</p>
+        <?php else: ?>
+            <p class="muted">Sign in with your Google account to continue.</p>
+        <?php endif; ?>
         <?php if ($error): ?>
             <p class="error"><?= e($error) ?></p>
         <?php endif; ?>
@@ -34,7 +44,9 @@ $error = $_GET['error'] ?? '';
             </svg>
             <span>Continue with Google</span>
         </a>
-        <p class="login-foot">Two-person household · your data stays private.</p>
+        <p class="login-foot"><?= $fresh
+            ? 'Only people you invite will be able to sign in.'
+            : 'Your data stays private.' ?></p>
     </main>
 </body>
 </html>

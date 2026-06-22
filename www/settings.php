@@ -8,6 +8,7 @@ require_login();
 
 $pdo  = db();
 $uid  = current_user_id();
+$admin = is_admin();          // admin-only sections: Users & access, Danger zone (migration 032)
 // q_owned_accounts() (not q_accounts) so the owner can see + un-hide their HIDDEN
 // accounts here — settings is the only surface that shows them (they're invisible
 // everywhere else in the app, including their own account.php drill-down).
@@ -231,6 +232,33 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
     </div>
 </section>
 
+<?php if ($admin): ?>
+<!-- Users & access (admin-only — DB-backed allowlist + roles, migration 032) -->
+<section class="block">
+    <div class="block-head"><h2>Users &amp; access</h2><span class="muted">Admin</span></div>
+    <a class="card action-card" href="/users.php">
+        <span class="acct-icon"><?= nav_icon('peers') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Manage users</span>
+            <span class="acct-sub muted">Invite or remove people who can sign in, and set who's an admin</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
+</section>
+<?php endif; ?>
+
+<section class="block">
+    <div class="block-head"><h2>Getting started</h2></div>
+    <a class="card action-card" href="/setup.php">
+        <span class="acct-icon"><?= nav_icon('home') ?></span>
+        <span class="acct-main">
+            <span class="acct-name">Setup checklist</span>
+            <span class="acct-sub muted">Invite people, link a bank, add accounts &amp; your home</span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+    </a>
+</section>
+
 <section class="block">
     <div class="block-head"><h2>Activity &amp; diagnostics</h2></div>
     <a class="card action-card" href="/activity.php">
@@ -242,6 +270,25 @@ $thrVal = rtrim(rtrim(number_format((float)$alerts['large_tx_threshold'], 2, '.'
         <span class="chev" aria-hidden="true">›</span>
     </a>
 </section>
+
+<?php if ($admin): ?>
+<!-- Danger zone (admin-only) — Factory reset -->
+<section class="block">
+    <div class="block-head"><h2>Danger zone</h2><span class="muted">Admin</span></div>
+    <div class="card fr-card">
+        <p class="fr-lead"><strong>Factory reset</strong> unlinks every bank and permanently deletes all
+            financial data — accounts, transactions, holdings, budgets, goals, rules, the home setup, everything.
+            Your sign-in accounts &amp; roles, audit logs, and personal display preferences are kept. This cannot be undone.</p>
+        <form id="factory-reset-form" class="fr-form" autocomplete="off">
+            <label class="fr-label" for="fr-confirm">Type <strong>FACTORY RESET</strong> to confirm</label>
+            <div class="fr-row">
+                <input type="text" id="fr-confirm" class="input fr-input" placeholder="FACTORY RESET" aria-label="Type FACTORY RESET to confirm">
+                <button type="submit" id="fr-btn" class="btn fr-btn">Factory reset</button>
+            </div>
+        </form>
+    </div>
+</section>
+<?php endif; ?>
 
 <section class="block">
     <a class="card action-card danger" href="/logout.php">

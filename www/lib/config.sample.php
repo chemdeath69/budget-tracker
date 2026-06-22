@@ -34,7 +34,13 @@ return [
         'days_requested' => 730,
     ],
 
-    // Only these Google accounts may sign in. Everyone else is rejected.
+    // BREAK-GLASS admin allowlist (migration 032). The live allowlist now lives in the
+    // DB `users` table, managed at Settings → Users & access. These emails are a SAFETY
+    // NET: they are ALWAYS allowed to sign in and are ALWAYS admin (so you can't lock
+    // yourself out via the UI), and migration 032 seeds them as admin/active on first run.
+    // On a brand-new install you can also leave this EMPTY — the very first Google login
+    // is auto-allowed and made the administrator (bootstrap), then invite everyone else
+    // from Settings → Users. Keep at least your own email here as the recovery account.
     'allowed_emails' => [
         'you@example.com',
         'partner@example.com',
