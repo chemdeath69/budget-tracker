@@ -20,7 +20,7 @@ it created.
 > **Placeholders used throughout.** Replace these with *your* values:
 > | Placeholder | Meaning | Where to find it |
 > |---|---|---|
-> | `<server>` | your server id, e.g. `s446` | your welcome email / the panel URL |
+> | `<server>` | your server id, e.g. `s123` | your welcome email / the panel URL |
 > | `<cpuser>` | your control-panel username | welcome email / panel header |
 > | `<domain>` | your registered domain, e.g. `yourdomain.com` | your registrar |
 > | `<sub>` | the subdomain label you want, e.g. `budget` | you choose |

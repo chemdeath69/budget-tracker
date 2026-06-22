@@ -126,7 +126,7 @@ banner() {
 }
 
 connect() {
-  ask SERVER "Your server id (e.g. s446, from your welcome email / panel URL)"
+  ask SERVER "Your server id (e.g. s123, from your welcome email / panel URL)"
   [ -n "${SERVER:-}" ] || die "server id is required"
   ask_secret API_KEY "Control Panel API key (Account Profile -> generate)"
   [ -n "${API_KEY:-}" ] || die "API key is required"
