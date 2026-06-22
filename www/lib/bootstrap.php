@@ -115,3 +115,18 @@ function csrf_check_request(): bool
     return csrf_verify($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null)
         || csrf_verify($_POST['csrf'] ?? null);
 }
+
+/**
+ * The app's public base URL (scheme + host), e.g. "https://budget.example.com".
+ * Derived from the configured Google redirect URI so links in emails/digests
+ * always match your real deployment without a separate config key.
+ */
+function app_base_url(): string
+{
+    global $CONFIG;
+    $ru = (string)($CONFIG['google']['redirect_uri'] ?? '');
+    if (preg_match('~^(https?://[^/]+)~', $ru, $m)) {
+        return $m[1];
+    }
+    return 'https://budget.example.com';
+}

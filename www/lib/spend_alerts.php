@@ -125,7 +125,7 @@ function render_spend_alerts_text(array $fresh): string
         }
         $L[] = '';
     }
-    $L[] = 'https://budget.example.com';
+    $L[] = app_base_url();
     return implode("\n", $L) . "\n";
 }
 

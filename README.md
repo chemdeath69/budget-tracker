@@ -61,7 +61,7 @@ Start at **[`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md)**.
 | `www/cron/sync.php` | Nightly sync job (run via a cron entry) |
 | `docs/INSTRUCTIONS.md` + `docs/install/` | **The installation guide** and its subpages |
 | `tools/install.sh` | The guided installer (POSIX shell + curl) |
-| `deploy.sh` | One-command rsync deploy used by the reference deployment |
+| `deploy.sh.example` | Template one-command rsync deploy — copy to `deploy.sh` and fill in your host/key/db (your real `deploy.sh` is git-ignored) |
 
 > The database schema is documented in [`docs/schema.sql`](docs/schema.sql); the application code
 > under `www/` is the source of truth for behavior.

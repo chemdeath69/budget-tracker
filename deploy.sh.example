@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# Deploy budget-tracker to budget.cpuser.com over SSH.
+# Usage:
+#   ./deploy.sh          # sync code (excludes secrets)
+#   ./deploy.sh config   # upload lib/config.php (secrets) only
+#   ./deploy.sh schema   # pipe www/lib/schema.sql into the MySQL 8 database
+#
+# - rsync does NOT use --delete, so panel files (php.ini, cgi-bin, missing.html) survive.
+# - EXCLUDES lib/config.php so live secrets are never overwritten by a normal deploy.
+set -euo pipefail
+
+HOST="cpuser@your-server.example.com"
+PORT=22
+KEY="$HOME/.ssh/your_deploy_key"
+SRC="$(cd "$(dirname "$0")/www" && pwd)/"
+DEST="~/www/budget/"
+SSH="ssh -i $KEY -p $PORT -o StrictHostKeyChecking=accept-new"
+
+# MySQL 8 connection (socket) — see docs/install/30-config-and-secrets.md
+DB_USER="budget"
+DB_NAME="cpuser_budget"
+MYSQL8="mysql --socket=/tmp/mysql8.sock"
+
+if [[ "${1:-}" == "config" ]]; then
+    echo "Uploading lib/config.php (secrets) ..."
+    scp -i "$KEY" -P "$PORT" "${SRC}lib/config.php" "$HOST:~/www/budget/lib/config.php"
+    echo "Done."
+    exit 0
+fi
+
+if [[ "${1:-}" == "schema" ]]; then
+    echo "Applying schema to $DB_NAME on MySQL 8 (via PDO; the mysql CLI is 5.6 and"
+    echo "cannot auth to MySQL 8) ..."
+    # Run a PHP runner on the server that connects via PDO (config.php) and
+    # executes the deployed schema.sql statement-by-statement.
+    RUNNER='<?php
+$c = require "/home/cpuser/www/budget/lib/config.php";
+$d = $c["db"];
+$pdo = new PDO("mysql:unix_socket={$d["socket"]};dbname={$d["name"]};charset=utf8mb4", $d["user"], $d["pass"], [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$sql = file_get_contents("/home/cpuser/www/budget/lib/schema.sql");
+$sql = preg_replace("!/\*.*?\*/!s", "", $sql);
+$clean = "";
+foreach (preg_split("/\n/", $sql) as $l) { $clean .= preg_replace("/--.*$/", "", $l) . "\n"; }
+$n = 0;
+foreach (array_filter(array_map("trim", explode(";", $clean))) as $stmt) { if ($stmt === "") continue; $pdo->exec($stmt); $n++; }
+$tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+echo "Executed $n statements. Tables: " . implode(", ", $tables) . "\n";
+'
+    echo "$RUNNER" | base64 | $SSH "$HOST" 'base64 -d | /usr/local/bin/php83.cli 2>&1 | grep -v -i ioncube'
+    echo "Schema step done."
+    exit 0
+fi
+
+echo "Deploying code to $HOST:$DEST ..."
+rsync -avz --human-readable --omit-dir-times --no-perms \
+    -e "$SSH" \
+    --exclude '.git' \
+    --exclude '.DS_Store' \
+    --exclude '.playwright-mcp' \
+    --exclude 'lib/config.php' \
+    "$SRC" "$HOST:$DEST"
+
+echo
+echo "Deploy complete. Site: https://budget.cpuser.com"

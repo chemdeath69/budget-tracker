@@ -66,7 +66,7 @@ function build_digest_view(PDO $pdo): array
         'top_cats'    => $top,
         'bills'       => $bills,
         'week_label'  => $start->format('M j') . '–' . $end->format('M j'),
-        'app_url'     => 'https://budget.example.com',
+        'app_url'     => app_base_url(),
     ];
 }
 
