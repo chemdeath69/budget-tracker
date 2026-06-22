@@ -98,7 +98,8 @@ Do these **top to bottom**. Each links to a detailed subpage.
 | 5 | [`install/30-config-and-secrets.md`](install/30-config-and-secrets.md) | Create `config.php`, generate encryption keys, fill in your service keys |
 | 6 | [`install/40-database-schema.md`](install/40-database-schema.md) | Load the database schema (48 tables) |
 | 7 | [`install/50-cron-and-sync.md`](install/50-cron-and-sync.md) | Schedule the nightly sync + run it once |
-| 8 | [`install/60-verify.md`](install/60-verify.md) | Sign in, link a bank, smoke-test every page |
+| 8 | [`install/60-verify.md`](install/60-verify.md) | Sign in (you become the admin), link a bank, smoke-test every page |
+| 9 | [`install/70-users-and-admin.md`](install/70-users-and-admin.md) | Invite your household, set roles, learn Factory Reset |
 
 > **Why services first?** Your Google redirect URL and Plaid webhook URL both contain your final
 > domain (`https://budget.yourdomain.com/oauth-callback.php`). It's fine to register them before the
@@ -132,8 +133,13 @@ Each service that appears in `config.php` has its own walkthrough. Open only the
 <a name="after-install"></a>
 ## 5. After install
 
-- **Add the second user.** Add their email to `allowed_emails` in `config.php` and re-upload it; they
-  can then sign in and link their own banks.
+- **You're the admin.** On a fresh install the **first** Google account to sign in is automatically
+  made the administrator — no config needed. See
+  [`install/70-users-and-admin.md`](install/70-users-and-admin.md).
+- **Add the second user — in the app, not the file.** Go to **Settings → Users & access → Invite**
+  and enter their Google email; they can then sign in and link their own banks. (If your Google
+  consent screen is in **Testing** mode, also add their email as a Google **Test user** — see
+  [70 · Users & admin §4](install/70-users-and-admin.md#4-the-google-sign-in-caveat-important).)
 - **Back up your `encryption_key`.** Losing it means re-linking every bank.
 - **Renew your domain** before it expires, or sign-in URLs break.
 - **Upgrades later:** a fresh install loads the complete `schema.sql`. If you later pull new code that

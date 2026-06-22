@@ -16,7 +16,10 @@ Final step: sign in, link a real bank, pull data, and smoke-test the app.
 
    ![The Budget Tracker login page](img/verify-01-login.png)
 
-3. Click **Continue with Google** and choose an account that is in your `allowed_emails`.
+3. Click **Continue with Google**. On a **fresh install** the login page says *"become the
+   administrator"* — the **first** account to sign in is auto-allowed and made admin (you invite
+   everyone else afterward, see [§5](#5-add-the-second-user)). Choose the account that should own
+   the app.
 
    ![Google account chooser](img/verify-02-google-account-chooser.png)
 
@@ -29,12 +32,14 @@ Final step: sign in, link a real bank, pull data, and smoke-test the app.
    - *"Redirect URI mismatch"* from Google → the redirect URI in the Cloud Console doesn't exactly
      match `https://<sub>.<domain>/oauth-callback.php`. Fix it in
      [services/google-oauth.md](services/google-oauth.md).
-   - *Signed out / "not allowed"* → the Google account's email isn't in `allowed_emails`, or it's
-     spelled differently (e.g. `gmail.com` vs `googlemail.com`). Fix `config.php` and re-upload.
+   - *Signed out / "not authorised"* → on a **fresh** install this shouldn't happen (the first
+     login is auto-admitted); if it does, the database isn't actually empty. On an **existing**
+     install it means an admin hasn't invited that email yet (Settings → Users & access), or it's
+     spelled differently (e.g. `gmail.com` vs `googlemail.com`).
 
 You should land on the **dashboard** — empty, with a **"No accounts linked yet → Link a bank
 account"** card. That confirms the whole chain works: Google OAuth (redirect URI + test users +
-`allowed_emails`), the DB connection, and the schema.
+the first-login bootstrap), the DB connection, and the schema.
 
 ![Empty dashboard on a fresh, working install](img/verify-04-dashboard-empty.png)
 
@@ -97,10 +102,19 @@ in `config.php`, re-upload, and re-run the cron.
 
 ## 5. Add the second user
 
-1. Add their Google email to `allowed_emails` in `config.php`, re-upload it.
-2. Have them open `https://<sub>.<domain>` and sign in with Google.
-3. They can link their **own** banks; account **visibility** (shared / private / hidden) is set per
+The first account that signed in (you) is automatically the **administrator**. Add others **from
+inside the app** — no file editing:
+
+1. Go to **Settings → Users & access → Invite**, enter their **Google email**, pick Member or Admin.
+2. If your Google consent screen is in **Testing** mode, also add their email as a Google **Test
+   user** (Cloud Console → OAuth consent screen). Otherwise they're blocked by Google before they
+   reach the app. See [70 · Users & admin §4](70-users-and-admin.md#4-the-google-sign-in-caveat-important).
+3. Have them open `https://<sub>.<domain>` and sign in with Google.
+4. They can link their **own** banks; account **visibility** (shared / private / hidden) is set per
    account in Settings, so each person controls what the other sees.
+
+> Full details on roles, removing access (keeps their data), and **Factory Reset** are in
+> [`70-users-and-admin.md`](70-users-and-admin.md).
 
 ---
 

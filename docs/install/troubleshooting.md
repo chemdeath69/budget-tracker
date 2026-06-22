@@ -80,7 +80,7 @@ hasn't fired yet, not that it failed.)
 | Symptom | Fix |
 |---|---|
 | `redirect_uri_mismatch` | The Cloud Console redirect URI must equal `config.php` `redirect_uri` **exactly** (`https`, host, `/oauth-callback.php`, no trailing slash). |
-| Signs in then bounced out | The Google email isn't in `allowed_emails`, or differs (`googlemail.com` vs `gmail.com`). |
+| Signs in then bounced out ("not authorised") | On a fresh install the first login is auto-admitted (and becomes admin) — if rejected, the DB isn't empty. Otherwise an admin must **invite** the email in **Settings → Users & access**, or it differs (`googlemail.com` vs `gmail.com`). Your break-glass `allowed_emails` always works. See [70 · Users & admin](70-users-and-admin.md). |
 | "App not verified" warning | Expected in **Testing** mode → **Advanced → Continue** (it's your own app). The app uses only `openid email profile`, so no verification is required. |
 | **Lost the client secret** | The new console shows it **only once at creation** (Download JSON / copy). Afterward it's `••••last4`. Open the client → **Additional information → Add client secret**, copy the new one, update `config.php`. |
 | Console looks different than the docs | Newer console nests consent + clients under **APIs & Services → Google Auth Platform** (`/auth/overview`). Same fields, new wrapper. |

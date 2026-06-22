@@ -2,9 +2,12 @@
 
 [← Back to the Installation Guide](../../INSTRUCTIONS.md) · [Service index](../../INSTRUCTIONS.md#third-party-services)
 
-The app has **no passwords** — everyone signs in with Google, and only the emails in your
-`allowed_emails` list are admitted. You need a **Google Cloud OAuth 2.0 Web client** (its client ID +
-secret). No paid Google API is enabled; sign-in identity comes from the OpenID `id_token`.
+The app has **no passwords** — everyone signs in with Google. On a fresh install the **first**
+account to sign in becomes the administrator; after that, only people an admin **invites in the app**
+(Settings → Users & access) are admitted, with your `config.php` `allowed_emails` as a break-glass
+override (see [70 · Users & admin](../70-users-and-admin.md)). You need a **Google Cloud OAuth 2.0
+Web client** (its client ID + secret). No paid Google API is enabled; sign-in identity comes from
+the OpenID `id_token`.
 
 **config keys this fills:** `google.client_id`, `google.client_secret`, `google.redirect_uri`
 
@@ -48,11 +51,15 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 6. **Scopes/Data Access:** nothing to add. The app requests only `openid email profile` (default
    non-sensitive scopes) — **no verification needed**.
 7. **Test users** — left menu → **Audience** → **Test users → Add users**: add **every** email that
-   will sign in (your `allowed_emails`). In Testing mode only listed test users can complete sign-in —
-   fine for a small household app (Google's Testing mode allows up to 100 test users), so you can leave
-   it in **Testing** indefinitely.
+   will sign in. In Testing mode only listed test users can complete Google sign-in — fine for a
+   small household app (Google's Testing mode allows up to 100 test users), so you can leave it in
+   **Testing** indefinitely. ⚠️ **Whenever you invite a new person in the app, also add their email
+   here** (or publish to Production once, below) — otherwise Google blocks them before they reach the
+   app. See [`70-users-and-admin.md` §4](../70-users-and-admin.md#4-the-google-sign-in-caveat-important).
    - *(Optional)* **Publish app** moves to Production; with only non-sensitive scopes Google does
-     **not** require verification. Either way, your `allowed_emails` list is the real gatekeeper.
+     **not** require verification, and then you don't need to add each email as a test user. Either
+     way, the app's own user list (Settings → Users & access) is the real gatekeeper — Google just
+     controls who can *reach* the sign-in.
 
    ![Adding test users](../img/google-06-test-users.png)
 
@@ -104,8 +111,9 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 ],
 ```
 
-…and make sure each sign-in email is in `allowed_emails` (see
-[30 · Config](../30-config-and-secrets.md)).
+…and put **your own** email in `allowed_emails` as the break-glass admin (see
+[30 · Config](../30-config-and-secrets.md)). Everyone else you **invite in the app** after first
+sign-in — [70 · Users & admin](../70-users-and-admin.md).
 
 ---
 
@@ -113,8 +121,9 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 
 - The app sends you to `accounts.google.com/o/oauth2/v2/auth` with scope `openid email profile`.
 - Google redirects back to `oauth-callback.php?code=…`; the app exchanges the code at
-  `oauth2.googleapis.com/token`, reads your email from the `id_token`, and checks it against
-  `allowed_emails`. No People API or other Google API is called.
+  `oauth2.googleapis.com/token`, reads your email from the `id_token`, and checks it against the
+  in-app user list (with the first-login bootstrap + `allowed_emails` break-glass on top). No People
+  API or other Google API is called.
 
 ## Troubleshooting
 
@@ -122,7 +131,7 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
 |---|---|
 | **Error 400: redirect_uri_mismatch** | The console URI ≠ `config.php` `redirect_uri`. Make them byte-identical (no trailing slash, `https`, exact host). |
 | **"Access blocked: app not verified"** | You're Published with sensitive scopes — you shouldn't be. Ensure only `openid email profile`. Or stay in **Testing** and add test users. |
-| **Signs in but bounced to login** | The Google email isn't in `allowed_emails` (or differs, e.g. `googlemail.com` vs `gmail.com`). Use the exact address and re-upload `config.php`. |
+| **Signs in but bounced to login ("not authorised")** | On a fresh install, the first login is auto-admitted — if it's rejected the DB isn't empty. On an existing install, an admin must **invite** that email (Settings → Users & access), or it differs (e.g. `googlemail.com` vs `gmail.com`). The break-glass `allowed_emails` in `config.php` always works. |
 | Changed the secret | Update `config.php` and re-upload; old secret stops working immediately. |
 
 → Back to the [main guide](../../INSTRUCTIONS.md#the-steps-in-order) · next service: [Plaid](plaid.md)

@@ -90,18 +90,24 @@ be left blank (`''`) to disable that feature.
 ],
 ```
 
-### `allowed_emails` ✅ — who may sign in
+### `allowed_emails` ✅ — your break-glass admin(s)
 
 ```php
-// ONLY these Google accounts may sign in. Everyone else is rejected.
+// "Break-glass" list: these Google accounts can ALWAYS sign in and are ALWAYS admins,
+// even if the in-app user list is wrong. Put at least your own email here so you can
+// never lock yourself out. You do NOT list everyone here — invite the rest in the app.
 'allowed_emails' => [
     'you@gmail.com',
-    'partner@gmail.com',
 ],
 ```
 
-> Use the **exact** Google account emails (the address Google reports in the sign-in token). Add the
-> second user here whenever you're ready.
+> **The everyday allowlist now lives in the app, not this file.** On a fresh install the **first**
+> Google account to sign in is automatically made the administrator, and from then on an admin
+> invites everyone else in **Settings → Users & access**. This `allowed_emails` list is just a
+> **safety net** — any address here is always allowed and always an admin (and is protected from
+> being removed in the UI), so keep your own email here. Use the **exact** Google account email
+> (the address Google reports in the sign-in token). Full details:
+> [`70-users-and-admin.md`](70-users-and-admin.md).
 
 ### `encryption_key` / `session_secret` ✅ — from step 2 above
 
