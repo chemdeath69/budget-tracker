@@ -3,14 +3,18 @@
 This guide takes you from **nothing** to a **working, signed-in budget-tracker** running on your own
 hosting account, with your own bank data flowing in through Plaid.
 
-It is written for a **fresh, independent install**: you create your **own** hosting account,
-subdomain, database, and your **own** third-party service accounts. Nothing is shared with anyone
-else's deployment.
+budget-tracker is **open source** and meant to be self-hosted by anyone. This guide is written for a
+**fresh, independent install**: you create your **own** hosting account, subdomain, database, and your
+**own** third-party service accounts. Nothing is shared with anyone else's deployment, and your
+financial data stays in the database you control.
 
-> **Reference deployment.** The app was originally built and run on a **sureserver**
-> (SureSupport custom control panel) shared-hosting account. This guide uses that exact vendor for
-> the hosting walkthrough. The app is plain PHP, so any **PHP 8.3 + MySQL 8** host works — but if
-> you use a different host, you'll adapt the hosting steps (everything else is identical).
+> **Preferred hosting.** Use **any cPanel-based hosting provider** with **PHP 8.3 + MySQL 8**, SSH or
+> File Manager, and cron. The app is plain PHP, so any such host works — if your panel differs from the
+> screenshots, you'll adapt the hosting steps (everything else is identical).
+>
+> **All testing was done using [https://www.icdsoft.com](https://www.icdsoft.com).** ICDSoft's servers
+> are backed by **sureserver / SureSupport**, so the hosting walkthrough below (and any "sureserver"
+> reference in these docs) describes that same ICDSoft infrastructure.
 
 ---
 
@@ -35,7 +39,7 @@ The absolute minimum to get a usable app:
 
 | # | Thing | Required? | Get it from |
 |---|---|---|---|
-| 1 | A **sureserver** hosting account (or any PHP 8.3 + MySQL 8 host) | ✅ Required | Your hosting provider |
+| 1 | A **cPanel-based** hosting account (PHP 8.3 + MySQL 8) — tested on [ICDSoft](https://www.icdsoft.com) | ✅ Required | Your hosting provider |
 | 2 | A **domain name** (e.g. `example.com`) | ✅ Required | A registrar (or your host) |
 | 3 | A **Google Cloud OAuth client** (sign-in) | ✅ Required | [`services/google-oauth.md`](install/services/google-oauth.md) |
 | 4 | A **Plaid** account (bank data) | ✅ Required | [`services/plaid.md`](install/services/plaid.md) |

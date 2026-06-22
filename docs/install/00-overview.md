@@ -39,10 +39,10 @@ backed by one MySQL 8 database. It:
 
 | Item | Notes | Cost |
 |---|---|---|
-| **Hosting account** | sureserver / SureSupport (this guide), or any host with **PHP 8.3 (FPM) + MySQL 8**, SSH or File Manager, and **cron** | Paid hosting plan |
+| **Hosting account** | **any cPanel-based host** with **PHP 8.3 (FPM) + MySQL 8**, SSH or File Manager, and **cron** — tested on [ICDSoft](https://www.icdsoft.com) (sureserver-backed) | Paid hosting plan |
 | **Domain name** | You'll point a subdomain at the app. A wildcard SSL cert on sureserver covers `*.yourdomain.com` automatically | ~$10–15/yr |
 | **Google Cloud project + OAuth client** | For sign-in. No paid Google APIs are enabled | Free |
-| **Plaid account** | The bank-data provider. The **free trial includes Production access** for up to **10 linked institutions** — plenty for a 2-person household | Free (trial) |
+| **Plaid account** | The bank-data provider. The **free trial includes Production access** for up to **10 linked institutions** — plenty for a typical household | Free (trial) |
 
 ### Optional (each independently skippable — leave its key blank)
 
@@ -61,7 +61,9 @@ backed by one MySQL 8 database. It:
 
 ## Technical requirements (any host)
 
-If you're **not** on sureserver, your host must provide:
+The preferred setup is **any cPanel-based hosting provider** (the reference deployment was tested on
+[ICDSoft](https://www.icdsoft.com), whose servers are sureserver-backed). Whatever host you pick, it
+must provide:
 
 - **PHP 8.3** (8.x ≥ 8.1 will likely work; 8.3 is what it's tested on), running as **FPM** ideally.
 - These PHP extensions: **`sodium`** (encrypts Plaid tokens — mandatory), **`pdo_mysql`**, **`curl`**,
@@ -73,8 +75,9 @@ If you're **not** on sureserver, your host must provide:
 - *(Optional)* **poppler's `pdftotext`** binary — only needed if you upload Webull-style brokerage
   **PDFs** for manual accounts. Path goes in `config.php` (`pdftotext`).
 
-The reference host (sureserver) provides all of the above. Notable host-specific quirks you'll meet
-are collected in [`troubleshooting.md`](troubleshooting.md); the big ones:
+The reference host — [ICDSoft](https://www.icdsoft.com) (sureserver-backed) — provides all of the
+above. Notable host-specific quirks you'll meet are collected in
+[`troubleshooting.md`](troubleshooting.md); the big ones:
 
 - MySQL 8 is reached via a **non-default socket/port** (`/tmp/mysql8.sock` or `127.0.0.1:3308`), and
   the MySQL **username is short** (e.g. `budget`) while the **database name is prefixed**

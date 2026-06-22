@@ -49,7 +49,8 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
    non-sensitive scopes) — **no verification needed**.
 7. **Test users** — left menu → **Audience** → **Test users → Add users**: add **every** email that
    will sign in (your `allowed_emails`). In Testing mode only listed test users can complete sign-in —
-   perfect for a 1–2-person app, so you can leave it in **Testing** indefinitely.
+   fine for a small household app (Google's Testing mode allows up to 100 test users), so you can leave
+   it in **Testing** indefinitely.
    - *(Optional)* **Publish app** moves to Production; with only non-sensitive scopes Google does
      **not** require verification. Either way, your `allowed_emails` list is the real gatekeeper.
 

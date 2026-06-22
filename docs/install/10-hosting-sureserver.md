@@ -2,6 +2,12 @@
 
 [← Back to the Installation Guide](../INSTRUCTIONS.md)
 
+> **Preferred hosting: any cPanel-based provider.** This walkthrough was **tested on
+> [ICDSoft](https://www.icdsoft.com)**, whose servers are **backed by sureserver / SureSupport** — so
+> every `sureserver`/`panel.<server>.sureserver.com` reference here is that ICDSoft account. On a
+> different cPanel host the panel layout differs, but the steps (subdomain → MySQL 8 DB + user → PHP
+> 8.3) are the same.
+
 This sets up the **place the app runs**: a subdomain, a MySQL 8 database + user, and the PHP 8.3
 runtime. Two ways to do it:
 
@@ -26,9 +32,10 @@ it created.
 
 ## 0. Get a hosting account & find your details
 
-1. Sign up for a **sureserver** (SureSupport) shared-hosting plan that includes **MySQL 8**,
-   **PHP 8.x**, **cron jobs**, and **SSH** (the "Economy" plan used by the reference deployment has
-   all of these). Add or transfer your **domain** to the account.
+1. Sign up for a **cPanel-based** shared-hosting plan that includes **MySQL 8**, **PHP 8.x**,
+   **cron jobs**, and **SSH**. The reference deployment was tested on **[ICDSoft](https://www.icdsoft.com)**
+   (sureserver / SureSupport backed; the "Economy" plan has all of these). Add or transfer your
+   **domain** to the account.
 2. From your **welcome email**, note your **server hostname** (`<server>.sureserver.com`) and your
    **control-panel username** (`<cpuser>`).
 3. Log in to the control panel at:

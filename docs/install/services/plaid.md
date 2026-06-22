@@ -4,7 +4,7 @@
 
 Plaid is the engine that pulls your real accounts (checking, savings, credit cards, loans,
 brokerages, retirement) into the app. **Production** access (for real bank data) is free for personal
-use up to **10 linked institutions** — more than enough for a 2-person household — but as of 2025 you
+use up to **10 linked institutions** — more than enough for a typical household — but as of 2025 you
 must **request it** (a short questionnaire + a quick review); it is no longer granted automatically on
 signup. See **[1. Create a Plaid account](#1-create-a-plaid-account)** below.
 

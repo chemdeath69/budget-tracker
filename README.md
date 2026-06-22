@@ -1,15 +1,22 @@
 # budget-tracker
 
-A private, self-hosted personal-finance web app for a small household (built for **2 users**).
-It links your real bank, credit, loan, and investment accounts through **Plaid**, tracks net
+An **open-source, self-hosted personal-finance web app** you run on your own hosting, under your own
+control. It links your real bank, credit, loan, and investment accounts through **Plaid**, tracks net
 worth, spending, budgets, bills, goals, retirement and more, and adds optional insights from
 free/paid data feeds (economic data, security prices, dividends, home value) and an optional
 **Claude**-powered assistant.
 
+It supports a **household of one or more people** — each signed-in user links their own accounts, and a
+per-account visibility model (shared / private / hidden) controls what household members see of each
+other. Your data lives only in your own database; nothing is sent to any service the app doesn't
+explicitly call.
+
 - **Stack:** PHP 8.3 + MySQL 8 + Plaid. No framework, **no build step**, server-rendered, mobile-first.
-- **Hosting:** designed for a **sureserver / SureSupport** shared-hosting account (the same kind of
-  cPanel-style host the reference deployment runs on), but the app itself is plain PHP and will run
-  on any PHP 8.3 + MySQL 8 host.
+- **Hosting:** designed for **any cPanel-based hosting provider** with PHP 8.3 + MySQL 8, SSH or File
+  Manager, and cron. The app itself is plain PHP and will run on any PHP 8.3 + MySQL 8 host.
+  > **All testing was done using [https://www.icdsoft.com](https://www.icdsoft.com)** (whose servers
+  > are backed by **sureserver / SureSupport** — so any sureserver-hosted reference in these docs refers
+  > to the same ICDSoft infrastructure).
 - **Sign-in:** Google OAuth, restricted to an allow-list of email addresses you control.
 
 ---
@@ -33,7 +40,7 @@ Every external service you might use is documented as its own walkthrough, clear
 
 | You will need | Why | Cost |
 |---|---|---|
-| A **sureserver** (or any PHP 8.3 / MySQL 8) hosting account | Runs the app | Paid hosting plan |
+| A **cPanel-based** hosting account (PHP 8.3 / MySQL 8) — e.g. [ICDSoft](https://www.icdsoft.com), where it was tested | Runs the app | Paid hosting plan |
 | A registered **domain** | The address you sign in at | ~$10–15/yr |
 | A **Google Cloud** OAuth client | Sign-in | Free |
 | A **Plaid** account | Bank/credit/investment data | Free trial (up to 10 linked banks) |
@@ -72,5 +79,7 @@ Start at **[`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md)**.
 
 ## License / use
 
-Private personal project. No warranty. You are responsible for your own API keys, hosting costs,
-and the financial data you connect.
+Released under the **[MIT License](LICENSE)** — free to use, modify, and distribute, provided
+**as-is with no warranty**. You self-host your own instance and are responsible for your own API
+keys, hosting costs, and the financial data you connect. It is not affiliated with Plaid, Google, or
+any other service it integrates with.
