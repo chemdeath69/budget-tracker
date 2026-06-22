@@ -480,10 +480,12 @@ function q_networth_change(PDO $pdo, float $current, int $days = 30): array
 {
     $st = $pdo->prepare(
         "SELECT snapshot_date, net_worth FROM balance_snapshots
-         WHERE snapshot_date <= (CURDATE() - INTERVAL :d DAY)
+         WHERE snapshot_date <= :before
          ORDER BY snapshot_date DESC LIMIT 1"
     );
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    // Cutoff anchored in PHP app-TZ (never CURDATE() — snapshot_date is written app-TZ but
+    // MySQL's clock is EDT, so CURDATE() picks a baseline a day off in the late-PDT window; S24 trap).
+    $st->bindValue(':before', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
     $st->execute();
     $row = $st->fetch();
     if (!$row) {
@@ -646,14 +648,15 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND t.date >= :start
            AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
          GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
+    // Window anchored in PHP app-TZ (never CURDATE() — MySQL's clock is EDT, S24 trap).
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->bindValue(':start', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
     $st->execute();
     return $st->fetchAll();
 }
@@ -683,15 +686,16 @@ function q_top_merchants(PDO $pdo, int $uid, int $days = 90, int $limit = 20): a
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
-           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND t.date >= :start
            AND COALESCE(NULLIF(t.merchant_name, ''), t.name) IS NOT NULL
            AND COALESCE(NULLIF(t.merchant_name, ''), t.name) <> ''
          GROUP BY COALESCE(NULLIF(t.merchant_name, ''), t.name)
          ORDER BY total DESC
          LIMIT " . $limit
     );
+    // Window anchored in PHP app-TZ (never CURDATE() — MySQL's clock is EDT, S24 trap).
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->bindValue(':start', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
     $st->execute();
     return $st->fetchAll();
 }
@@ -731,12 +735,14 @@ function q_spending_total(PDO $pdo, int $uid, int $days = 30): float
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND t.date >= :start
            AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')"
     );
+    // Window anchored in PHP app-TZ (never CURDATE() — MySQL's clock is EDT, S24 trap).
+    // Kept in lock-step with q_spending so the headline total == Σ category slices.
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    $st->bindValue(':start', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
     $st->execute();
     return (float)$st->fetchColumn();
 }
@@ -765,11 +771,13 @@ function q_digest_spending(PDO $pdo, int $days = 7): array
            AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
            AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
-           AND t.date >= (CURDATE() - INTERVAL :d DAY)
+           AND t.date >= :start
          GROUP BY " . EFF_CAT . "
          ORDER BY total DESC"
     );
-    $st->bindValue(':d', $days, PDO::PARAM_INT);
+    // Window anchored in PHP app-TZ (never CURDATE() — the cron fires ~01:13 EDT, a day
+    // ahead of the app's Pacific notion of "today"; S24 trap, like q_digest_upcoming_bills).
+    $st->bindValue(':start', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
     $st->execute();
     $cats  = $st->fetchAll();
     $total = 0.0;

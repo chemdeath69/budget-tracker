@@ -469,6 +469,9 @@ a.row:active, .acct-card:active, .action-card:active { background: var(--surface
 .sparkline { margin: 8px -4px 2px; height: 64px; }
 .hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .hero-split.tri { grid-template-columns: repeat(3, 1fr); }
+/* Three cells can't fit three wide currency values at phone width — collapse to one column
+   (the S66/S69 overflow trap). Current .tri usages hold ≤1 currency value so are unaffected. */
+@media (max-width: 560px) { .hero-split.tri { grid-template-columns: 1fr; } }
 .split-cell {
   display: flex; flex-direction: column; gap: 2px; padding: 11px 13px;
   background: var(--surface-2); border-radius: var(--r); color: var(--ink);

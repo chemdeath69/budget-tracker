@@ -108,7 +108,10 @@ function rentcast_call(PDO $pdo, string $path, array $params): array
         hv_release_slot($pdo);
         return ['__error' => 'curl: ' . $err];
     }
-    if ($code === 429)  return ['__error' => 'rate_limited (http 429)'];
+    if ($code === 429) {                   // rate-limited → not billed → refund the reserved slot
+        hv_release_slot($pdo);
+        return ['__error' => 'rate_limited (http 429)'];
+    }
     if ($code >= 400)   return ['__error' => 'api http ' . $code . ': ' . substr((string)$body, 0, 200)];
     $json = json_decode((string)$body, true);
     if (!is_array($json)) return ['__error' => 'bad_json (http ' . $code . ')'];
@@ -228,12 +231,13 @@ function property_record_refresh_if_stale(PDO $pdo, string $address, int $maxAge
 {
     if (hv_api_key() === '') return ['ok' => false, 'error' => 'no_key'];
 
-    $st = $pdo->prepare("SELECT fetched_at FROM property_facts WHERE address=:a");
+    // Age computed in SQL so both sides share the MySQL clock — fetched_at defaults to the
+    // server-clock CURRENT_TIMESTAMP (EDT), so comparing it to PHP time() (PDT) is the S24 trap.
+    $st = $pdo->prepare("SELECT TIMESTAMPDIFF(DAY, fetched_at, NOW()) FROM property_facts WHERE address=:a");
     $st->execute([':a' => $address]);
-    $prev = $st->fetchColumn();
-    if ($prev) {
-        $age = (int)floor((time() - strtotime((string)$prev)) / 86400);
-        if ($age < $maxAgeDays) return ['ok' => true, 'skipped' => 'fresh'];
+    $age = $st->fetchColumn();   // false = no row; NULL = no fetched_at (shouldn't happen)
+    if ($age !== false && $age !== null && (int)$age < $maxAgeDays) {
+        return ['ok' => true, 'skipped' => 'fresh'];
     }
 
     $res = rentcast_call($pdo, 'properties', ['address' => $address]);
@@ -280,12 +284,12 @@ function market_refresh_if_stale(PDO $pdo, string $zip, int $maxAgeDays = 25): a
     if (hv_api_key() === '') return ['ok' => false, 'error' => 'no_key'];
     if ($zip === '')         return ['ok' => false, 'error' => 'no_zip'];
 
-    $st = $pdo->prepare("SELECT fetched_at FROM market_stats WHERE zip=:z");
+    // Age computed in SQL so both sides share the MySQL clock (see property_facts above — S24 trap).
+    $st = $pdo->prepare("SELECT TIMESTAMPDIFF(DAY, fetched_at, NOW()) FROM market_stats WHERE zip=:z");
     $st->execute([':z' => $zip]);
-    $prev = $st->fetchColumn();
-    if ($prev) {
-        $age = (int)floor((time() - strtotime((string)$prev)) / 86400);
-        if ($age < $maxAgeDays) return ['ok' => true, 'skipped' => 'fresh'];
+    $age = $st->fetchColumn();   // false = no row; NULL = no fetched_at (shouldn't happen)
+    if ($age !== false && $age !== null && (int)$age < $maxAgeDays) {
+        return ['ok' => true, 'skipped' => 'fresh'];
     }
 
     $res = rentcast_call($pdo, 'markets', ['zipCode' => $zip, 'dataType' => 'Sale', 'historyRange' => 12]);

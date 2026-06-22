@@ -12,6 +12,11 @@ if (!is_logged_in()) {
     echo json_encode(['error' => 'not authenticated']);
     exit;
 }
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'method not allowed']);
+    exit;
+}
 if (!csrf_check_request()) {
     http_response_code(403);
     echo json_encode(['error' => 'invalid csrf token']);

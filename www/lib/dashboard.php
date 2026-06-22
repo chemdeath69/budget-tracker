@@ -155,6 +155,8 @@ function dash_card_html(string $size, array $w): string
                           JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)
             . '</script>';
     }
+    // ⚠️ $w['sub'] is emitted as RAW HTML — callers MUST build it from e()/usd() + fixed labels,
+    // NEVER from a raw external string (a merchant/account/OCR name would be stored XSS here).
     if (!empty($w['sub'])) $h .= '<div class="b-sub">' . $w['sub'] . '</div>';
     $h .= '</a>';
     return $h;

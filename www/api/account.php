@@ -136,6 +136,16 @@ if ($action === 'recategorize') {
     $txId = (string)($in['transaction_id'] ?? '');
     $cat  = trim((string)($in['category'] ?? ''));
     $cat  = $cat === '' ? null : strtoupper($cat);
+    if ($cat !== null) {
+        $cat = substr($cat, 0, 96);                       // parity with custom_categories tag cap
+        // A transfer/income category would silently DROP this tx from every true-expense
+        // aggregation (EFF_CAT resolution). Mirror the api/rules.php + set_splits guards.
+        if (in_array($cat, RULE_CAT_BLOCKED, true)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'That category can\'t be assigned to a transaction.']);
+            exit;
+        }
+    }
 
     // The user must be able to see this transaction (shared OR owns the item).
     $vis = $pdo->prepare(

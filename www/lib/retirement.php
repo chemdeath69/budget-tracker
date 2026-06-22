@@ -42,7 +42,9 @@ function ret_period_key(string $date): string
 function ret_resample_quarterly(array $map): array
 {
     if (!$map) return [];
-    ksort($map);
+    // Keys are 'Y-m-d' (zero-padded → lexical order == chronological); sort as strings so a
+    // stray non-date key can't reorder the series and feed pow(1+r, 1/dt) a negative dt.
+    uksort($map, 'strcmp');
     $step  = 75 * 86400; // ~a quarter; keeps pairs near the manual statement cadence
     $picked = [];
     $lastTs = null;
