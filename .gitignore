@@ -18,6 +18,8 @@ config.generated.php
 # Local UI preview harness (static mock pages) + throwaway screenshots
 preview/
 *.png
+# …but the README showcase screenshots (fictional "Carter household" demo data) ARE published
+!docs/img/showcase/*.png
 
 # Kept manual-account documents (server-side data; never commit). Keep the deny .htaccess.
 www/storage/manual/

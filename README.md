@@ -11,6 +11,69 @@ per-account visibility model (shared / private / hidden) controls what household
 other. Your data lives only in your own database; nothing is sent to any service the app doesn't
 explicitly call.
 
+---
+
+## ✨ Your whole financial life — self-hosted
+
+> **Budget Tracker** is a self-hosted personal-finance dashboard for your whole household. Securely
+> link your banks, cards, loans, and brokerages through **Plaid** and see net worth, cash flow,
+> spending trends, budgets, upcoming bills, investments, and retirement projections — in one fast,
+> mobile-first app that runs on **your own hosting**, with your data in **your own database**. Add
+> free feeds for security prices, dividends, home value, and economic data, and ask an optional
+> **Claude**-powered assistant questions in plain English. No subscriptions, no data harvesting —
+> you own all of it.
+
+<p align="center">
+  <img src="docs/img/showcase/dashboard.png" alt="Budget Tracker dashboard — net worth, needs-attention feed, and a customizable bento of cards" width="860">
+</p>
+
+<p align="center">
+  <img src="docs/img/showcase/networth.png" alt="Net worth over time with inflation-adjusted line and composition breakdown" width="270">
+  <img src="docs/img/showcase/investments.png" alt="Investments — holdings, gain/loss, returns vs benchmark" width="270">
+  <img src="docs/img/showcase/retirement.png" alt="Retirement projection with Monte Carlo probability of success" width="270">
+</p>
+<p align="center">
+  <img src="docs/img/showcase/transactions.png" alt="Transactions ledger with categories, tags, splits and filters" width="270">
+  <img src="docs/img/showcase/trends.png" alt="Spending trends — stacked monthly bars by category" width="270">
+  <img src="docs/img/showcase/debt.png" alt="Debt payoff planner — snowball vs avalanche" width="270">
+</p>
+<p align="center">
+  <img src="docs/img/showcase/cashflow.png" alt="Cash flow — income vs expense with savings rate" width="270">
+  <img src="docs/img/showcase/bills.png" alt="Upcoming bills calendar" width="270">
+  <img src="docs/img/showcase/property.png" alt="Home value vs mortgage and equity over time" width="270">
+</p>
+
+<p align="center">
+  <img src="docs/img/showcase/assistant.png" alt="Optional Claude-powered assistant answering a question about spending" width="660">
+</p>
+
+<p align="center">
+  <img src="docs/img/showcase/dashboard-mobile.png" alt="Mobile dashboard with bottom tab bar" width="240">
+  &nbsp;&nbsp;
+  <img src="docs/img/showcase/dashboard-dark.png" alt="Dashboard in dark theme" width="430">
+</p>
+<p align="center"><em>Mobile-first · automatic light &amp; dark themes · your data, your server.</em></p>
+
+### Highlights
+- 📊 **Net worth & cash flow** over time, with inflation-adjusted (real) net worth
+- 💸 **Spending** trends, budgets (with rollover), top merchants, money-flow Sankey, custom categories & rules
+- 📅 **Plan ahead**: bills calendar, safe-to-spend, cash-flow forecast, refund tracking, savings goals
+- 📈 **Investments**: holdings, money-weighted returns vs an index, allocation & drift, fee analyzer, dividend calendar
+- 🏦 **Retirement**: contribution tracking + projection with a Monte Carlo "probability of success"
+- 🏠 **Home & debt**: home value vs mortgage, equity, and a snowball-vs-avalanche debt-payoff planner
+- 🤖 **Optional AI assistant** (Claude) — ask about your finances in plain English (read-only)
+- 👫 **Household-friendly**: multiple users, per-account privacy (shared / private / hidden), admin roles
+- 🔒 **Yours**: self-hosted PHP + MySQL, Plaid-secured tokens encrypted at rest, no subscriptions, no tracking
+
+### 📚 Documentation
+**Install:** [Full guide](docs/INSTRUCTIONS.md) · [Overview & shopping list](docs/install/00-overview.md) · [Hosting](docs/install/10-hosting-sureserver.md) · [Config & secrets](docs/install/30-config-and-secrets.md)
+**Connect:** [Google sign-in](docs/install/services/google-oauth.md) · [Plaid](docs/install/services/plaid.md) · [Optional data feeds](docs/install/services/)
+**Run it:** [Verify & first run](docs/install/60-verify.md) · [Users, roles & admin](docs/install/70-users-and-admin.md) · [Troubleshooting](docs/install/troubleshooting.md)
+
+<sub>Screenshots use fictional demo data (the "Carter household") — not real accounts.</sub>
+
+---
+
 - **Stack:** PHP 8.3 + MySQL 8 + Plaid. No framework, **no build step**, server-rendered, mobile-first.
 - **Hosting:** designed for **any cPanel-based hosting provider** with PHP 8.3 + MySQL 8, SSH or File
   Manager, and cron. The app itself is plain PHP and will run on any PHP 8.3 + MySQL 8 host.
