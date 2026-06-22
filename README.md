@@ -83,3 +83,7 @@ Released under the **[MIT License](LICENSE)** — free to use, modify, and distr
 **as-is with no warranty**. You self-host your own instance and are responsible for your own API
 keys, hosting costs, and the financial data you connect. It is not affiliated with Plaid, Google, or
 any other service it integrates with.
+
+**Forking vs. contributing:** forks for your own personal use and adjustments are welcome, but this
+repo does **not** accept direct contributions (pull requests won't be merged). See
+**[CONTRIBUTING.md](CONTRIBUTING.md)**.
