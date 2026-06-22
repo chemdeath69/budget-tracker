@@ -21,7 +21,7 @@ the OpenID `id_token`.
 > **⚠️ Newer console layout (2025+).** Google has consolidated the old "OAuth consent screen" and
 > "Credentials" pages under **APIs & Services → Google Auth Platform** (`/auth/overview`). The steps
 > below describe that newer flow; older screenshots online may show separate pages, but the fields are
-> the same (project → app info → audience → client). The screenshots here are from a real run.
+> the same (project → app info → audience → client).
 
 ## 1. Create a Google Cloud project
 
@@ -30,8 +30,6 @@ the OpenID `id_token`.
 2. Top bar → project dropdown → **New Project**. Name it e.g. `budget-tracker`. **Create**, then
    select it.
 
-![New Project form](../img/google-01-new-project.png)
-
 ## 2. Configure the OAuth consent screen (Google Auth Platform)
 
 1. Left menu → **APIs & Services → Google Auth Platform → Overview** (`/auth/overview`) → **Get
@@ -39,11 +37,7 @@ the OpenID `id_token`.
 2. **App Information** — **App name** `Budget Tracker` (anything) + **User support email** (pick your
    address from the dropdown). **Next.**
 
-   ![App Information step](../img/google-02-app-info.png)
-
 3. **Audience** — choose **External** (Internal is only for Google Workspace orgs). **Next.**
-
-   ![Audience → External](../img/google-03-audience-external.png)
 
 4. **Contact Information** — your email. **Next.**
 5. **Finish** — tick the **Google API Services: User Data Policy** agreement → **Continue** →
@@ -60,8 +54,6 @@ the OpenID `id_token`.
      **not** require verification, and then you don't need to add each email as a test user. Either
      way, the app's own user list (Settings → Users & access) is the real gatekeeper — Google just
      controls who can *reach* the sign-in.
-
-   ![Adding test users](../img/google-06-test-users.png)
 
 ## 3. Create the OAuth client ID
 
@@ -86,12 +78,8 @@ the OpenID `id_token`.
      client (and add each sign-in email as a Test user). Click **Save**, then reload the client to
      confirm the new URI persisted under **Authorized redirect URIs**.
 
-   ![Creating the Web application client + redirect URI](../img/google-04-create-web-client.png)
-
 4. **Create.** Google shows your **Client ID** (`…apps.googleusercontent.com`) and **Client secret**
    (`GOCSPX-…`).
-
-   ![Client created — copy or Download JSON NOW](../img/google-05-client-created.png)
 
 > ### ⚠️ The client secret is shown only ONCE (new-console gotcha)
 > On the current console the **Client secret is displayed in full only at creation** — in the

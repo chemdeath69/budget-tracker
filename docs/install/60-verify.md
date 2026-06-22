@@ -14,19 +14,13 @@ Final step: sign in, link a real bank, pull data, and smoke-test the app.
      500. Almost always a `config.php` problem (DB creds / MySQL 8 socket) or schema not loaded. See
      [troubleshooting](troubleshooting.md).
 
-   ![The Budget Tracker login page](img/verify-01-login.png)
-
 3. Click **Continue with Google**. On a **fresh install** the login page says *"become the
    administrator"* — the **first** account to sign in is auto-allowed and made admin (you invite
    everyone else afterward, see [§5](#5-add-the-second-user)). Choose the account that should own
    the app.
 
-   ![Google account chooser](img/verify-02-google-account-chooser.png)
-
    - In **Testing** mode Google may first warn *"Google hasn't verified this app"* → **Advanced →
      Continue** (it's your own app). Then grant the **email + profile** consent:
-
-   ![Google consent — grant email + profile](img/verify-03-google-consent.png)
 
    - It redirects to Google, then back to **`/oauth-callback.php`**, then into the dashboard.
    - *"Redirect URI mismatch"* from Google → the redirect URI in the Cloud Console doesn't exactly
@@ -40,8 +34,6 @@ Final step: sign in, link a real bank, pull data, and smoke-test the app.
 You should land on the **dashboard** — empty, with a **"No accounts linked yet → Link a bank
 account"** card. That confirms the whole chain works: Google OAuth (redirect URI + test users +
 the first-login bootstrap), the DB connection, and the schema.
-
-![Empty dashboard on a fresh, working install](img/verify-04-dashboard-empty.png)
 
 ---
 
@@ -126,6 +118,6 @@ You have a working budget-tracker. From here:
 - Add any optional API keys you skipped, whenever you like.
 - Keep the domain renewed.
 - For code updates later: re-upload `www/` (re-zip, or `./deploy.sh`), and run any **new** migration
-  named in [`HANDOFF.md`](../HANDOFF.md) — see [40 · Upgrading](40-database-schema.md#upgrading).
+  in `www/lib/migrations/` — see [40 · Upgrading](40-database-schema.md#upgrading).
 
 Problems? → **[troubleshooting.md](troubleshooting.md)**.

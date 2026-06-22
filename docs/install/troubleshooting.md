@@ -40,7 +40,7 @@ Don't guess — reproduce the error:
 **Sudden 500 on a search/filter page (`HY093`)**
 - A native-prepared statement reused a named placeholder (`:x` twice). The app's DB layer runs with
   emulation **off**, which rejects that. This is a code-level bug, not an install issue — but if you
-  hit it after editing queries, bind distinct names. (Documented in the root `CLAUDE.md`.)
+  hit it after editing queries, bind distinct names.
 
 ---
 
@@ -159,8 +159,7 @@ the panel and are baked into the installer:
 
 ## Still stuck?
 
-- The full control-panel API (every endpoint + payload) is in
-  [`reference/sureserver-api.postman_collection.json`](reference/sureserver-api.postman_collection.json) —
-  import it into Postman or `jq` it.
-- The project's design/operational history is in [`../HANDOFF.md`](../HANDOFF.md),
-  [`../provisioning.md`](../provisioning.md), and [`../hosting.md`](../hosting.md).
+- Re-check your control panel's own API/docs for the exact endpoints + payloads your host exposes
+  (subdomain, MySQL, PHP version, cron) — the names differ slightly per provider.
+- The application code under `www/` is the source of truth for behavior; the database schema is in
+  [`../schema.sql`](../schema.sql).

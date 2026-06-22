@@ -23,8 +23,6 @@ signup. See **[1. Create a Plaid account](#1-create-a-plaid-account)** below.
    Sandbox only.** On **Developers → Keys** you'll see a **Client ID** and a **Sandbox secret**, but
    the **Production secret** reads *"You don't have access"* with a **Request access** button.
 
-   ![Keys page on a fresh account — no Production secret yet](../img/plaid-01-keys.png)
-
 3. **Request Production access** — click **Get full access** (top-left nav, or the **Request access**
    button on the Keys page). Fill out the questionnaire: business + personal details including your
    **address, date of birth, last-4 of SSN, and citizenship**, plus a short product description (e.g.
@@ -34,12 +32,8 @@ signup. See **[1. Create a Plaid account](#1-create-a-plaid-account)** below.
    review"** and the access checklist as "X of 3 complete". For a simple personal-use app this is
    typically approved quickly. **Wait for approval before continuing.**
 
-   ![Free trial / production access pending review](../img/plaid-03-production-access-pending.png)
-
 5. Once approved, **Developers → Keys** shows your **Production secret**. Copy the **Client ID** +
    the **Production secret** (you want **Production**, not Sandbox).
-
-   ![Keys page after approval — Production secret issued](../img/plaid-04-keys-production.png)
 
 > **Don't want to wait for approval?** You can deploy immediately against **Sandbox** (`plaid.env =
 > sandbox` + the Sandbox secret) and test with Plaid's fake bank (`user_good` / `pass_good`), then
@@ -65,8 +59,6 @@ products on a per-team page — the app **requests the products it needs per `li
 time, and Plaid grants them based on your access. The **Products** page just shows what's available
 (each reads "Trial" until you're fully live).
 
-![Products available to the account](../img/plaid-06-products.png)
-
 ## 3. Get your API keys
 
 1. Dashboard → **Developers → Keys** (<https://dashboard.plaid.com/developers/keys>).
@@ -91,8 +83,6 @@ time, and Plaid grants them based on your access. The **Products** page just sho
    ```
    If you skip this, non-OAuth banks still link fine; some large banks that require OAuth will need
    it. You can add it later if a bank link fails with a redirect error.
-
-   ![Adding the link.php redirect URI](../img/plaid-05-redirect-uri.png)
 
 > **⚠️ Identity re-verification gate.** Saving a redirect-URI/webhook change pops a *"Verify your
 > identity → Verify with Google"* modal — re-authenticate with the Google account you signed up with,

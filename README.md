@@ -63,8 +63,8 @@ Start at **[`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md)**.
 | `tools/install.sh` | The guided installer (POSIX shell + curl) |
 | `deploy.sh` | One-command rsync deploy used by the reference deployment |
 
-> The full architecture, data model, and design history live in [`docs/HANDOFF.md`](docs/HANDOFF.md),
-> [`docs/spec.md`](docs/spec.md), and [`docs/schema.sql`](docs/schema.sql).
+> The database schema is documented in [`docs/schema.sql`](docs/schema.sql); the application code
+> under `www/` is the source of truth for behavior.
 
 ---
 
@@ -74,8 +74,10 @@ Start at **[`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md)**.
   are git-ignored. Keep them that way.
 - The app encrypts Plaid access tokens at rest with a key **you** generate (`encryption_key`).
   Losing that key means re-linking every bank — back it up.
-- Sign-in is limited to the exact email addresses in your `allowed_emails` list. Everyone else is
-  rejected, even with a valid Google account.
+- Sign-in is limited to people an administrator has invited (managed in **Settings → Users &
+  access**). On a fresh install the first Google account to sign in becomes the admin; everyone else
+  is rejected unless invited. A `config.php` `allowed_emails` list acts as a break-glass admin so you
+  can't lock yourself out. See [`docs/install/70-users-and-admin.md`](docs/install/70-users-and-admin.md).
 
 ## License / use
 

@@ -18,32 +18,22 @@ Open **<https://fredaccount.stlouisfed.org/apikeys>**. If you're not signed in, 
 **Sign In / Create New Account** modal. Use the **Create New Account** tab to register with the email
 you want this install to own (ignore any "Sign in as …" Google one-tap if it's not the right account).
 
-![FRED Sign In / Create New Account modal](../img/fred-01-signin.png)
-
 After registering you'll see a **"New Account Created"** confirmation. (FRED may also email a
 verification link — click it if prompted.)
-
-![FRED account-created confirmation](../img/fred-02-account-created.png)
 
 ### 2. Request the API key
 
 Go to **<https://fredaccount.stlouisfed.org/apikeys>**. A new account has none yet — click
 **+ Request API Key**.
 
-![FRED API Keys page — none yet](../img/fred-03-apikeys-empty.png)
-
 On the request form, **describe the application** (e.g. "Personal finance dashboard — retrieves CPI,
 mortgage, Treasury, Fed-funds and savings-rate series"), tick **I have read and agree to the Terms of
 Use**, then click **Request API Key**.
-
-![FRED Request API Key form](../img/fred-04-request-form.png)
 
 ### 3. Copy the key
 
 The key (a **32-character hex string**) appears immediately in a banner at the top of the page:
 *"Your registered API key is: …"*. Copy it. You can return to the **API Keys** page anytime to view it.
-
-![FRED key generated](../img/fred-05-key-generated.png)
 
 ## Add it to `config.php`
 
@@ -63,8 +53,6 @@ Run the cron once (`php83.cli .../cron/sync.php`) — the log should show
 `fred: NNN obs across 5 series` with **no auth error**. Then open the **Economic** page; the five
 indicators populate (CPI, 30-Year Fixed Mortgage Rate, 10-Year Treasury Yield, Federal Funds Rate,
 National Savings Rate) with sparklines:
-
-![Economic page populated from FRED](../img/fred-06-economic-verified.png)
 
 ## ⚠️ Empty vs. placeholder
 

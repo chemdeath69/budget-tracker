@@ -22,14 +22,10 @@ per-request billing** (5 requests/minute; the app is staleness-gated to stay wel
 Open **<https://polygon.io/dashboard/keys>** — you'll land on Massive's **Create your account** page.
 Sign up with `Google`, `GitHub`, or `Email`. (If you already have one, click **Sign in**.)
 
-![Massive (Polygon) — Create your account](../img/polygon-01-signup.png)
-
 ### 2. Copy your API key
 
 You're taken to the **Keys** dashboard, where a **Default** key already exists. Copy the value in the
 **Key** column.
-
-![Massive (Polygon) — Keys dashboard](../img/polygon-02-api-key.png)
 
 The **free tier** allows 5 requests/minute, no per-request billing — the app is staleness-gated to
 stay well under that.

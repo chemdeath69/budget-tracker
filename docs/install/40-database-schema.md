@@ -103,8 +103,6 @@ Or just look at the table list in phpMyAdmin — open your **`<cpuser>_budget`**
 **MySQL 8** server and you should see ~48 tables (`accounts`, `transactions`, `holdings`, `items`,
 `users`, …):
 
-![phpMyAdmin showing the loaded schema tables on MySQL 8](img/schema-01-phpmyadmin-tables.png)
-
 ---
 
 <a name="upgrading"></a>
@@ -119,8 +117,8 @@ one (each is idempotent and CLI-only):
 ```
 
 Migrations are numbered `001`–`030+`. A fresh `schema.sql` already includes all of them; only run a
-migration when upgrading an **existing** database to newer code that added it. The
-[`HANDOFF.md`](../HANDOFF.md) "current state" section always names the next migration number.
+migration when upgrading an **existing** database to newer code that added it. The migration files
+live in `www/lib/migrations/` — run any that are newer than your last upgrade, in numeric order.
 
 ---
 

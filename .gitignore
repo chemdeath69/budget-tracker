@@ -23,9 +23,29 @@ preview/
 www/storage/manual/
 !www/storage/.htaccess
 
-# Walkthrough screenshots (committed) — exception to the *.png ignore above
-!docs/install/img/
-!docs/install/img/*.png
+# Install-guide screenshots — kept local only (contained identifying console chrome)
+docs/install/img/
 
-# Live secrets for the in-progress example-instance deployment (NEVER commit)
+# Live secrets / per-deployment notes (NEVER commit)
 docs/install/*.local.md
+
+# Internal dev + agent docs — kept on disk for local work, NOT published.
+# (Agent guides, working memory, planning/design notes, dev backlogs.)
+CLAUDE.md
+docs/HANDOFF.md
+docs/provisioning.md
+docs/hosting.md
+docs/plaid_info.md
+docs/spec.md
+docs/TODO.md
+docs/TODO2.md
+docs/gaps.md
+docs/plan.md
+docs/requirements.md
+docs/retirement_plan.md
+docs/DesignPlan.md
+docs/ui-review-2026-06-18.md
+docs/design-previews/
+docs/install/OPTIONAL-KEYS-PLAN.md
+docs/install/WALKTHROUGH-PROGRESS.md
+docs/install/reference/

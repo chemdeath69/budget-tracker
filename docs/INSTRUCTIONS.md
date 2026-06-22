@@ -9,8 +9,8 @@ budget-tracker is **open source** and meant to be self-hosted by anyone. This gu
 financial data stays in the database you control.
 
 > **Preferred hosting.** Use **any cPanel-based hosting provider** with **PHP 8.3 + MySQL 8**, SSH or
-> File Manager, and cron. The app is plain PHP, so any such host works — if your panel differs from the
-> screenshots, you'll adapt the hosting steps (everything else is identical).
+> File Manager, and cron. The app is plain PHP, so any such host works — if your panel differs from
+> these steps, you'll adapt the hosting steps (everything else is identical).
 >
 > **All testing was done using [https://www.icdsoft.com](https://www.icdsoft.com).** ICDSoft's servers
 > are backed by **sureserver / SureSupport**, so the hosting walkthrough below (and any "sureserver"
@@ -154,6 +154,3 @@ Each service that appears in `config.php` has its own walkthrough. Open only the
 Stuck? See **[`install/troubleshooting.md`](install/troubleshooting.md)** — it collects every
 hard-won gotcha (MySQL 8 socket/username quirks, the PHP-8.3-CLI cron path, blank 500 pages,
 timezone traps, and more).
-
-The raw control-panel API (every endpoint, method, and request body) is in
-[`install/reference/sureserver-api.postman_collection.json`](install/reference/sureserver-api.postman_collection.json).

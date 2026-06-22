@@ -26,8 +26,6 @@ Go to **<https://console.anthropic.com>** — it now redirects to **platform.cla
 sign in (Continue with Google, or email). ⚠️ This is the **developer API console**, a *separate*
 account from Claude.ai — even if you use Claude.ai, the API console needs its own sign-up + credits.
 
-![Claude Console / platform.claude.com sign-in](../img/anthropic-01-signin.png)
-
 A brand-new account completes a short **onboarding** (your name + accept terms) before the keys page
 unlocks.
 
@@ -41,8 +39,6 @@ a long time for personal use; the loaded balance shows as **Credits** in the sid
 Go to **Settings → API keys → Create key**, give it a **Name** (e.g. `example-instance`), and click **Add**.
 The full key (`sk-ant-…`) is shown **once** in a *"Save your API key"* dialog — **copy it now**, you
 can't view it again.
-
-![Create an API key — shown once](../img/anthropic-02-api-key.png)
 
 ## Add it to `config.php`
 
@@ -67,8 +63,6 @@ assistant endpoint returns 503, the importer is hidden).
 
 Open the **Assistant** page and ask a question — it should answer from your data (it's read-only). A
 working reply confirms the key + credits are live:
-
-![Assistant page answering a question](../img/anthropic-03-assistant-verified.png)
 
 ## Notes
 

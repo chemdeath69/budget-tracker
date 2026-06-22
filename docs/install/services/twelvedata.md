@@ -17,15 +17,11 @@ get the daily price refresh, sparklines, or per-security price charts.
 Go to **<https://twelvedata.com/register>** and create an account (Full name / Email / Password, or
 **Sign up with Google**). Confirm the verification email if prompted.
 
-![Twelve Data — Create your account](../img/twelvedata-01-signup.png)
-
 ### 2. Copy your API key
 
 Open **<https://twelvedata.com/account/api-keys>**. A **Secret key** (a 32-character token) is created
 automatically for the free **Basic** plan — copy it from the **Token** column (use **Reveal** if it's
 masked).
-
-![Twelve Data — API keys / token](../img/twelvedata-02-api-key.png)
 
 The **free tier** (currently ~8 requests/minute, ~800/day) is enough — the nightly cron refreshes a
 small set of your held securities and is staleness-gated.

@@ -58,8 +58,6 @@ Two things in that line are **not optional** on this host:
 > day"** preset — it produces a once-daily schedule (the host fills in the minute slot, e.g.
 > `13 1 * * *`). You don't need to set an explicit time.
 
-![Scheduling the cron job (basic mode, "Every day")](img/cron-01-schedule-form.png)
-
 > ⚠️ **This host does not allow an arbitrary minute** (e.g. `0`) — it slots cron jobs to specific
 > minutes. The panel UI will only offer the allowed minutes; just pick one.
 
