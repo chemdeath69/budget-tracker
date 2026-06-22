@@ -37,7 +37,12 @@ Two things in that line are **not optional** on this host:
 
 ## 2. Schedule it (control panel)
 
-1. Panel → **Cron Jobs** (`/crons`).
+> **Heads-up — cron-count limit.** Shared plans cap the number of cron jobs (the Cron Jobs page shows
+> e.g. *"Installed crons (2 of 3 allowed)"*). One daily job per instance is all this app needs, but if
+> you host **several** instances on one account you may hit the cap — request more from your host, or
+> reuse one cron that calls each instance's `sync.php` in sequence.
+
+1. Panel → **Cron Jobs** (`/crons`). Click **Schedule a cron job**.
 2. **Add a cron job**, schedule **once daily** at a quiet hour (e.g. **~3:00 AM**):
    | Field | Value |
    |---|---|

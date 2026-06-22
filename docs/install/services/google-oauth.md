@@ -66,9 +66,18 @@ secret). No paid Google API is enabled; sign-in identity comes from the OpenID `
    https://<sub>.<domain>/oauth-callback.php
    ```
    - ⚠️ It must match **exactly** — scheme (`https`), host, path, no trailing slash, correct case.
+   - ⚠️ **Use the right "Add URI" button.** The client page has **two** sections — **Authorized
+     JavaScript origins** (top) and **Authorized redirect URIs** (below) — each with its own
+     **+ Add URI**. Put the callback under **Authorized redirect URIs**. A full URL with a path
+     (`…/oauth-callback.php`) pasted into the *origins* box is silently rejected (origins are
+     scheme+host only), so the change won't save and sign-in later fails with `redirect_uri_mismatch`.
    - *(Optional)* You can also add `http://localhost/...` only if you test locally; for production
      just the one HTTPS URI.
    - You do **not** need to add an "Authorized JavaScript origin".
+   - **Reusing one client for multiple instances?** A single OAuth client can hold several redirect
+     URIs — just **+ Add URI** another `https://<other-sub>.<domain>/oauth-callback.php` to the same
+     client (and add each sign-in email as a Test user). Click **Save**, then reload the client to
+     confirm the new URI persisted under **Authorized redirect URIs**.
 
    ![Creating the Web application client + redirect URI](../img/google-04-create-web-client.png)
 

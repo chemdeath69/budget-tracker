@@ -135,15 +135,22 @@ still upload the code and should verify.)
 > database on the **MySQL 8** server (the panel lets you choose; MySQL 8 is "8.x").
 
 1. Go to **MySQL Databases** (`/databases`).
-2. Select the **MySQL 8** server, then **Create Database**:
+   - ⚠️ **This page opens on the MySQL 5 view by default** (the URL becomes `/databases/5`). Click the
+     **MySQL 8** tab — or just open **`/databases/8`** directly — *before* you create anything, so the
+     database lands on the right server. (The active tab also shows in the URL: `/databases/8` = MySQL 8.)
+2. On the **MySQL 8** tab, click **Create new database**. The dialog does the database, the user, and
+   the grant **in one step**:
    - **Database name:** something like `budget`. The panel will **prefix it** with your account, so
      the real name becomes **`<cpuser>_budget`**. *Note the exact final name it shows you.*
-3. **Create a database user** (e.g. `budget`) with a strong password. **Write the password down.**
+   - Choose **add new user** (the default), enter a **username** (e.g. `budget`) + a strong password
+     (use the **Generate** button, then read the value before confirming), and **Create**.
    - ⚠️ **Username quirk:** on this host the **username is NOT prefixed** (it stays `budget`), even
      though the database name *is* prefixed (`<cpuser>_budget`). Using the prefixed name as the
      username gives `1045 Access denied`. **Use exactly what the panel displays for each.**
-4. **Add the user to the database** and grant **ALL PRIVILEGES** (or at minimum
-   `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES`).
+3. The "add new user" option **grants a full privilege set automatically** (SELECT, INSERT, UPDATE,
+   DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES, LOCK TABLES, CREATE TEMPORARY TABLES, …) — no
+   separate add-user/grant step is needed in the UI. (If you instead created the user separately, add
+   it to the database and grant **ALL PRIVILEGES**.) **Write the password down.**
 
 ![Creating the database — be sure the MySQL 8 tab/server is selected](img/hosting-03-db-create.png)
 

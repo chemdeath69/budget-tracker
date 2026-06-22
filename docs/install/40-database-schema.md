@@ -2,7 +2,7 @@
 
 [← Back to the Installation Guide](../INSTRUCTIONS.md)
 
-The app ships its complete schema in **[`www/lib/schema.sql`](../../www/lib/schema.sql)** — **47
+The app ships its complete schema in **[`www/lib/schema.sql`](../../www/lib/schema.sql)** — **48
 tables**, MySQL 8 / InnoDB / `utf8mb4`. On a **fresh install you apply this one file** and you're
 done. (The numbered files in `www/lib/migrations/` are only for *upgrading* an existing database —
 see [Upgrading](#upgrading) at the bottom. You do **not** run them on a fresh install.)
@@ -27,7 +27,7 @@ Pick one:
 2. In the left sidebar, click your database **`<cpuser>_budget`**.
 3. Open the **Import** tab.
 4. **Choose File** → select `www/lib/schema.sql` from your computer → **Go**.
-5. Wait for "Import has been successfully finished". Refresh the sidebar — you should see ~47 tables
+5. Wait for "Import has been successfully finished". Refresh the sidebar — you should see ~48 tables
    (`users`, `items`, `accounts`, `transactions`, `holdings`, …).
 
 ---
@@ -100,7 +100,7 @@ echo implode("\n",$pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN)),"\n";
 ```
 
 Or just look at the table list in phpMyAdmin — open your **`<cpuser>_budget`** database on the
-**MySQL 8** server and you should see ~47 tables (`accounts`, `transactions`, `holdings`, `items`,
+**MySQL 8** server and you should see ~48 tables (`accounts`, `transactions`, `holdings`, `items`,
 `users`, …):
 
 ![phpMyAdmin showing the loaded schema tables on MySQL 8](img/schema-01-phpmyadmin-tables.png)
@@ -126,6 +126,6 @@ migration when upgrading an **existing** database to newer code that added it. T
 
 ## ✅ Checkpoint
 
-- [ ] ~47 tables exist in `<cpuser>_budget` on the **MySQL 8** server.
+- [ ] ~48 tables exist in `<cpuser>_budget` on the **MySQL 8** server.
 
 → Next: **[50 · Cron & first sync](50-cron-and-sync.md)**.

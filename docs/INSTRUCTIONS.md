@@ -96,7 +96,7 @@ Do these **top to bottom**. Each links to a detailed subpage.
 | 3 | [`install/10-hosting-sureserver.md`](install/10-hosting-sureserver.md) | Hosting account, subdomain, MySQL 8 DB + user, PHP 8.3 (Track A or B) |
 | 4 | [`install/20-upload-code.md`](install/20-upload-code.md) | Get the `www/` files onto the server |
 | 5 | [`install/30-config-and-secrets.md`](install/30-config-and-secrets.md) | Create `config.php`, generate encryption keys, fill in your service keys |
-| 6 | [`install/40-database-schema.md`](install/40-database-schema.md) | Load the database schema (47 tables) |
+| 6 | [`install/40-database-schema.md`](install/40-database-schema.md) | Load the database schema (48 tables) |
 | 7 | [`install/50-cron-and-sync.md`](install/50-cron-and-sync.md) | Schedule the nightly sync + run it once |
 | 8 | [`install/60-verify.md`](install/60-verify.md) | Sign in, link a bank, smoke-test every page |
 
