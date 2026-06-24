@@ -42,6 +42,7 @@ function nav_items(): array
 
         // WORTH — net worth & planning.
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend',    'group' => 'worth',    'tab' => 'worth',     'desc' => 'Net worth & composition over time'],
+        ['key' => 'cash',         'href' => '/cash.php',         'label' => 'Cash on hand',  'icon' => 'bank',     'group' => 'worth',    'tab' => 'worth',     'desc' => 'Liquid checking + savings over time'],
         ['key' => 'cashflow',     'href' => '/cashflow.php',     'label' => 'Cash flow',     'icon' => 'flow',     'group' => 'worth',    'tab' => 'worth',     'desc' => 'Income vs expense by month'],
         ['key' => 'forecast',     'href' => '/forecast.php',     'label' => 'Cash forecast', 'icon' => 'forecast', 'group' => 'worth',    'tab' => 'worth',     'desc' => 'Projected balance, next 30–90 days'],
         ['key' => 'goals',        'href' => '/goals.php',        'label' => 'Savings goals', 'icon' => 'target',   'group' => 'worth',    'tab' => 'worth',     'desc' => 'Savings targets & progress'],
@@ -124,6 +125,7 @@ function nav_area_chips(): array
         ],
         'worth' => [
             ['key' => 'networth',  'href' => '/networth.php',  'label' => 'Overview'],
+            ['key' => 'cash',      'href' => '/cash.php',      'label' => 'Cash on hand'],
             ['key' => 'cashflow',  'href' => '/cashflow.php',  'label' => 'Cash flow'],
             ['key' => 'forecast',  'href' => '/forecast.php',  'label' => 'Forecast'],
             ['key' => 'goals',     'href' => '/goals.php',     'label' => 'Goals'],

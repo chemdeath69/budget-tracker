@@ -35,6 +35,7 @@ function dash_widgets(): array
 {
     return [
         'net_worth'     => ['label' => 'Net worth',     'desc' => 'Total · assets/liabilities · trend', 'size' => 'ft', 'icon' => 'trend'],
+        'cash_on_hand'  => ['label' => 'Cash on hand',  'desc' => 'Checking + savings, over time',       'size' => 'wd', 'icon' => 'bank'],
         'safe_to_spend' => ['label' => 'Safe to spend', 'desc' => "What's left to spend this month",     'size' => 'ft', 'icon' => 'wallet'],
         'cash_flow'     => ['label' => 'Cash flow',     'desc' => 'Net + savings rate, 6 months',        'size' => 'sm', 'icon' => 'flow'],
         'investments'   => ['label' => 'Investments',   'desc' => 'Value + gain/loss',                   'size' => 'sm', 'icon' => 'invest'],

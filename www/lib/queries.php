@@ -632,6 +632,51 @@ function q_networth_composition(PDO $pdo, int $days = 365): array
     return ['labels' => $labels, 'series' => $out, 'current' => $current, 'net' => $net];
 }
 
+/**
+ * Liquid CASH on hand over time — the per-day sum of the viewer's checking + savings
+ * balances. VIS-scoped (the viewer's own accounts), unlike q_networth_composition's Cash
+ * band (which is household-wide). Read at READ time from account_balance_history (one row
+ * per account per day, written by the nightly cron for every non-hidden account).
+ *
+ * "Cash" = accounts whose account_group() is 'checking' or 'savings' — the SAME definition
+ * forecast.php uses (FORECAST_CASH_GROUPS), so this agrees with the cash forecast. The
+ * checking-vs-savings split is by subtype, so we bucket in PHP (like q_networth_composition)
+ * rather than in SQL. Plaid maps money-market / CD / cash-management into the 'savings'
+ * bucket, so those count too (consistent with the rest of the app; surfaced as a caveat on
+ * the page).
+ *
+ * Single :from + :uid bind (the VIS clause's :uid appears once) → HY093-safe; the window is a
+ * PHP app-TZ date, never MySQL CURDATE() (the S24 PDT-vs-EDT trap).
+ *
+ * Returns [['snapshot_date' => 'YYYY-MM-DD', 'balance' => float], …] date-ascending.
+ */
+function q_cash_history(PDO $pdo, int $uid, int $days = 365): array
+{
+    $from = (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d');
+    // account_group() needs type/subtype/retirement_flag/manual_type (the retirement classifier).
+    $st = $pdo->prepare(
+        "SELECT abh.snapshot_date, abh.balance,
+                a.type, a.subtype, a.retirement_flag, i.manual_type
+         FROM account_balance_history abh
+         JOIN accounts a ON a.account_id = abh.account_id
+         JOIN items i ON i.item_id = a.item_id
+         WHERE " . VIS . " AND abh.snapshot_date >= :from
+         ORDER BY abh.snapshot_date ASC"
+    );
+    $st->execute([':uid' => $uid, ':from' => $from]);
+
+    $byDate = [];   // 'YYYY-MM-DD' => running cash total
+    foreach ($st->fetchAll() as $r) {
+        if (!in_array(account_group($r), ['checking', 'savings'], true)) continue;
+        $d = (string)$r['snapshot_date'];
+        $byDate[$d] = ($byDate[$d] ?? 0.0) + (float)$r['balance'];
+    }
+
+    $out = [];
+    foreach ($byDate as $d => $bal) $out[] = ['snapshot_date' => $d, 'balance' => round($bal, 2)];
+    return $out;   // already date-ascending (ORDER BY)
+}
+
 /** Spending by category over the last $days days (TRUE expense — outflows only).
  *  Session 86: applies the SAME true-expense exclusions as every other spend read
  *  (transfers via expense_exclude_clause + credit-card payments) so the by-category

@@ -96,6 +96,42 @@ if ($active('net_worth')) {
             'values' => array_map('floatval', array_column($snaps, 'net_worth'))] : null,
     ];
 }
+if ($active('cash_on_hand')) {
+    // Liquid cash = the live checking + savings balances already loaded in $accounts
+    // (no extra query for the current figure); the trend/30d-delta comes from ABH.
+    $cashTotal = 0.0; $cashCount = 0;
+    foreach ($accounts as $a) {
+        if (in_array(account_group($a), ['checking', 'savings'], true)) {
+            $cashTotal += (float)($a['balance_current'] ?? 0);
+            $cashCount++;
+        }
+    }
+    if ($cashCount > 0) {
+        $cashHist = q_cash_history($pdo, $uid, 365);
+        $sub = '';
+        if (count($cashHist) > 1) {
+            // 30-day delta: current vs the latest history point on/before ~30 days ago.
+            // Only shown when a ~30-day-old baseline actually exists (no fallback to the
+            // earliest point — labeling a 17-day-old baseline "30d" would mislead).
+            $cut  = (new DateTimeImmutable('today'))->modify('-30 day')->format('Y-m-d');
+            $prev = null;
+            foreach ($cashHist as $h) { if ($h['snapshot_date'] <= $cut) $prev = (float)$h['balance']; else break; }
+            if ($prev !== null && abs($prev) >= 1.0) {
+                $pct = ($cashTotal - $prev) / abs($prev) * 100;
+                $up  = $pct >= 0;
+                $sub = '<span class="' . ($up ? 'pos' : 'neg') . '">' . ($up ? '▲' : '▼') . ' ' . number_format(abs($pct), 1) . '%</span> · 30d';
+            }
+        }
+        $sub .= ($sub ? ' · ' : '') . $cashCount . ' account' . ($cashCount === 1 ? '' : 's');
+        $widgets['cash_on_hand'] = [
+            'href' => '/cash.php', 'eyebrow' => 'Cash on hand',
+            'value' => usd($cashTotal), 'sub' => $sub,
+            'spark' => count($cashHist) > 1 ? ['id' => 'cash-spark-data',
+                'labels' => array_column($cashHist, 'snapshot_date'),
+                'values' => array_map(fn($h) => (float)$h['balance'], $cashHist)] : null,
+        ];
+    }
+}
 if ($active('safe_to_spend')) {
     $widgets['safe_to_spend'] = [
         'href' => '/safe_to_spend.php', 'eyebrow' => 'Safe to spend',
