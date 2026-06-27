@@ -169,7 +169,11 @@ render_header('Settings', 'settings', ['narrow' => true]);
     <div class="rows">
         <?php foreach ($adminBanks as $a):
             $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
-            $ownerNm = owner_first_name($a['owner_id'] ?? null); ?>
+            $ownerNm = owner_first_name($a['owner_id'] ?? null);
+            // DESTRUCTIVE Remove is offered only when EVERY account on this bank is shared,
+            // so the admin can see everything that would be deleted (the server enforces it too).
+            $itemTotal  = (int)($a['item_total_accounts'] ?? 0);
+            $allShared  = $itemTotal > 0 && $itemTotal === (int)($a['item_shared_accounts'] ?? 0); ?>
         <div class="row manage-row">
             <span class="row-main">
                 <span class="row-title"><?= e($a['name'] ?: 'Account') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?></span>
@@ -178,6 +182,12 @@ render_header('Settings', 'settings', ['narrow' => true]);
             <span class="manage-controls">
                 <button type="button" class="btn-ghost sm" data-refresh data-item="<?= e($a['item_id']) ?>">Refresh</button>
                 <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
+                <?php if ($allShared): ?>
+                <button type="button" class="btn-ghost sm danger" data-unlink data-kind="plaid"
+                        data-item="<?= e($a['item_id']) ?>"
+                        data-institution="<?= e($a['institution_name'] ?: 'this bank') ?>"
+                        data-accounts="<?= $itemTotal ?>">Remove</button>
+                <?php endif; ?>
             </span>
         </div>
         <?php endforeach; ?>

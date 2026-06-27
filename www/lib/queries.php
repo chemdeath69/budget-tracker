@@ -294,6 +294,11 @@ function q_owned_accounts(PDO $pdo, int $uid): array
  * account has no re-link). The caller MUST gate this on is_admin() — this helper
  * does not check the role itself. One row per account (mirrors q_owned_accounts);
  * a multi-account bank shows each of its shared accounts.
+ *
+ * Each row also carries per-Item counts (`item_total_accounts` over ALL visibilities +
+ * `item_shared_accounts`) so the caller can offer the DESTRUCTIVE admin Remove only when
+ * every account on the Item is shared (total === shared) — never wiping a private/hidden
+ * account the admin can't see — and show the true total in the confirm.
  */
 function q_household_relinkable_accounts(PDO $pdo, int $uid): array
 {
@@ -301,7 +306,9 @@ function q_household_relinkable_accounts(PDO $pdo, int $uid): array
         "SELECT a.account_id, " . ACCT_NAME . " AS name, a.official_name, a.mask, a.type, a.subtype,
                 a.visibility, i.institution_name, i.institution_id,
                 i.user_id AS owner_id, i.item_id, i.status AS item_status,
-                i.error_code, i.source, i.manual_type
+                i.error_code, i.source, i.manual_type,
+                (SELECT COUNT(*) FROM accounts a2 WHERE a2.item_id = i.item_id) AS item_total_accounts,
+                (SELECT COUNT(*) FROM accounts a3 WHERE a3.item_id = i.item_id AND a3.visibility = 'shared') AS item_shared_accounts
          FROM accounts a JOIN items i ON a.item_id = i.item_id
          WHERE i.user_id <> :uid
            AND a.visibility = 'shared'

@@ -19,8 +19,11 @@
  *   3. Rewrite the household net-worth snapshot so the removal shows immediately.
  *
  * Owner-only (mirrors rename/visibility/cadence): only the user who linked/created the
- * Item may remove it. (settings.php only lists the viewer's own items, so the button is
- * never shown for someone else's account, but the server enforces it regardless.)
+ * Item may remove it — EXCEPT an admin may remove another member's Item when EVERY account
+ * on it is shared (so the admin can see everything that will be deleted; never silently
+ * destroys a private/hidden account they can't see). Mirrors the shared-only admin re-link
+ * scope (Session 95). settings.php's "Other members' banks" section surfaces the button only
+ * for all-shared items, but the server enforces it regardless.
  */
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/db.php';
@@ -67,9 +70,24 @@ $st->execute([$itemId]);
 $item = $st->fetch();
 if (!$item) { http_response_code(404); echo json_encode(['error' => 'account not found']); exit; }
 if ((int)$item['user_id'] !== $uid) {
-    http_response_code(403);
-    echo json_encode(['error' => 'only the owner can remove this account']);
-    exit;
+    // An admin may remove another member's bank ONLY when every account on the Item is
+    // shared — so they can see everything that will be deleted (never silently destroy a
+    // private/hidden account they can't see). Mirrors the shared-only admin re-link scope.
+    $okAdmin = false;
+    if (is_admin()) {
+        $vc = $pdo->prepare(
+            "SELECT COUNT(*) AS total, SUM(visibility = 'shared') AS shared
+             FROM accounts WHERE item_id = ?"
+        );
+        $vc->execute([$itemId]);
+        $vrow = $vc->fetch();
+        $okAdmin = (int)$vrow['total'] > 0 && (int)$vrow['total'] === (int)$vrow['shared'];
+    }
+    if (!$okAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'only the owner can remove this account']);
+        exit;
+    }
 }
 $institution = (string)($item['institution_name'] ?: 'this account');
 $isPlaid     = (($item['source'] ?? 'plaid') === 'plaid');
