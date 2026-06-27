@@ -39,16 +39,13 @@ docs/provisioning.md
 docs/hosting.md
 docs/plaid_info.md
 docs/spec.md
-docs/TODO.md
-docs/TODO2.md
-docs/gaps.md
-docs/plan.md
 docs/requirements.md
-docs/retirement_plan.md
 docs/DesignPlan.md
-docs/ui-review-2026-06-18.md
 docs/design-previews/
 docs/install/OPTIONAL-KEYS-PLAN.md
 docs/install/WALKTHROUGH-PROGRESS.md
 docs/install/reference/
 deploy.sh
+
+# Retired/archived historical planning docs (local-only memory)
+docs/archive/
