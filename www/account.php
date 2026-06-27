@@ -28,6 +28,11 @@ $isVehicle = ($acct['type'] ?? '') === 'vehicle';                  // manual veh
 $vehicle = $isVehicle ? q_vehicle_asset($pdo, $accountId) : null;
 $stmtStatus = ($manual && !$isVehicle) ? manual_account_status($pdo, $acct) : null; // overdue-statement check (null = not monitored)
 $bal     = (float)($acct['balance_current'] ?? 0);
+// Re-link (Plaid update mode) is normally owner-only. An ADMIN may also re-link a
+// SHARED bank owned by someone else, on their behalf (Session 94) — never a private/
+// hidden one (they can't see it anyway) and never a manual account (no re-link).
+$adminRelink = !$owner && !$manual && ($acct['visibility'] ?? '') === 'shared' && is_admin();
+$canRelink   = (!$manual && $owner) || $adminRelink;
 $catOptions = transaction_category_options($pdo, $uid);
 
 // Transactions: server-side filters (scoped to this account) + pagination.
@@ -120,7 +125,7 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
 <?php if ($errored): ?>
     <div class="notice warn">
         This connection needs attention<?= $acct['error_code'] ? ' (' . e($acct['error_code']) . ')' : '' ?>.
-        <?php if ($owner): ?><a href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link now ›</a><?php endif; ?>
+        <?php if ($canRelink): ?><a href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link now ›</a><?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -467,6 +472,20 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
         <a class="btn-ghost" href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link</a>
     </div>
     <?php endif; ?>
+</section>
+<?php endif; ?>
+
+<?php /* Admin re-link of a SHARED bank owned by someone else (the owner Manage card above is owner-only). */ ?>
+<?php if ($adminRelink): ?>
+<section class="card">
+    <p class="rail-head">Manage</p>
+    <div class="control-row">
+        <div>
+            <strong>Connection</strong>
+            <div class="muted">As an admin, re-link this shared bank to fix a connection error<?= $acctOwner !== '' ? ', on behalf of ' . e($acctOwner) : '' ?>.</div>
+        </div>
+        <a class="btn-ghost" href="/link.php?item_id=<?= e(urlencode($acct['item_id'])) ?>">Re-link</a>
+    </div>
 </section>
 <?php endif; ?>
 

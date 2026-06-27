@@ -18,8 +18,23 @@ try {
     $itemId = $_GET['item_id'] ?? null;
     if ($itemId) {
         require __DIR__ . '/../lib/crypto.php';
-        $stmt = db()->prepare('SELECT access_token_enc, institution_id FROM items WHERE item_id = ? AND user_id = ?');
-        $stmt->execute([$itemId, current_user_id()]);
+        // The owner can always re-link their own Item. An ADMIN may additionally
+        // re-link any Item that exposes a SHARED account (the accounts they can see
+        // — never another user's private/hidden bank); see q_household_relinkable_accounts.
+        if (is_admin()) {
+            $stmt = db()->prepare(
+                "SELECT i.access_token_enc, i.institution_id
+                   FROM items i
+                  WHERE i.item_id = :item
+                    AND ( i.user_id = :uid
+                          OR EXISTS (SELECT 1 FROM accounts a
+                                      WHERE a.item_id = i.item_id AND a.visibility = 'shared') )"
+            );
+            $stmt->execute([':item' => $itemId, ':uid' => current_user_id()]);
+        } else {
+            $stmt = db()->prepare('SELECT access_token_enc, institution_id FROM items WHERE item_id = :item AND user_id = :uid');
+            $stmt->execute([':item' => $itemId, ':uid' => current_user_id()]);
+        }
         $row = $stmt->fetch();
         if (!$row) { http_response_code(404); echo json_encode(['error' => 'item not found']); exit; }
         $accessToken = decrypt_secret($row['access_token_enc']);

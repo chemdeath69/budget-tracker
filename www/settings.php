@@ -17,6 +17,8 @@ $owned  = q_owned_accounts($pdo, $uid);
 // per-Item, so it deletes every account of that bank, not just the clicked row).
 $itemAcctCount = [];
 foreach ($owned as $a) { $itemAcctCount[$a['item_id']] = ($itemAcctCount[$a['item_id']] ?? 0) + 1; }
+// Shared banks owned by OTHER members that an admin may re-link/refresh (Session 94).
+$adminBanks = $admin ? q_household_relinkable_accounts($pdo, $uid) : [];
 $alerts = q_alert_settings($pdo);   // household-shared notification prefs (TODO #14)
 $theme  = user_prefs_theme(q_user_prefs($pdo, $uid));  // per-user Light/Dark/Auto (Phase 2)
 $home   = home_config($pdo);        // UI-managed home/property setup (migration 031)
@@ -153,6 +155,29 @@ render_header('Settings', 'settings', ['narrow' => true]);
                             data-accounts="<?= (int)($itemAcctCount[$a['item_id']] ?? 1) ?>">Remove</button>
                     <?php endif; ?>
                 <?php endif; ?>
+            </span>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- Other members' banks (admin-only — re-link/refresh SHARED banks on their behalf, Session 94) -->
+<?php if ($admin && $adminBanks): ?>
+<section class="block">
+    <div class="block-head"><h2>Other members&rsquo; banks</h2><span class="muted">Admin · re-link &amp; refresh</span></div>
+    <div class="rows">
+        <?php foreach ($adminBanks as $a):
+            $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
+            $ownerNm = owner_first_name($a['owner_id'] ?? null); ?>
+        <div class="row manage-row">
+            <span class="row-main">
+                <span class="row-title"><?= e($a['name'] ?: 'Account') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?></span>
+                <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $ownerNm !== '' ? ' · ' . e($ownerNm) : '' ?><?= $errored ? ' · <span class="mini-tag warn">needs attention</span>' : '' ?></span>
+            </span>
+            <span class="manage-controls">
+                <button type="button" class="btn-ghost sm" data-refresh data-item="<?= e($a['item_id']) ?>">Refresh</button>
+                <a class="btn-ghost sm" href="/link.php?item_id=<?= e(urlencode($a['item_id'])) ?>">Re-link</a>
             </span>
         </div>
         <?php endforeach; ?>

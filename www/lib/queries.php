@@ -287,6 +287,32 @@ function q_owned_accounts(PDO $pdo, int $uid): array
 }
 
 /**
+ * Shared Plaid accounts owned by OTHER household members — the set an ADMIN may
+ * re-link / refresh on their behalf (Session 94). Privacy-preserving: ONLY
+ * visibility='shared' accounts (never another user's private/hidden bank, which
+ * an admin can't see anywhere else either) and ONLY Plaid sources (a manual
+ * account has no re-link). The caller MUST gate this on is_admin() — this helper
+ * does not check the role itself. One row per account (mirrors q_owned_accounts);
+ * a multi-account bank shows each of its shared accounts.
+ */
+function q_household_relinkable_accounts(PDO $pdo, int $uid): array
+{
+    $st = $pdo->prepare(
+        "SELECT a.account_id, " . ACCT_NAME . " AS name, a.official_name, a.mask, a.type, a.subtype,
+                a.visibility, i.institution_name, i.institution_id,
+                i.user_id AS owner_id, i.item_id, i.status AS item_status,
+                i.error_code, i.source, i.manual_type
+         FROM accounts a JOIN items i ON a.item_id = i.item_id
+         WHERE i.user_id <> :uid
+           AND a.visibility = 'shared'
+           AND i.source = 'plaid'
+         ORDER BY i.institution_name, a.name"
+    );
+    $st->execute([':uid' => $uid]);
+    return $st->fetchAll();
+}
+
+/**
  * Net-worth / assets / liabilities / count from an accounts array.
  * $extraAssets folds in non-account assets (e.g. the estimated home value) so net
  * worth nets the mortgage against the house instead of only subtracting the debt.
