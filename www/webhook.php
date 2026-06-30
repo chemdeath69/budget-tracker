@@ -44,12 +44,45 @@ if (!$itemId) exit;
 // runs — otherwise the body isn't flushed until the script ends and a slow sync
 // can exceed Plaid's webhook timeout, triggering retries. Under PHP-FPM
 // fastcgi_finish_request closes the request immediately; else flush the buffers.
+// (Orphan detection + the syncs below all run AFTER this ack so none can delay it.)
 ignore_user_abort(true);
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
     while (ob_get_level() > 0) ob_end_flush();
     flush();
+}
+
+// Untracked-item detection (Session 96). A VERIFIED webhook for an item_id that is
+// NOT in our `items` table is an ORPHAN — almost always an abandoned Link session
+// (Plaid created the Item but the public_token was never exchanged into our DB, so we
+// never received its access_token). Plaid has no list-items API, so a webhook is the
+// ONLY way we ever discover such an Item. We CANNOT clean it up programmatically:
+// /item/remove requires the access_token, which Plaid never returns from an item_id.
+// So the best we can do is surface it — log a warning + (once, on first sighting) email
+// the household, gated on the connection-alert toggle. The full orphan list is shown on
+// Activity → Sync status (q_orphan_webhook_items). The type handlers below would simply
+// find no row and no-op, so we exit here.
+$known = $pdo->prepare('SELECT 1 FROM items WHERE item_id = ?');
+$known->execute([$itemId]);
+if (!$known->fetchColumn()) {
+    error_log("Plaid webhook for UNTRACKED item $itemId ($type/$code) — orphan; cannot /item/remove (no access token).");
+    // Dedup to one alert per orphan: we just inserted this webhook_log row, so a total
+    // count of 1 for this item_id means this is its first-ever sighting.
+    $cnt = $pdo->prepare('SELECT COUNT(*) FROM webhook_log WHERE item_id = ?');
+    $cnt->execute([$itemId]);
+    if ((int)$cnt->fetchColumn() === 1) {
+        require_once __DIR__ . '/lib/mailer.php';
+        $ac = alert_settings($pdo);
+        if (!empty($ac['email_enabled']) && !empty($ac['connection_alert_enabled'])) {
+            send_alert('Untracked Plaid item received a webhook',
+                "Plaid sent a $type/$code webhook for item $itemId, which is not one of your linked banks.\n\n" .
+                "This is usually a bank-link attempt that was started but never finished connecting. It can't be " .
+                "removed automatically — Plaid only allows removing an Item with its access token, which we never " .
+                "received. It's dormant and won't sync. See Activity → Sync status for the full list.");
+        }
+    }
+    exit;
 }
 
 $triggers = ['SYNC_UPDATES_AVAILABLE', 'DEFAULT_UPDATE', 'INITIAL_UPDATE', 'HISTORICAL_UPDATE', 'TRANSACTIONS_REMOVED'];

@@ -47,6 +47,24 @@ $ts = date('Y-m-d H:i:s T');
 echo "[$ts] cron sync start — " . count($items) . " item(s)\n";
 
 foreach ($items as $item) {
+    // Force Plaid to re-poll the bank for brand-new activity BEFORE we sync
+    // (added 2026-06-30). /transactions/sync only ever returns what Plaid has
+    // already cached — without this kick a quiet item just keeps returning
+    // +0/+0/+0 until Plaid's own background poll happens to run, so a freshly
+    // linked bank can look "frozen" for days. /transactions/refresh is ASYNC:
+    // brand-new charges arrive via the follow-up SYNC_UPDATES_AVAILABLE webhook a
+    // few minutes later (its sync_item shares the same advisory lock, so no race),
+    // while the balance read in this run's sync_item is already fresh. Best-effort
+    // — an institution that doesn't support on-demand refresh (PRODUCTS_NOT_SUPPORTED,
+    // e.g. Capital One) or a broken connection (ITEM_LOGIN_REQUIRED) just no-ops
+    // here; the sync_item below still records the item's real status/error.
+    try {
+        $tok = decrypt_secret($item['access_token_enc']);
+        if ($tok !== null) plaid_refresh_transactions($tok);
+    } catch (Throwable $e) {
+        if (!plaid_benign($e)) error_log('cron refresh ' . $item['item_id'] . ': ' . $e->getMessage());
+    }
+
     // Belt-and-suspenders: sync_item() already catches its own Throwables, but
     // guard here too so no single item can ever abort the loop and skip the
     // post-loop snapshot / balance-history / price / home-value steps below.
@@ -56,7 +74,32 @@ foreach ($items as $item) {
         $r = ['ok' => false, 'error' => $e->getMessage()];
     }
     if (!empty($r['ok'])) {
-        $msg = "+{$r['added']} added / ~{$r['modified']} modified / -{$r['removed']} removed";
+        // Feed-freshness probe (observability, added 2026-06-30). A bare
+        // "+0/+0/+0" can't distinguish "Plaid genuinely has nothing new" from a
+        // STALE feed (Plaid not re-polling the bank — /transactions/sync only
+        // returns what Plaid already cached; only /transactions/refresh or Plaid's
+        // own background poll surfaces a brand-new charge). Recording the newest
+        // stored transaction date + its age makes a frozen feed obvious at a glance
+        // in cron.log AND on the Sync-status page (activity.php). Best-effort —
+        // never break the run. App-TZ date math in PHP (NOT MySQL CURDATE/DATEDIFF,
+        // which would read EDT at ~22:13 PDT fire time — the S24 trap).
+        $freshNote = '';
+        try {
+            $fp = $pdo->prepare(
+                "SELECT MAX(t.date) AS newest, COUNT(*) AS n
+                 FROM transactions t JOIN accounts a ON t.account_id = a.account_id
+                 WHERE a.item_id = ?"
+            );
+            $fp->execute([$item['item_id']]);
+            $f = $fp->fetch();
+            if ($f && $f['newest'] !== null) {
+                $ageD = (int) floor((strtotime(date('Y-m-d')) - strtotime((string)$f['newest'])) / 86400);
+                $freshNote = " (newest tx {$f['newest']}, {$ageD}d ago, {$f['n']} total)";
+            } elseif ($f) {
+                $freshNote = ' (no transactions stored)';
+            }
+        } catch (Throwable $e) { /* observability only */ }
+        $msg = "+{$r['added']} added / ~{$r['modified']} modified / -{$r['removed']} removed{$freshNote}";
         echo "  item {$item['item_id']}: {$msg}\n";
         sync_run_step($pdo, $runId, "item:{$item['item_id']}", true, $msg, $item['institution_name'] ?? null);
     } else {

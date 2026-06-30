@@ -3870,3 +3870,35 @@ function q_connection_status(PDO $pdo): array
         return [];
     }
 }
+
+/**
+ * Untracked Plaid "orphan" items (Session 96): item_ids Plaid has sent us a webhook
+ * for that are NOT in our `items` table. These are the only Plaid-side Items we can
+ * DISCOVER (Plaid has no list-items API) — typically abandoned Link sessions (created
+ * at Plaid, never exchanged into our DB, so we never held an access_token → we cannot
+ * /item/remove them). Household-wide diagnostic, surfaced admin-only on activity.php;
+ * NOT VIS-scoped. Best-effort (returns [] if webhook_log/items is somehow unavailable).
+ */
+function q_orphan_webhook_items(PDO $pdo): array
+{
+    try {
+        $st = $pdo->query(
+            "SELECT w.item_id,
+                    COUNT(*)                                              AS hits,
+                    SUM(w.verified)                                       AS verified_hits,
+                    MIN(w.created_at)                                     AS first_seen,
+                    MAX(w.created_at)                                     AS last_seen,
+                    TIMESTAMPDIFF(SECOND, MAX(w.created_at), NOW())       AS last_age_s,
+                    GROUP_CONCAT(DISTINCT CONCAT(w.webhook_type, ':', w.webhook_code)
+                        ORDER BY w.webhook_type SEPARATOR ', ')           AS kinds
+               FROM webhook_log w
+               LEFT JOIN items i ON i.item_id = w.item_id
+              WHERE w.item_id IS NOT NULL AND i.item_id IS NULL
+              GROUP BY w.item_id
+              ORDER BY MAX(w.created_at) DESC"
+        );
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+}

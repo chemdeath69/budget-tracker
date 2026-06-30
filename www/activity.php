@@ -140,6 +140,44 @@ render_header('Activity & diagnostics', 'activity', ['back' => '/settings.php'])
         <?php render_pager($runPage, $runHasNext, ['view' => 'sync'], 'runpage'); ?>
     </section>
 
+    <?php
+    // Untracked Plaid items (orphans) — admin-only diagnostic (Session 96). item_ids
+    // Plaid has webhooked us about that aren't among our linked banks (abandoned Link
+    // sessions). We can't remove them programmatically (no access_token), so we just
+    // surface them; cleanup is a manual Plaid Dashboard / Support action.
+    if (is_admin()):
+        $orphans = q_orphan_webhook_items($pdo);
+        if ($orphans): ?>
+        <section class="block">
+            <div class="block-head"><h2>Untracked Plaid items</h2>
+                <span class="muted"><?= count($orphans) ?> not tracked</span>
+            </div>
+            <div class="notice warn">
+                These Plaid Items sent a webhook but aren't among your linked banks — usually a
+                bank-link attempt that was started but never finished connecting. They're dormant
+                (they don't sync). They <strong>can't be removed automatically</strong>: Plaid only
+                allows removing an Item with its access token, which was never received. To clear
+                them, look the IDs up in Plaid's <strong>Item Debugger</strong> and contact Plaid
+                support if needed. <em>Note: Plaid has no API to list every Item, so this shows only
+                orphans that have sent a webhook — the Plaid Dashboard is the source of truth for the
+                full count.</em>
+            </div>
+            <?php foreach ($orphans as $o): ?>
+                <div class="card actv-conn is-bad">
+                    <div class="actv-conn-main">
+                        <span class="actv-name"><?= e($o['item_id']) ?></span>
+                        <span class="actv-sub muted">
+                            <?= (int)$o['hits'] ?> webhook<?= (int)$o['hits'] === 1 ? '' : 's' ?>
+                            · last <?= e(activity_ago($o['last_age_s'] === null ? null : (int)$o['last_age_s'])) ?>
+                            · <?= e($o['kinds']) ?>
+                        </span>
+                    </div>
+                    <span class="actv-badge bad">Untracked</span>
+                </div>
+            <?php endforeach; ?>
+        </section>
+    <?php endif; endif; ?>
+
 <?php else: /* access log */ ?>
 
     <?php
