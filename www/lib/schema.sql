@@ -430,6 +430,42 @@ CREATE TABLE webhook_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- archived_items — permanent record of REMOVED Items (migration 033). Our destroy
+-- paths (api/unlink.php, api/factory_reset.php) purge the live items/accounts rows;
+-- this snapshots each Item FIRST (item_id + still-encrypted access_token + institution
+-- + a JSON snapshot of its accounts) so we can always look a connection up later for a
+-- Plaid support ticket. Plaid has no list-items API + no token-from-item_id recovery, so
+-- once our row is gone it's gone forever without this. NEVER purged (NOT in the factory-
+-- reset wipe list). No FK (survive a user delete / accounts churn). Written by
+-- archive_item() (lib/sync.php), best-effort.
+-- ---------------------------------------------------------------------------
+CREATE TABLE archived_items (
+  id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  item_id            VARCHAR(64)  NOT NULL,          -- Plaid item_id or mnl_… (NOT unique — relink/remove cycles)
+  user_id            INT UNSIGNED NULL,              -- original owner (no FK — survive a user delete)
+  source             VARCHAR(16)  NULL,              -- plaid | manual
+  manual_type        VARCHAR(32)  NULL,
+  institution_id     VARCHAR(64)  NULL,
+  institution_name   VARCHAR(255) NULL,
+  access_token_enc   VARBINARY(512) NULL,            -- still-encrypted token at archive time (dead after /item/remove)
+  status             VARCHAR(32)  NULL,
+  error_code         VARCHAR(64)  NULL,
+  consent_expiration DATETIME NULL,
+  item_created_at    DATETIME NULL,                  -- original items.created_at
+  last_synced_at     DATETIME NULL,
+  account_count      INT NOT NULL DEFAULT 0,
+  accounts_json      JSON NULL,                      -- snapshot of the Item's accounts at archive time
+  archive_reason     VARCHAR(32)  NOT NULL,          -- unlink | factory_reset
+  plaid_removed      TINYINT(1)   NOT NULL DEFAULT 0,
+  archived_by        INT UNSIGNED NULL,
+  archived_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_architems_item (item_id),
+  KEY idx_architems_inst (institution_name),
+  KEY idx_architems_when (archived_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- manual_documents — one row per ingested document for a manual account.
 -- The (account_id, doc_type, period_key) UNIQUE is the dedup "bucket": one slot
 -- per monthly statement ('2026-05') or tax year ('2025'). Re-uploading the same

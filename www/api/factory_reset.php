@@ -14,7 +14,9 @@
  *
  * KEEPS (never touched): users + roles, user_prefs (theme/dashboard), the audit/log
  * tables (access_log, sync_run/sync_run_step, sync_log, webhook_log, alert_log),
- * the notification toggles (alert_settings), and the macro cache (fred_series).
+ * the notification toggles (alert_settings), the macro cache (fred_series), and the
+ * permanent removed-Item archive (archived_items — every wiped Item is snapshotted into
+ * it FIRST so its item_id / token / account metadata survive for support/audit).
  *
  * Body (JSON): { confirm: "FACTORY RESET", force?: bool }
  * Guarded by: auth + CSRF + is_admin() + the exact confirm phrase.
@@ -47,8 +49,9 @@ if (trim((string)($in['confirm'] ?? '')) !== 'FACTORY RESET') {
 access_log_action($pdo, $uid, 'factory_reset', $force ? 'start_force' : 'start', null);   // audit (best-effort)
 
 // 1) Revoke every Plaid Item at Plaid. Benign codes = success; others collected.
-$revoked = 0;
-$failed  = [];
+$revoked    = 0;
+$revokedIds = [];
+$failed     = [];
 try {
     $items = $pdo->query("SELECT item_id, source, access_token_enc, institution_name FROM items")->fetchAll();
 } catch (Throwable $e) {
@@ -61,11 +64,11 @@ foreach ($items as $it) {
     if (!$token) { $revoked++; continue; }
     try {
         plaid_item_remove($token);
-        $revoked++;
+        $revoked++; $revokedIds[] = $it['item_id'];
     } catch (PlaidException $e) {
         $code = $e->plaidCode ?? '';
         if (in_array($code, ['ITEM_NOT_FOUND', 'INVALID_ACCESS_TOKEN'], true)) {
-            $revoked++;   // already gone at Plaid
+            $revoked++; $revokedIds[] = $it['item_id'];   // already gone at Plaid
         } else {
             error_log('factory_reset: plaid /item/remove failed for ' . $it['item_id'] . ' — ' . $e->getMessage());
             $failed[] = $label;
@@ -84,6 +87,17 @@ if ($failed && !$force) {
         'error'      => 'Some banks could not be revoked at Plaid.',
     ]);
     exit;
+}
+
+// 1b) Archive EVERY Item (plaid + manual) into archived_items (migration 033) BEFORE the
+//     wipe, so the item_ids / (encrypted) tokens / institution + account metadata are
+//     retained forever for support/audit. Best-effort per item (never blocks the reset).
+$archived = 0;
+foreach ($items as $it) {
+    if (archive_item($pdo, $it['item_id'], 'factory_reset', $uid,
+            in_array($it['item_id'], $revokedIds, true))) {
+        $archived++;
+    }
 }
 
 // 2) Wipe all financial data + financial settings. Audit/user/log/pref tables are KEPT.
@@ -129,11 +143,12 @@ try { write_networth_snapshot($pdo); } catch (Throwable $e) {
 }
 
 access_log_action($pdo, $uid, 'factory_reset', 'complete',
-    "revoked={$revoked} cleared={$cleared} files={$filesDeleted}");   // audit (best-effort)
+    "revoked={$revoked} archived={$archived} cleared={$cleared} files={$filesDeleted}");   // audit (best-effort)
 
 echo json_encode([
     'ok'             => true,
     'revoked'        => $revoked,
+    'archived'       => $archived,
     'failed'         => $failed,
     'tables_cleared' => $cleared,
     'files_deleted'  => $filesDeleted,

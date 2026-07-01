@@ -132,6 +132,12 @@ if ($isPlaid) {
     }
 }
 
+// 1b) Archive the Item + accounts into archived_items (migration 033) BEFORE the purge,
+//     so the item_id / (encrypted) token / institution / account metadata are retained
+//     forever for support/audit — Plaid can't recover them once our row is gone. Best-
+//     effort (a failure here must not block the removal the user asked for).
+archive_item($pdo, $itemId, 'unlink', $uid, $isPlaid && ($item['access_token_enc'] !== null));
+
 // 2) Local purge — child-first, in one transaction.
 try {
     $pdo->beginTransaction();

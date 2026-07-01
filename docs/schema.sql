@@ -429,6 +429,41 @@ CREATE TABLE webhook_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- archived_items — permanent record of REMOVED Items (migration 033). Our destroy
+-- paths (api/unlink.php, api/factory_reset.php) purge the live items/accounts rows;
+-- this snapshots each Item FIRST (item_id + still-encrypted access_token + institution
+-- + a JSON snapshot of its accounts) so a connection can always be looked up later for a
+-- Plaid support ticket (Plaid has no list-items API + no token-from-item_id recovery).
+-- NEVER purged (NOT in the factory-reset wipe list). No FK. Written by archive_item()
+-- (lib/sync.php), best-effort.
+-- ---------------------------------------------------------------------------
+CREATE TABLE archived_items (
+  id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  item_id            VARCHAR(64)  NOT NULL,
+  user_id            INT UNSIGNED NULL,
+  source             VARCHAR(16)  NULL,
+  manual_type        VARCHAR(32)  NULL,
+  institution_id     VARCHAR(64)  NULL,
+  institution_name   VARCHAR(255) NULL,
+  access_token_enc   VARBINARY(512) NULL,
+  status             VARCHAR(32)  NULL,
+  error_code         VARCHAR(64)  NULL,
+  consent_expiration DATETIME NULL,
+  item_created_at    DATETIME NULL,
+  last_synced_at     DATETIME NULL,
+  account_count      INT NOT NULL DEFAULT 0,
+  accounts_json      JSON NULL,
+  archive_reason     VARCHAR(32)  NOT NULL,
+  plaid_removed      TINYINT(1)   NOT NULL DEFAULT 0,
+  archived_by        INT UNSIGNED NULL,
+  archived_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_architems_item (item_id),
+  KEY idx_architems_inst (institution_name),
+  KEY idx_architems_when (archived_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
 -- manual_documents — one row per ingested document for a manual account.
 -- The (account_id, doc_type, period_key) UNIQUE is the dedup "bucket": one slot
 -- per monthly statement ('2026-05') or tax year ('2025'). Re-uploading the same

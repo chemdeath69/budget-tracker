@@ -490,6 +490,73 @@ function write_networth_snapshot(PDO $pdo): void
     )->execute([':d' => date('Y-m-d'), ':a' => $assets, ':l' => $liabilities, ':n' => $net]);
 }
 
+/**
+ * Snapshot an Item + its accounts into `archived_items` (migration 033) BEFORE the Item
+ * is deleted, so its Plaid item_id, the (still-encrypted) access_token, the institution
+ * and the account metadata are retained FOREVER — for support/audit. Our destroy paths
+ * (api/unlink.php, api/factory_reset.php) purge the live rows, and Plaid offers no way to
+ * recover an item_id or token afterward (no list-items API, no token-from-item_id), so
+ * without this the connection would be unrecoverable for a future Plaid support ticket.
+ *
+ * Best-effort: an archive failure must NEVER block the actual removal (the caller proceeds
+ * regardless). The token is copied verbatim (still encrypted) and never decrypted here; it
+ * is dead anyway once /item/remove has run. Returns true if a row was written.
+ */
+function archive_item(PDO $pdo, string $itemId, string $reason, ?int $archivedBy, bool $plaidRemoved): bool
+{
+    try {
+        $st = $pdo->prepare(
+            'SELECT item_id, user_id, source, manual_type, institution_id, institution_name,
+                    access_token_enc, status, error_code, consent_expiration, created_at, last_synced_at
+             FROM items WHERE item_id = ?'
+        );
+        $st->execute([$itemId]);
+        $it = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$it) return false;
+
+        $ac = $pdo->prepare(
+            'SELECT account_id, name, display_name, official_name, mask, type, subtype,
+                    balance_current, balance_available, balance_limit, iso_currency_code, visibility
+             FROM accounts WHERE item_id = ?'
+        );
+        $ac->execute([$itemId]);
+        $accounts = $ac->fetchAll(PDO::FETCH_ASSOC);
+
+        $ins = $pdo->prepare(
+            'INSERT INTO archived_items
+                (item_id, user_id, source, manual_type, institution_id, institution_name,
+                 access_token_enc, status, error_code, consent_expiration, item_created_at,
+                 last_synced_at, account_count, accounts_json, archive_reason, plaid_removed, archived_by)
+             VALUES (:item,:uid,:src,:mtype,:iid,:iname,:tok,:status,:ecode,:consent,:icreated,
+                     :lsync,:acount,:accounts,:reason,:premoved,:by)'
+        );
+        $ins->execute([
+            ':item'     => $it['item_id'],
+            ':uid'      => $it['user_id'],
+            ':src'      => $it['source'],
+            ':mtype'    => $it['manual_type'],
+            ':iid'      => $it['institution_id'],
+            ':iname'    => $it['institution_name'],
+            ':tok'      => $it['access_token_enc'],
+            ':status'   => $it['status'],
+            ':ecode'    => $it['error_code'],
+            ':consent'  => $it['consent_expiration'],
+            ':icreated' => $it['created_at'],
+            ':lsync'    => $it['last_synced_at'],
+            ':acount'   => count($accounts),
+            ':accounts' => json_encode($accounts),
+            ':reason'   => $reason,
+            ':premoved' => $plaidRemoved ? 1 : 0,
+            ':by'       => $archivedBy,
+        ]);
+        return true;
+    } catch (Throwable $e) {
+        // Never block a removal because the archive write failed.
+        error_log('archive_item failed for ' . $itemId . ': ' . $e->getMessage());
+        return false;
+    }
+}
+
 /** True for Plaid errors that are expected/benign for optional products (no consent,
  *  product not supported, no relevant accounts, data not ready) — not worth logging. */
 function plaid_benign(Throwable $e): bool
