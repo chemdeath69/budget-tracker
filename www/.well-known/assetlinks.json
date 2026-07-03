@@ -1,0 +1,22 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.wotwclan.budget",
+      "sha256_cert_fingerprints": [
+        "E5:BC:3F:CD:19:B5:E3:2C:DE:8C:BF:6F:D2:43:DB:AD:62:08:EE:B8:B8:A4:60:D2:E0:41:43:60:62:CF:57:8B"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.wotwclan.marybudget",
+      "sha256_cert_fingerprints": [
+        "E5:BC:3F:CD:19:B5:E3:2C:DE:8C:BF:6F:D2:43:DB:AD:62:08:EE:B8:B8:A4:60:D2:E0:41:43:60:62:CF:57:8B"
+      ]
+    }
+  }
+]

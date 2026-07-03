@@ -1,0 +1,4 @@
+# Digital Asset Links must be served as application/json for Android verification.
+<Files "assetlinks.json">
+  ForceType application/json
+</Files>
