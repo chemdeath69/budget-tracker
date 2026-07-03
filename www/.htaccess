@@ -20,3 +20,10 @@ RewriteRule ^storage/ - [F]
 
 DirectoryIndex index.php
 Options -Indexes
+
+# Exempt this subdomain from the host's automated browser-challenge rule, which can
+# otherwise intermittently 429 our same-origin JSON API POSTs. Login + CSRF remain the
+# app's security boundary; all other host WAF rules stay in effect.
+<IfModule security2_module>
+SecRuleRemoveById 90000
+</IfModule>
