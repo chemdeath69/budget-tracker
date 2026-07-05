@@ -253,6 +253,48 @@ function assistant_tools(): array
             'description' => 'Latest macro indicators from FRED: CPI (inflation), the 30-year mortgage rate, the 10-year Treasury, and the federal funds rate. Useful for refinance, savings-rate, and inflation context.',
             'input_schema' => $noargs,
         ],
+        [
+            'name'        => 'get_property',
+            'description' => 'The household home + mortgage: current estimated home value, mortgage balance, interest rate, monthly P&I payment, payoff date, equity, loan-to-value, appreciation since purchase, and a refinance comparison of the mortgage rate vs the current market 30-year rate (whether refinancing looks beneficial and the estimated monthly/annual savings). Answers "how much is the house worth", "how much equity do we have", "should we refinance", "when is the mortgage paid off". Returns nothing if no home/mortgage is configured.',
+            'input_schema' => $noargs,
+        ],
+        [
+            'name'        => 'get_allocation',
+            'description' => 'Investment asset allocation: the whole portfolio (taxable + retirement holdings) bucketed into six asset classes (stocks, bonds, cash, crypto, real estate, other) with each class\'s current value and percent, and — if a target mix is set — the target percent, the drift, and rebalance hints (what to trim / add to get back to target). Holdings-based (uninvested brokerage cash isn\'t counted). Answers "what\'s my asset allocation", "am I on target", "am I overweight stocks".',
+            'input_schema' => $noargs,
+        ],
+        [
+            'name'        => 'get_fees',
+            'description' => 'Investment fee analysis: the portfolio\'s weighted-average expense ratio and the projected annual dollar fee drag, plus the biggest individual fee drags. Expense ratios are entered by hand (no live feed), so coverage may be partial — the result reports how much of the portfolio has a ratio entered and the annual fee is a FLOOR until coverage is complete. Answers "what am I paying in investment fees", "what\'s my expense ratio". Caveat any answer with the coverage figure.',
+            'input_schema' => $noargs,
+        ],
+        [
+            'name'        => 'get_dividends',
+            'description' => 'Dividend & interest income across the whole portfolio (taxable + retirement): actual dividend/interest income received year-to-date and over the trailing 12 months, the projected forward annual dividend income from current holdings (latest declared rate × payout frequency), the top dividend-paying holdings, and upcoming ex-dividend dates. Answers "how much do we make in dividends", "what\'s our dividend income this year", "which stocks pay us the most". Projection is an estimate (assumes the latest rate/cadence continues).',
+            'input_schema' => $noargs,
+        ],
+        [
+            'name'        => 'get_security',
+            'description' => 'Detail on ONE security/holding the household owns, looked up by ticker or name: latest price and recent price change, the household\'s position (shares, market value, cost basis, unrealized gain/loss), the money-weighted annualized return (IRR) vs an index benchmark when lot history allows, projected dividend income for the held shares, and upcoming ex-dividend dates. Answers "how is my Apple stock doing", "what\'s our return on VTI", "how many shares of X do we own". Returns "not found" if the household doesn\'t hold that security (never reveals whether it exists elsewhere).',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'ticker' => ['type' => 'string', 'description' => 'The ticker symbol (e.g. "AAPL", "VTI") — preferred. Matched case-insensitively.'],
+                'name'   => ['type' => 'string', 'description' => 'A security name or fragment (e.g. "Apple", "Vanguard Total") when the ticker is unknown. Used only if `ticker` is omitted or doesn\'t match.'],
+            ]],
+        ],
+        [
+            'name'        => 'get_peer_comparison',
+            'description' => 'Compares this household\'s annual spending to the typical U.S. household in a chosen income bracket, using the bundled BLS Consumer Expenditure Survey (2024). Returns, per benchmarked category (food, transportation, healthcare, entertainment, utilities, personal care), your annualized spend vs the typical figure and the difference, plus an overall total. Answers "how does our spending compare to others", "do we spend more than average on dining". Honest-number: only categories with a clean BLS match and tracked spend are compared; brackets are income BEFORE taxes (the user picks the bracket).',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'bracket' => ['type' => 'string', 'enum' => ['q1', 'q2', 'q3', 'q4', 'q5'], 'description' => 'Income quintile to compare against (before taxes): q1 = lowest 20% (under ~$30k), q2 (~$30–57k), q3 = middle (~$57–95k, default), q4 (~$95–156k), q5 = highest 20% (~$156k+). Ask the user their gross household income bracket if it matters; defaults to the middle quintile.'],
+            ]],
+        ],
+        [
+            'name'        => 'get_budget_history',
+            'description' => 'Month-by-month spending history for each budgeted category over the last N months, alongside its monthly limit, this month-to-date spend, and the prior-3-month average — so you can say whether a category is trending over or under budget. Answers "how has our dining budget done over time", "are we consistently over on groceries". Only returns categories that have a budget set.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'months' => $int('Number of months of history', 6, 1, 12),
+            ]],
+        ],
     ];
 }
 
@@ -273,7 +315,8 @@ Rules:
 - Format money as US dollars (e.g. $1,234.56). Round sensibly. Use the user's own words for categories when natural (e.g. "dining" for FOOD_AND_DRINK).
 - You can call several tools, in sequence, to build an answer (e.g. find an account, then its transactions). Be efficient — request only what you need, and prefer one focused query over many broad ones.
 - For counts, totals, or averages over transactions ("how many times did we eat at X", "what did we spend at Y this year", "spend by month"), call aggregate_transactions — it answers in ONE call. NEVER page through search_transactions to count or add up rows.
-- For how spending shifts over time by category (trends, "is dining going up"), call get_spending_trend. There are dedicated tools for planning questions — get_safe_to_spend (what's left to spend this month), get_cash / get_cash_forecast (cash on hand now / projected low), and get_debt_plan (payoff what-ifs, incl. "what if we pay an extra \$X/month") — prefer them over assembling the answer yourself.
+- For how spending shifts over time by category (trends, "is dining going up"), call get_spending_trend. There are dedicated tools for planning questions — get_safe_to_spend (what's left to spend this month), get_cash / get_cash_forecast (cash on hand now / projected low), get_debt_plan (payoff what-ifs, incl. "what if we pay an extra \$X/month"), and get_budget_history (per-category budget vs actual over time) — prefer them over assembling the answer yourself.
+- For investing and home questions, prefer the dedicated tools over raw holdings: get_property (home value, equity, mortgage, refinance), get_allocation (asset mix vs target), get_fees (expense ratios / fee drag), get_dividends (dividend income + projection), get_security (one holding by ticker/name — price, position, return, dividends), and get_peer_comparison (spending vs the typical US household). Several carry honest-number caveats (fee coverage, lot reconciliation, peer bracket) — surface those caveats rather than dropping them.
 - The account, custom-category, and goal names for THIS household are listed at the end of this prompt — use them to scope queries directly (e.g. pass `account` to search/aggregate) instead of calling get_accounts just to discover a name. If an answer leans on current balances or recent activity and the data might be behind, you can call get_data_freshness and caveat accordingly.
 - Merchant/payee names in the data often include punctuation, abbreviations, or extra words the user will NOT type exactly — the bar "O'Aces Bar & Grill" for "OAces", "AMZN MKTP" for Amazon, "SQ *COFFEE" for a coffee shop. So when the user names a place/store/business, do NOT assume a plain search matches: call find_merchants with a short approximate term (it matches ignoring punctuation/spacing/case and tolerates small typos) to discover the real name(s) and visit counts, then answer from those, or pass the exact returned merchant name to search_transactions. The candidate list may contain a few near-misses — examine the names (and any context the user gave, like "my favorite bar") and use only the one(s) that genuinely match; if two are plausible, briefly ask or present the options. Only say "no transactions / none" AFTER find_merchants also comes back empty.
 - Keep answers short and skimmable. Lead with the direct answer, then a brief supporting detail or two. Use a short bulleted list for multiple figures. No preamble like "Sure!".
@@ -828,6 +871,290 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
                 ];
             }
             return ['indicators' => $out];
+        }
+
+        case 'get_property': {
+            $v = build_property_view($pdo, $uid);
+            if (!$v) return ['has_property' => false, 'note' => 'No home value or mortgage is configured for this household.'];
+            $m = $v['mortgage'] ?? null;
+            $d = $v['derived'] ?? [];
+            $rf = $v['refi'] ?? null;
+            $p  = $v['property'] ?? null;
+            return [
+                'has_property' => true,
+                'address'      => $v['address'] ?: null,
+                'value'        => $v['value'] ? [
+                    'current' => assistant_money($v['value']['current']),
+                    'as_of'   => $v['value']['as_of'],
+                ] : null,
+                'equity'          => isset($d['equity']) ? assistant_money($d['equity']) : null,
+                'ltv_pct'         => isset($d['ltv']) && $d['ltv'] !== null ? round((float)$d['ltv'] * 100, 1) : null,
+                'appreciation'    => isset($d['appreciation']) ? assistant_money($d['appreciation']) : null,
+                'appreciation_pct'=> isset($d['appreciation_pct']) && $d['appreciation_pct'] !== null ? round((float)$d['appreciation_pct'] * 100, 1) : null,
+                'mortgage'     => $m ? [
+                    'balance'          => assistant_money($m['balance']),
+                    'rate_pct'         => $m['rate'],
+                    'monthly_pi'       => assistant_money($m['payment_pi']),
+                    'next_due'         => $m['next_due_date'],
+                    'payoff_date'      => $m['payoff_date'],
+                    'pct_paid_off'     => $m['pct_paid_off'] !== null ? round((float)$m['pct_paid_off'] * 100, 1) : null,
+                    'ytd_interest'     => assistant_money($m['ytd_interest']),
+                    'ytd_principal'    => assistant_money($m['ytd_principal']),
+                    'escrow_balance'   => assistant_money($m['escrow']),
+                    'interest_to_date' => assistant_money($m['interest_to_date']),
+                ] : null,
+                'refi'         => $rf ? [
+                    'your_rate_pct'   => $rf['your_rate'],
+                    'market_rate_pct' => $rf['market_rate'],
+                    'market_as_of'    => $rf['as_of'],
+                    'beneficial'      => $rf['beneficial'],
+                    'monthly_savings' => assistant_money($rf['monthly_savings']),
+                    'annual_savings'  => assistant_money($rf['annual_savings']),
+                    'lifetime_interest_savings' => assistant_money($rf['lifetime_interest_savings']),
+                ] : null,
+                'facts'        => $p ? array_filter([
+                    'purchase_price' => assistant_money($p['purchase_price']),
+                    'purchase_date'  => $p['purchase_date'],
+                    'beds'           => $p['beds'],
+                    'baths'          => $p['baths'],
+                    'sqft'           => $p['sqft'],
+                    'year_built'     => $p['year_built'],
+                ], fn($x) => $x !== null) : null,
+            ];
+        }
+
+        case 'get_allocation': {
+            $av = build_allocation_view(q_holdings($pdo, $uid), q_allocation_targets($pdo), q_security_asset_classes($pdo));
+            if ($av['total'] <= 0) return ['has_holdings' => false, 'note' => 'No investment or retirement holdings to allocate yet.'];
+            $classes = array_map(fn($c) => [
+                'class'      => $c['label'],
+                'value'      => assistant_money($c['actual_val']),
+                'actual_pct' => round((float)$c['actual_pct'], 1),
+                'target_pct' => $c['target_pct'] !== null ? round((float)$c['target_pct'], 1) : null,
+                'drift'      => $c['drift_val'] !== null ? assistant_money($c['drift_val']) : null,
+            ], $av['classes']);
+            return [
+                'has_holdings' => true,
+                'total'        => assistant_money($av['total']),
+                'has_targets'  => $av['has_targets'],
+                'target_sum_pct' => $av['has_targets'] ? round((float)$av['target_sum'], 1) : null,
+                'classes'      => $classes,
+                'trim'         => array_map(fn($s) => ['class' => $s['label'], 'amount' => assistant_money($s['amount'])], $av['sells']),
+                'add'          => array_map(fn($b) => ['class' => $b['label'], 'amount' => assistant_money($b['amount'])], $av['buys']),
+                'note'         => 'Holdings-based: uninvested brokerage cash and accounts with no per-holding breakdown are not counted. Taxable + retirement combined.',
+            ];
+        }
+
+        case 'get_fees': {
+            $fv = build_fees_view(q_holdings($pdo, $uid), q_security_expense_ratios($pdo));
+            if ($fv['total'] <= 0) return ['has_holdings' => false, 'note' => 'No investment or retirement holdings to analyze yet.'];
+            return [
+                'has_holdings'       => true,
+                'total_value'        => assistant_money($fv['total']),
+                'weighted_avg_pct'   => $fv['weighted_avg'] !== null ? round((float)$fv['weighted_avg'], 3) : null,
+                'annual_fee'         => assistant_money($fv['annual_fee']),
+                'coverage_pct'       => round((float)$fv['coverage_pct'], 0),
+                'uncovered_count'    => (int)$fv['uncovered_count'],
+                'uncovered_value'    => assistant_money($fv['uncovered_value']),
+                'projection_total'   => assistant_money($fv['projection_total']),
+                'projection_years'   => (int)$fv['projection_years'],
+                'biggest_drags'      => array_map(fn($b) => [
+                    'holding'    => $b['label'],
+                    'annual_fee' => assistant_money($b['annual_fee']),
+                    'ratio_pct'  => $b['ratio'] !== null ? round((float)$b['ratio'], 3) : null,
+                    'value'      => assistant_money($b['value']),
+                ], $fv['biggest']),
+                'note'               => $fv['uncovered_count'] > 0
+                    ? 'Coverage is partial — ' . (int)$fv['uncovered_count'] . ' holding(s) have no expense ratio entered, so the annual fee is a FLOOR (the real figure is higher). Ratios are entered by hand, not from a live feed.'
+                    : 'Every holding has a ratio entered. Ratios are entered by hand, not from a live feed.',
+            ];
+        }
+
+        case 'get_dividends': {
+            // Whole-portfolio scope: every account the viewer holds a position in (taxable + retirement).
+            $holds = q_holdings($pdo, $uid);
+            $acctIds = array_values(array_unique(array_filter(array_map(fn($h) => $h['account_id'] ?? null, $holds))));
+            // Projected forward annual income = Σ current qty × per-share annual dividend.
+            $divs = q_security_dividends($pdo, array_map(fn($h) => $h['security_id'] ?? null, $holds));
+            $projTotal = 0.0; $payers = []; $upcoming = [];
+            $horizon = date('Y-m-d', strtotime('+90 days'));
+            foreach ($holds as $h) {
+                $sid = $h['security_id'] ?? null;
+                $qty = $h['quantity'] !== null ? (float)$h['quantity'] : 0.0;
+                if ($sid === null || $qty <= 0 || !isset($divs[$sid])) continue;
+                $d = $divs[$sid];
+                $ticker = ($h['ticker_symbol'] ?: ($h['security_name'] ?: '—'));
+                if ($d['annual_ps'] !== null) {
+                    $proj = $qty * $d['annual_ps'];
+                    $projTotal += $proj;
+                    $payers[$ticker] = ($payers[$ticker] ?? 0.0) + $proj;
+                }
+                foreach ($d['upcoming'] as $u) {
+                    if ($u['ex_date'] > $horizon) continue;
+                    $upcoming[] = ['ex_date' => $u['ex_date'], 'ticker' => $ticker,
+                                   'per_share' => assistant_money($u['cash_amount']),
+                                   'your_amount' => assistant_money($qty * $u['cash_amount'])];
+                }
+            }
+            arsort($payers);
+            $topPayers = [];
+            foreach (array_slice($payers, 0, 10, true) as $tk => $amt) {
+                $topPayers[] = ['holding' => $tk, 'projected_annual' => assistant_money($amt)];
+            }
+            usort($upcoming, fn($a, $b) => strcmp((string)$a['ex_date'], (string)$b['ex_date']));
+            // Actual income received: dividends+interest activity (stored − = money in → flip to +).
+            $ytdStart = date('Y') . '-01-01';
+            $ttmStart = date('Y-m-d', strtotime('-1 year'));
+            $ytd = 0.0; $ttm = 0.0;
+            if ($acctIds) {
+                foreach (q_investment_activity($pdo, $uid, 'income', $acctIds, 100000, 0) as $r) {
+                    $inflow = -(float)$r['amount'];        // dividends/interest are money-in (negative stored)
+                    if ($inflow <= 0) continue;
+                    $td = (string)$r['tdate'];
+                    if ($td >= $ytdStart) $ytd += $inflow;
+                    if ($td >= $ttmStart) $ttm += $inflow;
+                }
+            }
+            return [
+                'income_ytd'             => assistant_money($ytd),
+                'income_ttm'             => assistant_money($ttm),
+                'projected_annual'       => assistant_money($projTotal),
+                'top_payers'             => $topPayers,
+                'upcoming_ex_dates'      => array_slice($upcoming, 0, 15),
+                'note'                   => 'YTD/TTM are actual dividend + interest received (whole portfolio). Projected annual is an estimate from current holdings (latest declared rate × payout frequency) and assumes the rate/cadence continues.',
+            ];
+        }
+
+        case 'get_security': {
+            // Resolve the ticker/name to a security_id via the viewer's OWN holdings (VIS-scoped) —
+            // so we never look up (or hint at the existence of) a security the household doesn't hold.
+            $ticker = trim((string)($in['ticker'] ?? ''));
+            $nameQ  = trim((string)($in['name'] ?? ''));
+            $holds  = q_holdings($pdo, $uid);
+            $sid = null;
+            if ($ticker !== '') {
+                foreach ($holds as $h) {
+                    if (strcasecmp((string)($h['ticker_symbol'] ?? ''), $ticker) === 0) { $sid = $h['security_id']; break; }
+                }
+            }
+            if ($sid === null && ($nameQ !== '' || $ticker !== '')) {
+                $needle = strtolower($nameQ !== '' ? $nameQ : $ticker);
+                foreach ($holds as $h) {
+                    $nm = strtolower((string)($h['security_name'] ?? ''));
+                    if ($nm !== '' && strpos($nm, $needle) !== false) { $sid = $h['security_id']; break; }
+                }
+            }
+            if ($sid === null || !q_security_has_access($pdo, $uid, (string)$sid)) {
+                return ['found' => false, 'note' => 'The household does not hold a security matching that ticker/name.'];
+            }
+            $sid = (string)$sid;
+            $sec       = q_security($pdo, $sid);
+            $holdings  = q_security_holdings($pdo, $uid, $sid);
+            $c         = q_price_changes($pdo, [$sid])[$sid] ?? null;
+            $divData   = q_security_dividends($pdo, [$sid])[$sid] ?? null;
+            // Position aggregate (mirrors security.php).
+            $totalQty = 0.0; $mvAll = 0.0; $costSum = 0.0; $valCost = 0.0; $haveCost = 0;
+            foreach ($holdings as $h) {
+                $qty = $h['quantity'] !== null ? (float)$h['quantity'] : 0.0;
+                $totalQty += $qty;
+                $mv = $h['institution_value'] !== null ? (float)$h['institution_value'] : 0.0;
+                $mvAll += $mv;
+                if ($h['cost_basis'] !== null) { $haveCost++; $costSum += (float)$h['cost_basis']; $valCost += $mv; }
+            }
+            $gain    = $haveCost ? $valCost - $costSum : null;
+            $gainPct = ($haveCost && $costSum != 0.0) ? $gain / abs($costSum) * 100 : null;
+            $curPrice  = $c['current'] ?? ($sec && $sec['close_price'] !== null ? (float)$sec['close_price'] : null);
+            // Money-weighted IRR vs a default SPY benchmark (only when lots reconcile).
+            $retLots = q_security_lots($pdo, $uid, $sid, 100000, 0);
+            $bench = null;
+            if ($retLots) {
+                foreach (q_benchmark_candidates($pdo) as $bc) {
+                    if (strtoupper((string)$bc['ticker_symbol']) === 'SPY') {
+                        [$bAsOf, $bLatest] = ret_bench_lookup(q_security_prices($pdo, $bc['security_id'], 4000));
+                        if ($bLatest > 0) $bench = ['asof' => $bAsOf, 'latest' => $bLatest, 'ticker' => 'SPY', 'name' => $bc['name']];
+                        break;
+                    }
+                }
+            }
+            $secRet = ret_position($retLots, $totalQty, $mvAll, $bench, date('Y-m-d'));
+            $divAnnual = ($divData && $divData['annual_ps'] !== null && $totalQty > 0) ? $totalQty * $divData['annual_ps'] : null;
+            return [
+                'found'         => true,
+                'ticker'        => $sec['ticker_symbol'] ?? null,
+                'name'          => $sec['name'] ?? null,
+                'price'         => assistant_money($curPrice),
+                'price_as_of'   => $c['date'] ?? ($sec['close_price_date'] ?? null),
+                'change_1d_pct' => ($c && $c['current'] !== null && ($c['d1'] ?? null) !== null && (float)$c['d1'] != 0.0)
+                                   ? round(($c['current'] - $c['d1']) / abs($c['d1']) * 100, 2) : null,
+                'change_30d_pct'=> ($c && $c['current'] !== null && ($c['d30'] ?? null) !== null && (float)$c['d30'] != 0.0)
+                                   ? round(($c['current'] - $c['d30']) / abs($c['d30']) * 100, 2) : null,
+                'change_1y_pct' => ($c && $c['current'] !== null && ($c['d365'] ?? null) !== null && (float)$c['d365'] != 0.0)
+                                   ? round(($c['current'] - $c['d365']) / abs($c['d365']) * 100, 2) : null,
+                'shares'        => round($totalQty, 4),
+                'market_value'  => assistant_money($mvAll),
+                'cost_basis'    => $haveCost ? assistant_money($costSum) : null,
+                'gain_loss'     => $gain !== null ? assistant_money($gain) : null,
+                'gain_loss_pct' => $gainPct !== null ? round($gainPct, 1) : null,
+                'annualized_return_pct' => $secRet['irr'] !== null ? round($secRet['irr'] * 100, 1) : null,
+                'benchmark'     => ($secRet['irr'] !== null && $secRet['bench_irr'] !== null)
+                                   ? ['ticker' => 'SPY', 'annualized_pct' => round($secRet['bench_irr'] * 100, 1)] : null,
+                'projected_dividend_annual' => assistant_money($divAnnual),
+                'accounts_held' => count($holdings),
+                'note'          => $secRet['irr'] === null && $retLots
+                    ? 'Annualized return omitted — recorded buy/sell lots do not reconcile with the current share count.'
+                    : null,
+            ];
+        }
+
+        case 'get_peer_comparison': {
+            $bracket = peer_valid_bracket($in['bracket'] ?? null);
+            // Last 12 FULL calendar months (exclude the partial current month), app-TZ (S24 trap).
+            $monthStart  = new DateTimeImmutable('first day of this month');
+            $windowStart = $monthStart->sub(new DateInterval('P12M'));
+            $spend = q_peer_category_spend($pdo, $uid, $windowStart->format('Y-m-d'), $monthStart->format('Y-m-d'));
+            $view  = build_peer_view($bracket, $spend);
+            if (!$view['has_data']) return ['has_data' => false, 'note' => 'Not enough categorized spending history yet to compare.'];
+            $b = $view['bracket'];
+            $rows = array_map(fn($r) => [
+                'category'       => $r['label'],
+                'you_annual'     => $r['has_spend'] ? assistant_money($r['you_annual']) : null,
+                'typical_annual' => assistant_money($r['typical_annual']),
+                'diff'           => $r['has_spend'] ? assistant_money($r['diff']) : null,
+                'pct_vs_typical' => ($r['has_spend'] && $r['pct'] !== null) ? round((float)$r['pct'], 0) : null,
+                'has_tracked_spend' => $r['has_spend'],
+            ], $view['rows']);
+            return [
+                'has_data'         => true,
+                'bracket'          => $b['label'] . ' (income before taxes)',
+                'months_observed'  => (int)$view['months_observed'],
+                'low_confidence'   => (bool)$view['low_conf'],
+                'you_total'        => assistant_money($view['sum_you']),
+                'typical_total'    => assistant_money($view['sum_typical']),
+                'overall_diff'     => assistant_money($view['overall_diff']),
+                'overall_pct'      => $view['overall_pct'] !== null ? round((float)$view['overall_pct'], 0) : null,
+                'compared_categories' => (int)$view['compared_count'],
+                'categories'       => $rows,
+                'source'           => $view['source'],
+                'note'             => 'Only categories with a clean BLS match AND tracked spend are summed in the totals. Brackets are income before taxes. Figures cover ~half of a typical household budget (housing/insurance/education not benchmarked).',
+            ];
+        }
+
+        case 'get_budget_history': {
+            $months = $clampInt($in['months'] ?? null, 6, 1, 12);
+            $hist = q_budget_history($pdo, $months);
+            if (!$hist) return ['budgets' => [], 'count' => 0, 'note' => 'No budgets are set, so there is no budget history.'];
+            $out = [];
+            foreach ($hist as $cat => $h) {
+                $out[] = [
+                    'category'      => pretty_cat((string)$cat),
+                    'limit'         => assistant_money($h['limit']),
+                    'this_mtd'      => assistant_money($h['this']),
+                    'prior_3mo_avg' => assistant_money($h['avg3']),
+                    'by_month'      => array_map(fn($m) => ['month' => $m['label'], 'spent' => assistant_money($m['spent'])], $h['months']),
+                ];
+            }
+            return ['months' => $months, 'budgets' => $out, 'count' => count($out),
+                    'note' => 'this_mtd vs prior_3mo_avg is month-to-date (capped to today\'s day-of-month) for a fair comparison. Household-wide.'];
         }
     }
 

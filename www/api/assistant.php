@@ -8,6 +8,12 @@ require __DIR__ . '/../lib/bills.php';       // bill_occurrences (get_upcoming_b
 require __DIR__ . '/../lib/forecast.php';    // forecast_build (get_cash_forecast tool)
 require __DIR__ . '/../lib/safe_to_spend.php'; // safe_to_spend_build (get_safe_to_spend tool)
 require __DIR__ . '/../lib/debt.php';        // build_debt_plan (get_debt_plan tool)
+require __DIR__ . '/../lib/home_value.php';   // hv_zip_from_address (get_property → build_property_view)
+require __DIR__ . '/../lib/property_view.php';// build_property_view (get_property tool)
+require __DIR__ . '/../lib/allocation.php';   // build_allocation_view (get_allocation tool)
+require __DIR__ . '/../lib/fees.php';         // build_fees_view (get_fees tool)
+require __DIR__ . '/../lib/returns.php';      // ret_position / ret_bench_lookup (get_security tool)
+require __DIR__ . '/../lib/peers.php';        // build_peer_view (get_peer_comparison tool)
 require __DIR__ . '/../lib/assistant.php';
 
 /**

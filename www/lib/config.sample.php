@@ -129,7 +129,9 @@ return [
     'anthropic' => [
         'api_key'         => '',   // paste your Anthropic API key (sk-ant-…) here (empty = disabled)
         'model'           => 'claude-sonnet-4-6',  // vision model for the OCR (Sonnet — most accurate on dense statement tables)
-        'assistant_model' => '',   // optional override for the chat assistant; empty = use `model` above
+        'assistant_model' => '',   // optional override for the chat assistant; empty = use `model` above.
+                                   // Recommended: 'claude-sonnet-5' (near-Opus tool use, same $3/$15 sticker) —
+                                   // the assistant sends thinking:disabled for it automatically (snappy Q&A).
     ],
 
     // The home/property to value with RentCast (refreshed ~monthly by cron/sync.php)
