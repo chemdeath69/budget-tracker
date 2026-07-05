@@ -1551,9 +1551,11 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
 
 /**
  * Visible transactions. Options:
- *   account_id (string), q (search text — matches merchant/name/category AND, #12a, the
+ *   account_id (string, exact), account (fuzzy name/institution/last-4 — assistant only),
+ *   q (search text — matches merchant/name/category AND, #12a, the
  *     account owner's first name), category (exact tag),
  *   from / to (YYYY-MM-DD date bounds, inclusive),
+ *   sort ('oldest' = earliest-first; anything else = newest-first, the default),
  *   limit (int, default 100), offset (int, default 0).
  * For pagination, request limit = PAGE_SIZE + 1 and treat an extra row as
  * "there's a next page" (see render_pager()).
@@ -1622,6 +1624,25 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
             }
         }
     }
+    if (!empty($opts['account'])) {
+        // Fuzzy ACCOUNT scope for the AI assistant — resolve "American Express" / "amex checking" /
+        // a last-4 to the matching account(s) without needing the opaque Plaid account_id. Matches
+        // (punctuation/spacing/case-stripped) across the account's display name, official name, its
+        // institution, and its mask; EACH token must appear (word order / extra words don't matter),
+        // so "american express" and "express" both hit the Amex card. ADDITIVE opt — only the
+        // assistant sets it (the UI passes the exact account_id); distinct :af* placeholders → HY093-safe.
+        $acctTokens = merchant_search_tokens((string)$opts['account']);
+        if (!$acctTokens) {
+            $where[] = '1=0';   // garbage term (e.g. "&&&") matches nothing, never the whole ledger
+        } else {
+            $acctNorm = "LOWER(REGEXP_REPLACE(CONCAT_WS(' ', " . ACCT_NAME . ", COALESCE(a.official_name,''),"
+                      . " COALESCE(i.institution_name,''), COALESCE(a.mask,'')), '[^a-zA-Z0-9]+', ''))";
+            foreach ($acctTokens as $k => $tok) {
+                $where[] = "$acctNorm LIKE :af$k";
+                $params[":af$k"] = '%' . $tok . '%';
+            }
+        }
+    }
     if (!empty($opts['from'])) { $where[] = 't.date >= :from'; $params[':from'] = (string)$opts['from']; }
     if (!empty($opts['to']))   { $where[] = 't.date <= :to';   $params[':to']   = (string)$opts['to']; }
     // Amount-range filter (spec §5.2) on the DOLLAR MAGNITUDE — `ABS(t.amount)` — because the
@@ -1654,6 +1675,12 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     }
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
+    // Ordering: default (and everything the UI passes) stays newest-first, byte-identical. The AI
+    // assistant may pass sort='oldest' to walk from the earliest transaction (e.g. "what's the
+    // oldest charge on my Amex") in a single query instead of scanning the whole history.
+    $order = (($opts['sort'] ?? '') === 'oldest')
+        ? 'ORDER BY t.date ASC, t.imported_at ASC'
+        : 'ORDER BY t.date DESC, t.imported_at DESC';
     $sql = "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.logo_url, t.amount, t.pending, t.note,
                    COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary) AS category,
                    " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
@@ -1661,7 +1688,7 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
             JOIN accounts a ON t.account_id = a.account_id
             JOIN items i ON a.item_id = i.item_id
             WHERE " . implode(' AND ', $where) . "
-            ORDER BY t.date DESC, t.imported_at DESC
+            " . $order . "
             LIMIT " . $limit . " OFFSET " . $offset;
     $st = $pdo->prepare($sql);
     $st->execute($params);

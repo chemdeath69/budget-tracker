@@ -114,9 +114,11 @@ function assistant_tools(): array
         ],
         [
             'name'        => 'search_transactions',
-            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", etc. Returns at most ~40 rows newest-first; narrow with filters rather than asking for everything. To match a merchant when you are unsure of the exact spelling, prefer find_merchants first (or use merchant_fuzzy here) — a plain `q` is a literal substring and will MISS names with punctuation (e.g. "OAces" will not match "O\'Aces Bar & Grill").',
+            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", "what is the oldest/earliest charge on my <account>", etc. Returns at most 40 rows. By default they are NEWEST-first; set sort="oldest" to get the EARLIEST first (so the oldest transaction on an account is a single call: account="<name>", sort="oldest", limit=1). To scope to one account (e.g. "American Express", "amex", a last-4), pass `account` — no need to call get_accounts first. To match a merchant when you are unsure of the exact spelling, prefer find_merchants first (or use merchant_fuzzy here) — a plain `q` is a literal substring and will MISS names with punctuation (e.g. "OAces" will not match "O\'Aces Bar & Grill").',
             'input_schema' => ['type' => 'object', 'properties' => [
                 'q'              => ['type' => 'string', 'description' => 'Free-text LITERAL substring search over merchant, raw name, category, and account-owner first name (no fuzzy matching — use merchant_fuzzy / find_merchants for approximate merchant names).'],
+                'account'        => ['type' => 'string', 'description' => 'Scope to an account by an APPROXIMATE name, institution, or last-4 — e.g. "American Express", "amex", "chase checking", "1005". Matches ignoring punctuation/spacing/case; every word must appear. Use this for "on my <account>" questions instead of get_accounts + account_id.'],
+                'account_id'     => ['type' => 'string', 'description' => 'EXACT account id (the `id` field from get_accounts) when you already have it and want a precise scope. Prefer `account` for a name.'],
                 'category'       => ['type' => 'string', 'description' => 'Exact Plaid category code, e.g. FOOD_AND_DRINK, TRANSPORTATION, GENERAL_MERCHANDISE.'],
                 'merchant'       => ['type' => 'string', 'description' => 'EXACT merchant/payee name as shown on the ledger (e.g. the value returned by find_merchants).'],
                 'merchant_fuzzy' => ['type' => 'string', 'description' => 'APPROXIMATE merchant name — matches ignoring punctuation/spacing/case (e.g. "oaces" → "O\'Aces Bar & Grill"). Use this instead of `merchant`/`q` when you don\'t know the exact spelling and just want the rows in one step.'],
@@ -124,6 +126,8 @@ function assistant_tools(): array
                 'to'             => ['type' => 'string', 'description' => 'Latest date, YYYY-MM-DD.'],
                 'amin'           => ['type' => 'number', 'description' => 'Minimum dollar magnitude (ABS amount).'],
                 'amax'           => ['type' => 'number', 'description' => 'Maximum dollar magnitude (ABS amount).'],
+                'sort'           => ['type' => 'string', 'enum' => ['newest', 'oldest'], 'description' => 'Order of results by date. "newest" (default) = most recent first; "oldest" = earliest first (use for the oldest/first-ever transaction).'],
+                'offset'         => $int('Skip this many rows (for paging past the first 40)', 0, 0, 100000),
                 'limit'          => $int('Max rows', 40, 1, 40),
             ]],
         ],
@@ -209,6 +213,7 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
             $out = [];
             foreach (q_accounts($pdo, $uid) as $a) {
                 $out[] = [
+                    'id'          => $a['account_id'],   // stable handle for search_transactions.account_id
                     'name'        => $a['name'],
                     'type'        => $a['type'],
                     'subtype'     => $a['subtype'],
@@ -300,13 +305,16 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
 
         case 'search_transactions': {
             $opts = [];
-            foreach (['q', 'category', 'merchant', 'merchant_fuzzy', 'from', 'to'] as $k) {
+            foreach (['q', 'category', 'merchant', 'merchant_fuzzy', 'account', 'account_id', 'from', 'to'] as $k) {
                 if (isset($in[$k]) && trim((string)$in[$k]) !== '') $opts[$k] = (string)$in[$k];
             }
             foreach (['amin', 'amax'] as $k) {
                 if (isset($in[$k]) && is_numeric($in[$k])) $opts[$k] = (float)$in[$k];
             }
-            $opts['limit'] = $clampInt($in['limit'] ?? null, 40, 1, 40);
+            // Earliest-first only when explicitly asked; otherwise q_transactions stays newest-first.
+            if (($in['sort'] ?? '') === 'oldest') $opts['sort'] = 'oldest';
+            $opts['offset'] = $clampInt($in['offset'] ?? null, 0, 0, 100000);
+            $opts['limit']  = $clampInt($in['limit'] ?? null, 40, 1, 40);
             $rows = [];
             foreach (q_transactions($pdo, $uid, $opts) as $t) {
                 $amt = (float)$t['amount'];
