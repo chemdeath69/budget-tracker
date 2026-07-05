@@ -716,8 +716,12 @@ function q_cash_history(PDO $pdo, int $uid, int $days = 365): array
  *  breakdown reconciles with trends/cash-flow/budgets instead of being dominated by
  *  internal transfers & CC payments (UI-review F7). Kept in lock-step with
  *  q_spending_total so the doughnut total == Σ category slices. */
-function q_spending(PDO $pdo, int $uid, int $days = 30): array
+function q_spending(PDO $pdo, int $uid, int $days = 30, ?string $from = null, ?string $to = null): array
 {
+    // #27 assistant v2: an explicit $from (Y-m-d) OVERRIDES the rolling $days window, and an
+    // optional $to caps the far end — so the assistant can ask "dining in March" without being
+    // pinned to a trailing-N-days window. UI callers pass only $days → byte-identical to before.
+    $endClause = ($to !== null && $to !== '') ? ' AND t.date <= :end' : '';
     $st = $pdo->prepare(
         "SELECT " . EFF_CAT . " AS category,
                 SUM(" . EFF_AMT . ") AS total
@@ -726,7 +730,7 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
          JOIN items i ON a.item_id = i.item_id
          " . SPLIT_JOIN . "
          WHERE " . VIS . " AND t.pending = 0 AND t.amount > 0 AND t.ext_source IS NULL
-           AND t.date >= :start
+           AND t.date >= :start" . $endClause . "
            AND " . expense_exclude_clause($pdo) . "
            AND (t.pfc_detailed IS NULL OR t.pfc_detailed <> 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT')
          GROUP BY " . EFF_CAT . "
@@ -734,7 +738,10 @@ function q_spending(PDO $pdo, int $uid, int $days = 30): array
     );
     // Window anchored in PHP app-TZ (never CURDATE() — MySQL's clock is EDT, S24 trap).
     $st->bindValue(':uid', $uid, PDO::PARAM_INT);
-    $st->bindValue(':start', (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
+    $st->bindValue(':start', ($from !== null && $from !== '')
+        ? $from
+        : (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d'));
+    if ($endClause !== '') $st->bindValue(':end', $to);
     $st->execute();
     return $st->fetchAll();
 }
@@ -1560,7 +1567,18 @@ function q_money_flow(PDO $pdo, int $uid, string $ym): array
  * For pagination, request limit = PAGE_SIZE + 1 and treat an extra row as
  * "there's a next page" (see render_pager()).
  */
-function q_transactions(PDO $pdo, int $uid, array $opts = []): array
+/**
+ * Build the shared WHERE clause + bound params for a transactions read (#27 assistant v2).
+ * Factored out of q_transactions() so q_transactions() and q_transactions_aggregate() apply
+ * one identical filter set (same fuzzy/account/amount/date/category/tag semantics) and can't
+ * drift. RAW-LEDGER: no true-expense exclusions, no split-explosion — this mirrors what the
+ * ledger (transactions.php) and search_transactions surface, so an aggregate reconciles with
+ * the row list. ⚠️ HY093: every placeholder name is emitted at most once per statement, and
+ * this builder is called exactly once per query, so names never collide. Returns [$where, $params]
+ * where $where is a non-empty array of clauses (VIS first) to AND together and $params is the
+ * bind map (includes :uid).
+ */
+function q_transactions_where(int $uid, array $opts = []): array
 {
     $where  = [VIS];
     $params = [':uid' => $uid];
@@ -1673,6 +1691,12 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
         }
         $where[] = '(' . implode(' OR ', $clauses) . ')';
     }
+    return [$where, $params];
+}
+
+function q_transactions(PDO $pdo, int $uid, array $opts = []): array
+{
+    [$where, $params] = q_transactions_where($uid, $opts);
     $limit  = max(1, (int)($opts['limit'] ?? 100));
     $offset = max(0, (int)($opts['offset'] ?? 0));
     // Ordering: default (and everything the UI passes) stays newest-first, byte-identical. The AI
@@ -1693,6 +1717,58 @@ function q_transactions(PDO $pdo, int $uid, array $opts = []): array
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * Aggregate transactions in ONE query (#27 assistant v2 — kills pagination). Same filter set as
+ * q_transactions() (via the shared q_transactions_where() builder), plus a `group_by` ∈
+ * {none, category, merchant, month, account}. RAW-LEDGER semantics — no true-expense exclusions,
+ * no split-explosion — so counts/totals reconcile with search_transactions (NOT with the spend
+ * pages). Sign convention: `+` = money OUT, `−` = money IN, so `total_out` sums positive amounts
+ * and `total_in` sums |negatives|; avg/min/max are over the ABS magnitude the ledger displays.
+ * Answers "how many times / total / average at X" without paging. Caps at 50 groups. Returns
+ * ['group_by'=>$group, 'groups'=>[ ['grp'=>?, 'n','total_out','total_in','avg_abs','min_abs',
+ * 'max_abs','first_date','last_date'] ... ]] ('grp' absent when group_by='none').
+ * HY093-safe: q_transactions_where() emits each placeholder once; RULE_CAT has no binds.
+ */
+function q_transactions_aggregate(PDO $pdo, int $uid, array $opts = []): array
+{
+    [$where, $params] = q_transactions_where($uid, $opts);
+
+    $groupExprs = [
+        'category' => "COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary, 'UNCATEGORIZED')",
+        'merchant' => "COALESCE(NULLIF(t.merchant_name, ''), t.name)",
+        'month'    => "DATE_FORMAT(t.date, '%Y-%m')",
+        'account'  => ACCT_NAME,
+    ];
+    $group     = (string)($opts['group_by'] ?? 'none');
+    $groupExpr = $groupExprs[$group] ?? null;
+
+    $agg = "COUNT(*) AS n,
+            SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS total_out,
+            SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS total_in,
+            AVG(ABS(t.amount)) AS avg_abs,
+            MIN(ABS(t.amount)) AS min_abs,
+            MAX(ABS(t.amount)) AS max_abs,
+            MIN(t.date) AS first_date,
+            MAX(t.date) AS last_date";
+    $from = "FROM transactions t
+             JOIN accounts a ON t.account_id = a.account_id
+             JOIN items i ON a.item_id = i.item_id
+             WHERE " . implode(' AND ', $where);
+
+    if ($groupExpr === null) {
+        $st = $pdo->prepare("SELECT $agg $from");
+        $st->execute($params);
+        $row = $st->fetch();
+        return ['group_by' => 'none', 'groups' => $row ? [$row] : []];
+    }
+
+    // Month reads chronologically; every other grouping is ranked by outflow (most relevant first).
+    $order = $group === 'month' ? 'ORDER BY grp ASC' : 'ORDER BY total_out DESC, n DESC';
+    $st = $pdo->prepare("SELECT $groupExpr AS grp, $agg $from GROUP BY $groupExpr $order LIMIT 50");
+    $st->execute($params);
+    return ['group_by' => $group, 'groups' => $st->fetchAll()];
 }
 
 /**

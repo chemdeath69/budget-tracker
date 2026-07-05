@@ -59,6 +59,22 @@ function assistant_model(array $cfg): string
     return trim((string)($cfg['anthropic']['model'] ?? '')) ?: 'claude-sonnet-4-6';
 }
 
+/**
+ * Extended-thinking request block for the given model, or null to omit the field (#27 v2).
+ * Sonnet-5 / Opus-4.7+ run *adaptive thinking by default* when `thinking` is unset — which for
+ * snappy Q&A with a small ASSISTANT_MAXTOKENS could be eaten by thinking tokens before the answer.
+ * So for those models we send `thinking: {type: disabled}` (valid on Sonnet 5 / Opus 4.7+). Older
+ * models (claude-sonnet-4-6 and earlier) don't adaptive-think by default → omit the field entirely.
+ * ⚠️ Claude Fable 5 REJECTS an explicit `{type:disabled}` (400) — never emit it there; it also isn't
+ * a sensible assistant model, so it's simply excluded from the match.
+ */
+function assistant_thinking_param(string $model): ?array
+{
+    $m = strtolower($model);
+    $adaptiveDefault = (bool)preg_match('/(sonnet-5|opus-4-(7|8|9)|opus-5)/', $m);
+    return $adaptiveDefault ? ['type' => 'disabled'] : null;
+}
+
 /** Round a money-ish value to cents (null-safe) so tool results stay compact. */
 function assistant_money($v): ?float
 {
@@ -76,102 +92,126 @@ function assistant_tools(): array
     $int = fn($desc, $def, $min, $max) => [
         'type' => 'integer', 'description' => $desc . " (default {$def}, {$min}-{$max}).",
     ];
+    // Every input_schema declares additionalProperties=false + a required array (empty where all
+    // params are optional) — documents intent and keeps the model from inventing keys. NOTE: we do
+    // NOT set strict=true. Anthropic strict tool use compiles a grammar and caps TOTAL optional
+    // params across all tools at 24; this surface already has 33 (and Phase 3 adds more), so strict
+    // is infeasible here — it returns "Schemas contains too many optional parameters" (#27 v2). No
+    // numeric min/max in the schemas (the int helper puts the range in the description text only).
+    // No-param tools share $noargs.
+    $noargs = ['type' => 'object', 'properties' => new stdClass(), 'additionalProperties' => false, 'required' => []];
+    // The filter properties shared by search_transactions + aggregate_transactions.
+    $txnFilterProps = [
+        'q'              => ['type' => 'string', 'description' => 'Free-text LITERAL substring search over merchant, raw name, category, and account-owner first name (no fuzzy matching — use merchant_fuzzy / find_merchants for approximate merchant names).'],
+        'account'        => ['type' => 'string', 'description' => 'Scope to an account by an APPROXIMATE name, institution, or last-4 — e.g. "American Express", "amex", "chase checking", "1005". Matches ignoring punctuation/spacing/case; every word must appear. Use this for "on my <account>" questions instead of get_accounts + account_id.'],
+        'account_id'     => ['type' => 'string', 'description' => 'EXACT account id (the `id` field from get_accounts) when you already have it and want a precise scope. Prefer `account` for a name.'],
+        'category'       => ['type' => 'string', 'description' => 'Exact Plaid category code, e.g. FOOD_AND_DRINK, TRANSPORTATION, GENERAL_MERCHANDISE.'],
+        'merchant'       => ['type' => 'string', 'description' => 'EXACT merchant/payee name as shown on the ledger (e.g. the value returned by find_merchants).'],
+        'merchant_fuzzy' => ['type' => 'string', 'description' => 'APPROXIMATE merchant name — matches ignoring punctuation/spacing/case (e.g. "oaces" → "O\'Aces Bar & Grill"). Use this instead of `merchant`/`q` when you don\'t know the exact spelling.'],
+        'from'           => ['type' => 'string', 'description' => 'Earliest date, YYYY-MM-DD.'],
+        'to'             => ['type' => 'string', 'description' => 'Latest date, YYYY-MM-DD.'],
+        'amin'           => ['type' => 'number', 'description' => 'Minimum dollar magnitude (ABS amount).'],
+        'amax'           => ['type' => 'number', 'description' => 'Maximum dollar magnitude (ABS amount).'],
+    ];
     return [
         [
             'name'        => 'get_accounts',
             'description' => 'List every account the user can see (checking, savings, credit cards, loans, brokerage, retirement, manual) with its current balance, type, and institution. Use this to answer "what accounts do we have", "what is the balance of X", or to find an account before another query.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_net_worth',
             'description' => 'Household net worth: the latest total, how it changed over the last 30/90/365 days, and the current breakdown (Cash, Investments, Retirement, Home, Debt). Folds in the home value and retirement accounts.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_spending_by_category',
-            'description' => 'Total true spending by category over the last N days (excludes internal transfers and credit-card payments, so it is real outflow). Answers "how much did we spend on dining/groceries/etc".',
-            'input_schema' => ['type' => 'object', 'properties' => [
-                'days' => $int('Lookback window in days', 30, 1, 366),
+            'description' => 'Total true spending by category over a period (excludes internal transfers and credit-card payments, so it is real outflow). Answers "how much did we spend on dining/groceries/etc". Default window is the last N `days`; pass `from` (and optionally `to`) as YYYY-MM-DD to scope to an explicit date range instead (e.g. a single month), which overrides `days`.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'days' => $int('Lookback window in days (ignored if `from` is given)', 30, 1, 366),
+                'from' => ['type' => 'string', 'description' => 'Earliest date YYYY-MM-DD. Overrides `days` when set.'],
+                'to'   => ['type' => 'string', 'description' => 'Latest date YYYY-MM-DD (defaults to today).'],
             ]],
         ],
         [
             'name'        => 'get_cash_flow',
             'description' => 'Monthly income vs. expense vs. net (and savings rate) over the last N months. Income counts only depository/investment inflows; expense excludes internal transfers and credit-card payments.',
-            'input_schema' => ['type' => 'object', 'properties' => [
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
                 'months' => $int('Number of months', 6, 1, 36),
             ]],
         ],
         [
             'name'        => 'find_merchants',
             'description' => 'Find merchants/payees by an APPROXIMATE name, ignoring punctuation, spacing, and capitalization, and tolerating small typos — so "OAces" finds "O\'Aces Bar & Grill", "mcd" finds "McDonald\'s", "starbcks" finds "Starbucks". Returns the matching CANONICAL merchant names, ranked best-match first, each with how many transactions, total spent, total received, and the first/last date (optionally within a window). USE THIS FIRST whenever the user names a place/store/business/payee — to discover the real spelling, to count visits, or before search_transactions. Then answer from the count/totals, or pass the exact returned `merchant` to search_transactions to list the rows. The candidates may include a few near-misses — judge by the name (and any context the user gave) and use the one(s) that genuinely match; never claim "no transactions" until this returns nothing.',
-            'input_schema' => ['type' => 'object', 'properties' => [
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['q'], 'properties' => [
                 'q'     => ['type' => 'string', 'description' => 'Approximate merchant name or the distinctive keyword(s), e.g. "oaces", "starbucks", "amazon". Keep it short — every word you give must appear in the name.'],
                 'days'  => $int('Only count transactions within the last N days (omit for all history)', 365, 1, 1825),
                 'from'  => ['type' => 'string', 'description' => 'Earliest date YYYY-MM-DD (overrides days).'],
                 'to'    => ['type' => 'string', 'description' => 'Latest date YYYY-MM-DD.'],
                 'limit' => $int('Max merchants to return', 25, 1, 50),
-            ], 'required' => ['q']],
+            ]],
+        ],
+        [
+            'name'        => 'aggregate_transactions',
+            'description' => 'Compute counts/totals/averages over transactions in ONE call — never page through search_transactions to count or sum. Same filters as search_transactions (q, account, account_id, category, merchant, merchant_fuzzy, from, to, amin, amax) plus `group_by`. Amounts are RAW-LEDGER magnitudes (matches search_transactions, NOT the true-expense spend pages): "+" is money OUT, "−" is money IN, so `total_out` is spending and `total_in` is money received. Each group returns: count, total_out, total_in, avg, min, max (avg/min/max are of the dollar magnitude), first_date, last_date. Answers "how many times / total / average at X", "spend by month", "top categories", etc. Up to 50 groups.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' =>
+                $txnFilterProps + [
+                    'group_by' => ['type' => 'string', 'enum' => ['none', 'category', 'merchant', 'month', 'account'], 'description' => 'How to break down the results. "none" (default) = one overall total; "month" is chronological; the rest are ranked by total_out.'],
+                ],
+            ],
         ],
         [
             'name'        => 'search_transactions',
-            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", "what is the oldest/earliest charge on my <account>", etc. Returns at most 40 rows. By default they are NEWEST-first; set sort="oldest" to get the EARLIEST first (so the oldest transaction on an account is a single call: account="<name>", sort="oldest", limit=1). To scope to one account (e.g. "American Express", "amex", a last-4), pass `account` — no need to call get_accounts first. To match a merchant when you are unsure of the exact spelling, prefer find_merchants first (or use merchant_fuzzy here) — a plain `q` is a literal substring and will MISS names with punctuation (e.g. "OAces" will not match "O\'Aces Bar & Grill").',
-            'input_schema' => ['type' => 'object', 'properties' => [
-                'q'              => ['type' => 'string', 'description' => 'Free-text LITERAL substring search over merchant, raw name, category, and account-owner first name (no fuzzy matching — use merchant_fuzzy / find_merchants for approximate merchant names).'],
-                'account'        => ['type' => 'string', 'description' => 'Scope to an account by an APPROXIMATE name, institution, or last-4 — e.g. "American Express", "amex", "chase checking", "1005". Matches ignoring punctuation/spacing/case; every word must appear. Use this for "on my <account>" questions instead of get_accounts + account_id.'],
-                'account_id'     => ['type' => 'string', 'description' => 'EXACT account id (the `id` field from get_accounts) when you already have it and want a precise scope. Prefer `account` for a name.'],
-                'category'       => ['type' => 'string', 'description' => 'Exact Plaid category code, e.g. FOOD_AND_DRINK, TRANSPORTATION, GENERAL_MERCHANDISE.'],
-                'merchant'       => ['type' => 'string', 'description' => 'EXACT merchant/payee name as shown on the ledger (e.g. the value returned by find_merchants).'],
-                'merchant_fuzzy' => ['type' => 'string', 'description' => 'APPROXIMATE merchant name — matches ignoring punctuation/spacing/case (e.g. "oaces" → "O\'Aces Bar & Grill"). Use this instead of `merchant`/`q` when you don\'t know the exact spelling and just want the rows in one step.'],
-                'from'           => ['type' => 'string', 'description' => 'Earliest date, YYYY-MM-DD.'],
-                'to'             => ['type' => 'string', 'description' => 'Latest date, YYYY-MM-DD.'],
-                'amin'           => ['type' => 'number', 'description' => 'Minimum dollar magnitude (ABS amount).'],
-                'amax'           => ['type' => 'number', 'description' => 'Maximum dollar magnitude (ABS amount).'],
-                'sort'           => ['type' => 'string', 'enum' => ['newest', 'oldest'], 'description' => 'Order of results by date. "newest" (default) = most recent first; "oldest" = earliest first (use for the oldest/first-ever transaction).'],
-                'offset'         => $int('Skip this many rows (for paging past the first 40)', 0, 0, 100000),
-                'limit'          => $int('Max rows', 40, 1, 40),
-            ]],
+            'description' => 'Search/list individual transactions with optional filters. Amounts are MAGNITUDES; in this app "+" means money OUT (spending) and "−" means money IN. Use this for "show me transactions at X", "find charges over $200 last month", "what is the oldest/earliest charge on my <account>", etc. Returns at most 40 rows. For counts, totals, or averages, use aggregate_transactions instead — do NOT page through this. By default rows are NEWEST-first; set sort="oldest" to get the EARLIEST first (so the oldest transaction on an account is a single call: account="<name>", sort="oldest", limit=1). To scope to one account (e.g. "American Express", "amex", a last-4), pass `account` — no need to call get_accounts first. To match a merchant when you are unsure of the exact spelling, prefer find_merchants first (or use merchant_fuzzy here) — a plain `q` is a literal substring and will MISS names with punctuation (e.g. "OAces" will not match "O\'Aces Bar & Grill").',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' =>
+                $txnFilterProps + [
+                    'sort'   => ['type' => 'string', 'enum' => ['newest', 'oldest'], 'description' => 'Order of results by date. "newest" (default) = most recent first; "oldest" = earliest first (use for the oldest/first-ever transaction).'],
+                    'offset' => $int('Skip this many rows (for paging past the first 40)', 0, 0, 100000),
+                    'limit'  => $int('Max rows', 40, 1, 40),
+                ],
+            ],
         ],
         [
             'name'        => 'get_budgets',
             'description' => 'The household monthly budgets with this month\'s spend, the available amount (incl. any rollover carryover), and whether each is over budget.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_recurring',
             'description' => 'Recurring streams Plaid detected — subscriptions/bills (outflow) and recurring income (inflow): merchant, cadence, and typical amount.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_upcoming_bills',
             'description' => 'Bills and recurring outflows projected to come due within the next N days (merges liability due dates + projected recurring charges).',
-            'input_schema' => ['type' => 'object', 'properties' => [
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
                 'days' => $int('Horizon in days', 30, 1, 120),
             ]],
         ],
         [
             'name'        => 'get_liabilities',
             'description' => 'Debts: credit cards and loans with outstanding balance, APR, minimum payment, and next due date.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_investments',
             'description' => 'Investment holdings summary (non-retirement and retirement): total market value, total cost basis, unrealized gain/loss, and the largest holdings.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_retirement',
             'description' => 'Retirement summary: combined 401(k)/IRA total, contributed this year (employee/employer), trailing-12-month contributions, the derived growth rate, and the projection to the target year.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_goals',
             'description' => 'Savings goals: target, current progress, percent complete, and amount remaining.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
         [
             'name'        => 'get_economic_context',
             'description' => 'Latest macro indicators from FRED: CPI (inflation), the 30-year mortgage rate, the 10-year Treasury, and the federal funds rate. Useful for refinance, savings-rate, and inflation context.',
-            'input_schema' => ['type' => 'object', 'properties' => new stdClass()],
+            'input_schema' => $noargs,
         ],
     ];
 }
@@ -192,6 +232,7 @@ Rules:
 - Amount sign convention in this app: "+" means money OUT (an expense/payment) and "−" means money IN (income/credit/refund). The spending and cash-flow tools already account for this — present spending as positive dollars and income as positive dollars; don't show raw signs to the user.
 - Format money as US dollars (e.g. $1,234.56). Round sensibly. Use the user's own words for categories when natural (e.g. "dining" for FOOD_AND_DRINK).
 - You can call several tools, in sequence, to build an answer (e.g. find an account, then its transactions). Be efficient — request only what you need, and prefer one focused query over many broad ones.
+- For counts, totals, or averages over transactions ("how many times did we eat at X", "what did we spend at Y this year", "spend by month"), call aggregate_transactions — it answers in ONE call. NEVER page through search_transactions to count or add up rows.
 - Merchant/payee names in the data often include punctuation, abbreviations, or extra words the user will NOT type exactly — the bar "O'Aces Bar & Grill" for "OAces", "AMZN MKTP" for Amazon, "SQ *COFFEE" for a coffee shop. So when the user names a place/store/business, do NOT assume a plain search matches: call find_merchants with a short approximate term (it matches ignoring punctuation/spacing/case and tolerates small typos) to discover the real name(s) and visit counts, then answer from those, or pass the exact returned merchant name to search_transactions. The candidate list may contain a few near-misses — examine the names (and any context the user gave, like "my favorite bar") and use only the one(s) that genuinely match; if two are plausible, briefly ask or present the options. Only say "no transactions / none" AFTER find_merchants also comes back empty.
 - Keep answers short and skimmable. Lead with the direct answer, then a brief supporting detail or two. Use a short bulleted list for multiple figures. No preamble like "Sure!".
 - This data is already scoped to what the asking user is allowed to see; you don't need to worry about permissions.
@@ -249,15 +290,58 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
         }
 
         case 'get_spending_by_category': {
+            $from = (isset($in['from']) && trim((string)$in['from']) !== '') ? (string)$in['from'] : null;
+            $to   = (isset($in['to'])   && trim((string)$in['to'])   !== '') ? (string)$in['to']   : null;
             $days = $clampInt($in['days'] ?? null, 30, 1, 366);
             $rows = [];
             $total = 0.0;
-            foreach (q_spending($pdo, $uid, $days) as $r) {
+            foreach (q_spending($pdo, $uid, $days, $from, $to) as $r) {
                 $amt = (float)$r['total'];
                 $total += $amt;
                 $rows[] = ['category' => pretty_cat($r['category']), 'code' => $r['category'], 'spent' => round($amt, 2)];
             }
-            return ['days' => $days, 'total' => round($total, 2), 'categories' => array_slice($rows, 0, 30)];
+            // Report the window that actually applied: an explicit `from` overrides the days window.
+            return [
+                'days'       => $from !== null ? null : $days,
+                'from'       => $from,
+                'to'         => $to,
+                'total'      => round($total, 2),
+                'categories' => array_slice($rows, 0, 30),
+            ];
+        }
+
+        case 'aggregate_transactions': {
+            $opts = [];
+            foreach (['q', 'category', 'merchant', 'merchant_fuzzy', 'account', 'account_id', 'from', 'to'] as $k) {
+                if (isset($in[$k]) && trim((string)$in[$k]) !== '') $opts[$k] = (string)$in[$k];
+            }
+            foreach (['amin', 'amax'] as $k) {
+                if (isset($in[$k]) && is_numeric($in[$k])) $opts[$k] = (float)$in[$k];
+            }
+            $group = in_array($in['group_by'] ?? 'none', ['none', 'category', 'merchant', 'month', 'account'], true)
+                ? (string)$in['group_by'] : 'none';
+            $opts['group_by'] = $group;
+            $res  = q_transactions_aggregate($pdo, $uid, $opts);
+            $rows = [];
+            foreach ($res['groups'] as $g) {
+                if (!$g) continue;
+                $row = [
+                    'count'      => (int)$g['n'],
+                    'total_out'  => assistant_money($g['total_out']),
+                    'total_in'   => assistant_money($g['total_in']),
+                    'avg'        => assistant_money($g['avg_abs']),
+                    'min'        => assistant_money($g['min_abs']),
+                    'max'        => assistant_money($g['max_abs']),
+                    'first_date' => $g['first_date'],
+                    'last_date'  => $g['last_date'],
+                ];
+                if ($group !== 'none') {
+                    $label = $group === 'category' ? pretty_cat((string)$g['grp']) : $g['grp'];
+                    $row = ['group' => $label] + $row;
+                }
+                $rows[] = $row;
+            }
+            return ['group_by' => $group, 'groups' => $rows, 'count' => count($rows)];
         }
 
         case 'get_cash_flow': {
@@ -571,6 +655,27 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): arr
     $system = assistant_system_prompt($pdo, $uid);
     $tools  = assistant_tools();
 
+    // Prompt caching (#27 v2): send `system` as a block array with ONE ephemeral breakpoint.
+    // The wire render order is tools → system → messages, so this single breakpoint caches the
+    // whole tools + system prefix. Rounds 2+ of a question and follow-ups within ~5 min then read
+    // that prefix at ~0.1× input price. The system prompt's date('l, F j, Y') is stable within a
+    // day, so the prefix stays byte-identical across a session's turns. $thinking is the optional
+    // extended-thinking control (disabled for adaptive-default models so it can't eat the answer).
+    $systemBlocks = [['type' => 'text', 'text' => $system, 'cache_control' => ['type' => 'ephemeral']]];
+    $thinking     = assistant_thinking_param($model);
+    // One place that assembles a request body → every call shares the identical cached prefix.
+    $buildBody = function (array $messages) use ($model, $systemBlocks, $tools, $thinking): array {
+        $body = [
+            'model'      => $model,
+            'max_tokens' => ASSISTANT_MAXTOKENS,
+            'system'     => $systemBlocks,
+            'tools'      => $tools,
+            'messages'   => $messages,
+        ];
+        if ($thinking !== null) $body['thinking'] = $thinking;
+        return $body;
+    };
+
     // Working message list, content-as-blocks once tools enter the picture.
     $work = array_map(fn($m) => ['role' => $m['role'], 'content' => $m['content']], $msgs);
 
@@ -578,13 +683,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): arr
     $tokIn = 0; $tokOut = 0;
 
     for ($round = 0; $round < ASSISTANT_MAX_ROUNDS; $round++) {
-        $json = assistant_http($key, [
-            'model'      => $model,
-            'max_tokens' => ASSISTANT_MAXTOKENS,
-            'system'     => $system,
-            'tools'      => $tools,
-            'messages'   => $work,
-        ]);
+        $json = assistant_http($key, $buildBody($work));
         if (isset($json['__error'])) {
             error_log('assistant: ' . $json['__error']);
             return $fail('Sorry — I could not reach the assistant just now. Please try again.');
@@ -653,13 +752,10 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): arr
 
         // Budget guard: if we've burned the token cap, force a final no-tools turn.
         if ($tokIn + $tokOut > ASSISTANT_TOKEN_CAP) {
-            $json = assistant_http($key, [
-                'model'      => $model,
-                'max_tokens' => ASSISTANT_MAXTOKENS,
-                'system'     => $system . "\n\nYou have gathered enough data — answer now without calling more tools.",
-                'tools'      => $tools,   // keep tools present (history holds tool blocks); the system line tells it not to call them
-                'messages'   => $work,
-            ]);
+            // Nudge via a FINAL USER MESSAGE (not by editing $system) so the cached tools+system
+            // prefix stays intact — appending to $system would invalidate the whole cache (#27 v2).
+            $work[] = ['role' => 'user', 'content' => 'You have gathered enough data — answer now without calling more tools.'];
+            $json = assistant_http($key, $buildBody($work));
             if (isset($json['__error'])) return $fail('Sorry — I could not finish that. Please try again.');
             $text = '';
             foreach (($json['content'] ?? []) as $b) {
@@ -677,13 +773,9 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): arr
     }
 
     // Hit the round cap without a final text answer — ask one last time, no tools.
-    $json = assistant_http($key, [
-        'model'      => $model,
-        'max_tokens' => ASSISTANT_MAXTOKENS,
-        'system'     => $system . "\n\nAnswer now with what you have; do not call any more tools.",
-        'tools'      => $tools,   // keep tools present (history holds tool blocks); the system line tells it not to call them
-        'messages'   => $work,
-    ]);
+    // Same cache-preserving nudge as the token-cap path: append a user turn, keep $system unchanged.
+    $work[] = ['role' => 'user', 'content' => 'Answer now with what you have; do not call any more tools.'];
+    $json = assistant_http($key, $buildBody($work));
     $text = '';
     if (!isset($json['__error'])) {
         foreach (($json['content'] ?? []) as $b) {
