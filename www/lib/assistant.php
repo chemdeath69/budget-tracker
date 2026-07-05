@@ -141,10 +141,17 @@ function assistant_tools(): array
             ]],
         ],
         [
+            'name'        => 'get_spending_trend',
+            'description' => 'Month-by-month true spending broken down by category over the last N months — the category × month matrix behind the Trends page. Answers "how did dining spending trend", "which categories are going up", "what did we spend by category each month". Returns the top categories (rest folded into "Other") with each month\'s total, plus a change block comparing this month-to-date vs the prior-3-month average and the same month last year. Same true-expense basis as get_spending_by_category / get_cash_flow (excludes transfers + credit-card payments).',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'months' => $int('Number of months to include', 6, 1, 24),
+            ]],
+        ],
+        [
             'name'        => 'find_merchants',
-            'description' => 'Find merchants/payees by an APPROXIMATE name, ignoring punctuation, spacing, and capitalization, and tolerating small typos — so "OAces" finds "O\'Aces Bar & Grill", "mcd" finds "McDonald\'s", "starbcks" finds "Starbucks". Returns the matching CANONICAL merchant names, ranked best-match first, each with how many transactions, total spent, total received, and the first/last date (optionally within a window). USE THIS FIRST whenever the user names a place/store/business/payee — to discover the real spelling, to count visits, or before search_transactions. Then answer from the count/totals, or pass the exact returned `merchant` to search_transactions to list the rows. The candidates may include a few near-misses — judge by the name (and any context the user gave) and use the one(s) that genuinely match; never claim "no transactions" until this returns nothing.',
-            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['q'], 'properties' => [
-                'q'     => ['type' => 'string', 'description' => 'Approximate merchant name or the distinctive keyword(s), e.g. "oaces", "starbucks", "amazon". Keep it short — every word you give must appear in the name.'],
+            'description' => 'Find merchants/payees by an APPROXIMATE name, ignoring punctuation, spacing, and capitalization, and tolerating small typos — so "OAces" finds "O\'Aces Bar & Grill", "mcd" finds "McDonald\'s", "starbcks" finds "Starbucks". Returns the matching CANONICAL merchant names, ranked best-match first, each with how many transactions, total spent, total received, and the first/last date (optionally within a window). USE THIS FIRST whenever the user names a place/store/business/payee — to discover the real spelling, to count visits, or before search_transactions. Then answer from the count/totals, or pass the exact returned `merchant` to search_transactions to list the rows. The candidates may include a few near-misses — judge by the name (and any context the user gave) and use the one(s) that genuinely match; never claim "no transactions" until this returns nothing. If you OMIT `q` (leave it empty), this instead returns the TOP merchants by total spend over the window (true-expense basis, ranked by spend) — use that for "who do we spend the most on", "top merchants/stores", etc.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'q'     => ['type' => 'string', 'description' => 'Approximate merchant name or the distinctive keyword(s), e.g. "oaces", "starbucks", "amazon". Keep it short — every word you give must appear in the name. Omit it entirely to get the top merchants by spend instead.'],
                 'days'  => $int('Only count transactions within the last N days (omit for all history)', 365, 1, 1825),
                 'from'  => ['type' => 'string', 'description' => 'Earliest date YYYY-MM-DD (overrides days).'],
                 'to'    => ['type' => 'string', 'description' => 'Latest date YYYY-MM-DD.'],
@@ -209,6 +216,39 @@ function assistant_tools(): array
             'input_schema' => $noargs,
         ],
         [
+            'name'        => 'get_cash',
+            'description' => 'Liquid CASH ON HAND over time — the combined balance of checking + savings accounts only (not credit cards, investments, or retirement). Returns the current total and its history over the window, so you can answer "how much cash do we have", "how has our cash changed", "cash trend". For a specific past date use get_balance_history instead.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'window' => $int('Lookback window in days', 90, 7, 1825),
+            ]],
+        ],
+        [
+            'name'        => 'get_cash_forecast',
+            'description' => 'Forward-looking cash-flow projection: walks today\'s checking+savings balance day-by-day over the next 30/60/90 days, adding projected recurring income, subtracting scheduled bills, and spreading average daily spending. Returns the projected low point (and when it hits), the projected end balance, and whether the balance is projected to go negative. Answers "will we run low on cash before payday", "what\'s our cash forecast". An estimate — only Plaid-detected recurring income is projected (irregular income is not).',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'days' => $int('Horizon in days (30, 60, or 90)', 30, 30, 90),
+            ]],
+        ],
+        [
+            'name'        => 'get_safe_to_spend',
+            'description' => 'This calendar month\'s spending-plan figure: expected income − committed bills − monthly savings target − discretionary spent so far = "safe to spend". Also returns free-to-spend, spent-so-far, days left, and a suggested per-day pace. Answers "how much can we safely spend this month", "are we on budget". No parameters.',
+            'input_schema' => $noargs,
+        ],
+        [
+            'name'        => 'get_debt_plan',
+            'description' => 'Debt payoff planner / what-if. Simulates paying down all credit cards & loans and returns, for the chosen strategy, the debt-free month, total interest paid, and interest/months SAVED vs paying minimums only. Use `extra_monthly` to model throwing extra money at debt ("what if we pay an extra $200/month"). `strategy`: "avalanche" (highest APR first, cheapest), "snowball" (smallest balance first, quick wins), or "minimums" (baseline). Mortgage is excluded unless `include_mortgage` is true. Honest-number: a debt with no reported APR is modeled at 0% (understates interest).',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'strategy'         => ['type' => 'string', 'enum' => ['avalanche', 'snowball', 'minimums'], 'description' => 'Payoff order. "avalanche" (default) = highest APR first; "snowball" = smallest balance first; "minimums" = minimums-only baseline.'],
+                'extra_monthly'    => ['type' => 'number', 'description' => 'Extra dollars per month applied on top of the minimum payments (default 0). Use this for "what if we pay an extra $X/month".'],
+                'include_mortgage' => ['type' => 'boolean', 'description' => 'Fold the mortgage into the plan (default false — it dwarfs everything).'],
+            ]],
+        ],
+        [
+            'name'        => 'get_data_freshness',
+            'description' => 'How current the linked-bank data is: per-bank last-sync age and connection status (healthy vs error, with the error code). Use this to caveat an answer when data may be stale, or to answer "when did our accounts last sync", "is any bank disconnected".',
+            'input_schema' => $noargs,
+        ],
+        [
             'name'        => 'get_economic_context',
             'description' => 'Latest macro indicators from FRED: CPI (inflation), the 30-year mortgage rate, the 10-year Treasury, and the federal funds rate. Useful for refinance, savings-rate, and inflation context.',
             'input_schema' => $noargs,
@@ -222,7 +262,7 @@ function assistant_system_prompt(PDO $pdo, int $uid): string
     $names = array_values(household_users());
     $who   = $names ? implode(' and ', array_map(fn($n) => (string)$n, $names)) : 'the household';
     $today = date('l, F j, Y');   // app TZ (America/Los_Angeles)
-    return <<<TXT
+    $system = <<<TXT
 You are the built-in financial assistant for a private 2-person household budgeting app used by {$who}. Today is {$today}.
 
 Your job: answer questions about THIS household's real finances by calling the provided tools, then reply in clear, concise prose.
@@ -233,12 +273,47 @@ Rules:
 - Format money as US dollars (e.g. $1,234.56). Round sensibly. Use the user's own words for categories when natural (e.g. "dining" for FOOD_AND_DRINK).
 - You can call several tools, in sequence, to build an answer (e.g. find an account, then its transactions). Be efficient — request only what you need, and prefer one focused query over many broad ones.
 - For counts, totals, or averages over transactions ("how many times did we eat at X", "what did we spend at Y this year", "spend by month"), call aggregate_transactions — it answers in ONE call. NEVER page through search_transactions to count or add up rows.
+- For how spending shifts over time by category (trends, "is dining going up"), call get_spending_trend. There are dedicated tools for planning questions — get_safe_to_spend (what's left to spend this month), get_cash / get_cash_forecast (cash on hand now / projected low), and get_debt_plan (payoff what-ifs, incl. "what if we pay an extra \$X/month") — prefer them over assembling the answer yourself.
+- The account, custom-category, and goal names for THIS household are listed at the end of this prompt — use them to scope queries directly (e.g. pass `account` to search/aggregate) instead of calling get_accounts just to discover a name. If an answer leans on current balances or recent activity and the data might be behind, you can call get_data_freshness and caveat accordingly.
 - Merchant/payee names in the data often include punctuation, abbreviations, or extra words the user will NOT type exactly — the bar "O'Aces Bar & Grill" for "OAces", "AMZN MKTP" for Amazon, "SQ *COFFEE" for a coffee shop. So when the user names a place/store/business, do NOT assume a plain search matches: call find_merchants with a short approximate term (it matches ignoring punctuation/spacing/case and tolerates small typos) to discover the real name(s) and visit counts, then answer from those, or pass the exact returned merchant name to search_transactions. The candidate list may contain a few near-misses — examine the names (and any context the user gave, like "my favorite bar") and use only the one(s) that genuinely match; if two are plausible, briefly ask or present the options. Only say "no transactions / none" AFTER find_merchants also comes back empty.
 - Keep answers short and skimmable. Lead with the direct answer, then a brief supporting detail or two. Use a short bulleted list for multiple figures. No preamble like "Sure!".
 - This data is already scoped to what the asking user is allowed to see; you don't need to worry about permissions.
 - You are READ-ONLY: you cannot add, change, or delete anything (no creating budgets, paying bills, moving money). If asked to act, explain that you can only look things up and suggest where in the app to do it.
 - If a question is not about this household's finances, answer briefly and helpfully but stay focused on the budgeting app's scope.
 TXT;
+
+    // Roster (Phase 2 #5): a compact household inventory appended to the CACHED system prefix, so most
+    // scoped questions skip a get_accounts discovery round. Names only (nothing beyond what get_accounts
+    // already exposes); VIS-scoped via $uid so a private/hidden account never leaks into the prompt.
+    $lines = [];
+    foreach (q_accounts($pdo, $uid) as $a) {
+        $typ  = trim((string)($a['type'] ?? '') . (($a['subtype'] ?? '') !== '' ? '/' . $a['subtype'] : ''));
+        $bits = array_filter([
+            trim((string)($a['name'] ?? '')),
+            $typ,
+            trim((string)($a['institution_name'] ?? '')),
+            ($a['mask'] ?? '') !== '' ? '••' . $a['mask'] : '',
+        ], fn($s) => $s !== '');
+        if ($bits) $lines[] = '- ' . implode(' · ', $bits);
+    }
+    $roster = "\n\nThis household's roster (use these exact names to scope tool calls; don't call get_accounts just to look one up):\nAccounts:\n"
+            . ($lines ? implode("\n", $lines) : '- (no linked accounts yet)');
+
+    $cats = [];
+    foreach (q_custom_categories($pdo, $uid) as $c) {
+        $lbl = trim((string)($c['label'] ?? ''));
+        if ($lbl !== '') $cats[] = $lbl;
+    }
+    if ($cats) $roster .= "\nCustom categories: " . implode(', ', $cats);
+
+    $goalNames = [];
+    foreach (q_goals($pdo, $uid) as $g) {
+        $nm = trim((string)($g['name'] ?? ''));
+        if ($nm !== '') $goalNames[] = $nm;
+    }
+    if ($goalNames) $roster .= "\nSavings goals: " . implode(', ', $goalNames);
+
+    return $system . $roster;
 }
 
 /**
@@ -318,8 +393,10 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
             foreach (['amin', 'amax'] as $k) {
                 if (isset($in[$k]) && is_numeric($in[$k])) $opts[$k] = (float)$in[$k];
             }
-            $group = in_array($in['group_by'] ?? 'none', ['none', 'category', 'merchant', 'month', 'account'], true)
-                ? (string)$in['group_by'] : 'none';
+            // Read once, then validate — never re-access $in['group_by'] in a ternary true branch (an
+            // absent key would warn + yield "" instead of the 'none' default; see get_debt_plan).
+            $group = (string)($in['group_by'] ?? 'none');
+            if (!in_array($group, ['none', 'category', 'merchant', 'month', 'account'], true)) $group = 'none';
             $opts['group_by'] = $group;
             $res  = q_transactions_aggregate($pdo, $uid, $opts);
             $rows = [];
@@ -364,10 +441,56 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
             ];
         }
 
+        case 'get_spending_trend': {
+            $months = $clampInt($in['months'] ?? null, 6, 1, 24);
+            $tr = q_spending_trend($pdo, $uid, $months);
+            $prettyCats = function (array $cats): array {
+                $o = [];
+                foreach ($cats as $code => $v) $o[pretty_cat((string)$code)] = round((float)$v, 2);
+                return $o;
+            };
+            $byMonth = array_map(fn($m) => [
+                'month'       => $m['label'],
+                'total'       => round((float)$m['total'], 2),
+                'by_category' => $prettyCats($m['cats']),
+            ], $tr['months']);
+            $changes = array_map(fn($d) => [
+                'category'      => pretty_cat((string)$d['category']),
+                'this_mtd'      => round((float)$d['this'], 2),
+                'prior_3mo_avg' => round((float)$d['avg3'], 2),
+                'last_year_mtd' => round((float)$d['lastyear'], 2),
+            ], $tr['deltas']);
+            return [
+                'months'       => $months,
+                'categories'   => array_map(fn($c) => pretty_cat((string)$c), $tr['cat_order']),
+                'by_month'     => $byMonth,
+                'changes_mtd'  => $changes,
+                'note'         => '"Other" folds everything outside the top categories. changes_mtd compares this month-to-date vs the prior-3-month average and the same month last year (all capped to today\'s day-of-month for a fair comparison).',
+            ];
+        }
+
         case 'find_merchants': {
-            $term = trim((string)($in['q'] ?? ''));
-            if ($term === '') return ['error' => 'provide an approximate merchant name to search for', 'merchants' => [], 'count' => 0];
-            $opts = ['limit' => $clampInt($in['limit'] ?? null, 25, 1, 50)];
+            $term  = trim((string)($in['q'] ?? ''));
+            $limit = $clampInt($in['limit'] ?? null, 25, 1, 50);
+            if ($term === '') {
+                // No search term → top merchants by true spend over the window (Phase 2 #4). q_top_merchants
+                // is spend-only (true-expense), so `received`/first/last dates aren't available here.
+                $days = $clampInt($in['days'] ?? null, 365, 1, 1825);
+                if (isset($in['from']) && trim((string)$in['from']) !== '') {
+                    $d = (int)round((strtotime('today') - strtotime((string)$in['from'])) / 86400);
+                    if ($d >= 1) $days = min(1825, $d);
+                }
+                $out = array_map(fn($r) => [
+                    'merchant'     => $r['merchant'],
+                    'transactions' => (int)$r['n'],
+                    'spent'        => assistant_money($r['total']),
+                    'received'     => null,
+                    'first_date'   => null,
+                    'last_date'    => null,
+                ], q_top_merchants($pdo, $uid, $days, $limit));
+                return ['query' => null, 'top_by_spend' => true, 'window_from' => date('Y-m-d', strtotime("-{$days} days")), 'merchants' => $out, 'count' => count($out)];
+            }
+            $opts = ['limit' => $limit];
             if (isset($in['from']) && trim((string)$in['from']) !== '') $opts['from'] = (string)$in['from'];
             if (isset($in['to'])   && trim((string)$in['to'])   !== '') $opts['to']   = (string)$in['to'];
             // days → from (app-TZ), only when no explicit from was given.
@@ -549,6 +672,143 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
                 ];
             }
             return ['goals' => $out, 'count' => count($out)];
+        }
+
+        case 'get_cash': {
+            $window = $clampInt($in['window'] ?? null, 90, 7, 1825);
+            $hist   = q_cash_history($pdo, $uid, $window);
+            $last   = $hist ? $hist[count($hist) - 1] : null;
+            $first  = $hist ? $hist[0] : null;
+            $series = array_map(fn($r) => ['date' => $r['snapshot_date'], 'balance' => round((float)$r['balance'], 2)], $hist);
+            return [
+                'window_days'  => $window,
+                'current_cash' => $last ? round((float)$last['balance'], 2) : 0.0,
+                'as_of'        => $last['snapshot_date'] ?? null,
+                'window_start' => $first['snapshot_date'] ?? null,
+                'change'       => ($last && $first) ? round((float)$last['balance'] - (float)$first['balance'], 2) : null,
+                'points'       => count($series),
+                // Cap the daily series — Claude has the current value + change; full history rarely needed.
+                'history'      => count($series) > 60 ? array_slice($series, -60) : $series,
+            ];
+        }
+
+        case 'get_cash_forecast': {
+            $horizon  = $clampInt($in['days'] ?? null, 30, 30, 90);
+            $accounts = q_accounts($pdo, $uid);
+            $liab     = q_liabilities($pdo, $uid);
+            $recur    = q_recurring($pdo, $uid);
+            $avgSpend = q_avg_daily_spend($pdo, $uid, 90);   // trailing-90-day discretionary baseline
+            $fc = forecast_build($accounts, $liab, $recur, $avgSpend, $horizon, new DateTimeImmutable('today'));
+            return [
+                'horizon_days'            => $fc['horizon'],
+                'cash_today'              => $fc['start_balance'],
+                'projected_end'          => $fc['end_balance'],
+                'projected_low'          => $fc['min_balance'],
+                'low_date'               => $fc['min_date'],
+                'goes_negative'          => $fc['goes_negative'],
+                'everyday_spend_per_day' => $fc['discretionary_daily'],
+                'has_projected_income'   => $fc['has_income'],
+                'income_streams_detected'=> $fc['income_count'],
+            ];
+        }
+
+        case 'get_safe_to_spend': {
+            $recur = q_recurring($pdo, $uid);
+            $liab  = q_liabilities($pdo, $uid);
+            $plan  = q_spending_plan($pdo);
+            $today = new DateTimeImmutable('today');
+            $monthFirst = $today->modify('first day of this month')->format('Y-m-d');
+            $tomorrow   = $today->add(new DateInterval('P1D'))->format('Y-m-d');   // half-open [first, tomorrow)
+            $spentMtd = q_true_expense_total($pdo, $uid, $monthFirst, $tomorrow);
+            $sp = safe_to_spend_build($recur, $liab, (float)$plan['monthly_savings_target'], $spentMtd, $today);
+            return [
+                'month'                => $sp['month_label'],
+                'safe_to_spend'        => $sp['safe'],
+                'free_to_spend'        => $sp['plan'],
+                'expected_income'      => $sp['income'],
+                'committed_bills'      => $sp['bills'],
+                'savings_target'       => $sp['savings_target'],
+                'spent_so_far'         => $sp['spent'],
+                'days_left'            => $sp['days_left'],
+                'per_day_left'         => $sp['daily_left'],
+                'over_plan'            => $sp['over'],
+                'has_projected_income' => $sp['has_income'],
+            ];
+        }
+
+        case 'get_debt_plan': {
+            // Resolve WITHOUT re-reading $in['strategy'] in the true branch: `$in[k] ?? d` returns the
+            // default for an absent key, but `(string)$in[k]` then re-accesses it → "Undefined array key"
+            // warning + "" (not the default). Read once into a var, then validate.
+            $strategy = (string)($in['strategy'] ?? 'avalanche');
+            if (!in_array($strategy, ['avalanche', 'snowball', 'minimums'], true)) $strategy = 'avalanche';
+            $extra = (isset($in['extra_monthly']) && is_numeric($in['extra_monthly']))
+                ? max(0.0, min(10000000.0, (float)$in['extra_monthly'])) : 0.0;
+            $includeMortgage = !empty($in['include_mortgage']);
+            $plan = build_debt_plan(q_debts($pdo, $uid), $extra, $includeMortgage);
+            if (!$plan['debts']) {
+                return [
+                    'debts' => [], 'debt_count' => 0, 'total_debt' => 0.0,
+                    'has_mortgage' => $plan['has_mortgage'], 'include_mortgage' => $includeMortgage,
+                    'note' => ($plan['has_mortgage'] && !$includeMortgage)
+                        ? 'The only debt is the mortgage, excluded by default — set include_mortgage=true to include it.'
+                        : 'No credit-card or loan debt is showing.',
+                ];
+            }
+            $sc  = $plan['scenarios'];
+            $key = $strategy === 'minimums' ? 'baseline' : $strategy;
+            $monthsToLabel = fn(int $m): string =>
+                (new DateTimeImmutable('first day of this month'))->modify("+{$m} months")->format('M Y');
+            $scenarioOut = fn(array $s): array => [
+                'months_to_debt_free'        => $s['infeasible'] ? null : $s['months'],
+                'debt_free_by'               => $s['infeasible'] ? null : $monthsToLabel($s['months']),
+                'total_interest'             => $s['total_interest'],
+                'interest_saved_vs_minimums' => $s['interest_saved'] ?? null,
+                'months_saved_vs_minimums'   => $s['months_saved'] ?? null,
+                'infeasible'                 => $s['infeasible'],
+            ];
+            $debts = array_map(fn($d) => [
+                'name'        => $d['name'],
+                'balance'     => round($d['balance'], 2),
+                'apr_pct'     => $d['apr_unknown'] ? null : round($d['apr'], 2),
+                'min_payment' => round($d['min_payment'], 2),
+                'is_mortgage' => $d['is_mortgage'],
+            ], $plan['debts']);
+            return [
+                'strategy'          => $strategy,
+                'extra_monthly'     => $extra,
+                'include_mortgage'  => $includeMortgage,
+                'total_debt'        => round($plan['total'], 2),
+                'debt_count'        => count($debts),
+                'debts'             => $debts,
+                'result'            => $scenarioOut($sc[$key]),
+                'compare'           => [
+                    'avalanche' => $scenarioOut($sc['avalanche']),
+                    'snowball'  => $scenarioOut($sc['snowball']),
+                    'minimums'  => $scenarioOut($sc['baseline']),
+                ],
+                'any_apr_unknown'   => $plan['any_apr_unknown'],
+                'any_min_estimated' => $plan['any_min_estimated'],
+            ];
+        }
+
+        case 'get_data_freshness': {
+            $banks = array_map(function ($c) {
+                $age = $c['age_s'] !== null ? (int)$c['age_s'] : null;   // TZ-safe: server-clock DIFF, not re-parsed
+                return [
+                    'institution'      => $c['institution_name'],
+                    'status'           => $c['status'],
+                    'error_code'       => ($c['error_code'] ?? '') !== '' ? $c['error_code'] : null,
+                    'last_synced'      => $c['last_synced_at'],
+                    'synced_age_hours' => $age !== null ? round($age / 3600, 1) : null,
+                ];
+            }, q_connection_status($pdo));
+            return [
+                'last_synced_any'      => q_last_synced($pdo),
+                'any_connection_error' => (bool)array_filter($banks, fn($b) => $b['status'] === 'error'),
+                'banks'                => $banks,
+                'count'                => count($banks),
+            ];
         }
 
         case 'get_economic_context': {

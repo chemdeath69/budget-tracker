@@ -5,6 +5,9 @@ require __DIR__ . '/../lib/auth.php';
 require __DIR__ . '/../lib/queries.php';     // the VIS-scoped q_*() helpers the tools wrap
 require __DIR__ . '/../lib/retirement.php';  // build_retirement_view (get_retirement tool)
 require __DIR__ . '/../lib/bills.php';       // bill_occurrences (get_upcoming_bills tool)
+require __DIR__ . '/../lib/forecast.php';    // forecast_build (get_cash_forecast tool)
+require __DIR__ . '/../lib/safe_to_spend.php'; // safe_to_spend_build (get_safe_to_spend tool)
+require __DIR__ . '/../lib/debt.php';        // build_debt_plan (get_debt_plan tool)
 require __DIR__ . '/../lib/assistant.php';
 
 /**
