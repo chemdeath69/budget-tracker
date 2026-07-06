@@ -1419,6 +1419,53 @@ function initAssistant() {
     input.style.height = Math.min(input.scrollHeight, 160) + 'px';
   }
 
+  const DOTS = '<span class="dots"><span></span><span></span><span></span></span>';
+  // Show an ephemeral per-round status line ("Searching transactions…") inside the thinking
+  // bubble, using textContent for the label so a server string can never inject markup.
+  function setStatus(el, label) {
+    el.innerHTML = DOTS + ' <span class="assist-status"></span>';
+    const s = el.querySelector('.assist-status');
+    if (s) s.textContent = label;
+  }
+
+  // Try the SSE streaming endpoint. Returns the terminal {ok,reply,tools} / {ok:false,error}
+  // payload, or null if the stream ended with no terminal frame (→ caller falls back). Throws on
+  // any transport problem (endpoint missing, not an event-stream, network) so the caller can fall
+  // back to the plain endpoint — streaming is purely additive.
+  async function assistantStream(messages, onStatus) {
+    const resp = await fetch('/api/assistant_stream.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
+      body: JSON.stringify({ messages }),
+    });
+    if (!resp.ok || !resp.body || !/text\/event-stream/i.test(resp.headers.get('Content-Type') || '')) {
+      throw new Error('stream-unavailable');
+    }
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', result = null;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        let ev = 'message', data = '';
+        frame.split('\n').forEach(line => {
+          if (line.indexOf('event:') === 0) ev = line.slice(6).trim();
+          else if (line.indexOf('data:') === 0) data += line.slice(5).trim();
+        });
+        if (!data) continue;
+        let p; try { p = JSON.parse(data); } catch (e) { continue; }
+        if (ev === 'status' && p.label && onStatus) onStatus(p.label);
+        else if (ev === 'done') result = p;
+        else if (ev === 'error') result = { ok: false, error: p.error };
+      }
+    }
+    return result;
+  }
+
   async function ask(text) {
     text = (text || '').trim();
     if (!text || busy) return;
@@ -1429,10 +1476,18 @@ function initAssistant() {
     history.push({ role: 'user', content: text });
     input.value = '';
     autoGrow();
-    const thinking = bubble('assistant', '<span class="dots"><span></span><span></span><span></span></span>', 'thinking');
+    const thinking = bubble('assistant', DOTS, 'thinking');
 
     try {
-      const res = await postJSON('/api/assistant.php', { messages: history });
+      let res = null;
+      // Prefer streaming (shows a per-round status line); fall back to the plain endpoint on
+      // any transport problem OR a stream that ended without a terminal frame.
+      try {
+        res = await assistantStream(history, label => setStatus(thinking, label));
+      } catch (e) {
+        res = null;
+      }
+      if (res == null) res = await postJSON('/api/assistant.php', { messages: history });
       thinking.remove();
       if (res && res.ok && res.reply) {
         bubble('assistant', assistantMarkup(res.reply));

@@ -83,6 +83,47 @@ function assistant_money($v): ?float
 }
 
 /**
+ * A short human-facing status label for a tool name — used by the streaming endpoint
+ * (api/assistant_stream.php) to show "Searching transactions…" per round while the tool-use
+ * loop runs (the "status line" progress UX). PURE presentation; an unknown/new tool falls back
+ * to a generic phrase, so it never needs updating in lock-step with the registry.
+ */
+function assistant_tool_label(string $name): string
+{
+    static $map = [
+        'get_accounts'             => 'Looking up your accounts',
+        'get_net_worth'            => 'Checking your net worth',
+        'get_spending_by_category' => 'Adding up your spending',
+        'get_cash_flow'            => 'Reviewing your cash flow',
+        'get_spending_trend'       => 'Analyzing spending trends',
+        'find_merchants'           => 'Finding merchants',
+        'aggregate_transactions'   => 'Crunching transactions',
+        'search_transactions'      => 'Searching transactions',
+        'get_budgets'              => 'Checking your budgets',
+        'get_recurring'            => 'Reviewing recurring charges',
+        'get_upcoming_bills'       => 'Checking upcoming bills',
+        'get_liabilities'          => 'Reviewing your debts',
+        'get_investments'          => 'Reviewing your investments',
+        'get_retirement'           => 'Checking your retirement',
+        'get_goals'                => 'Reviewing your goals',
+        'get_cash'                 => 'Checking your cash on hand',
+        'get_cash_forecast'        => 'Projecting your cash flow',
+        'get_safe_to_spend'        => 'Calculating safe-to-spend',
+        'get_debt_plan'            => 'Modeling your debt payoff',
+        'get_data_freshness'       => 'Checking data freshness',
+        'get_economic_context'     => 'Pulling economic data',
+        'get_property'             => 'Checking your home & mortgage',
+        'get_allocation'           => 'Reviewing your asset allocation',
+        'get_fees'                 => 'Analyzing investment fees',
+        'get_dividends'            => 'Tallying dividend income',
+        'get_security'             => 'Looking up that holding',
+        'get_peer_comparison'      => 'Comparing to typical households',
+        'get_budget_history'       => 'Reviewing budget history',
+    ];
+    return $map[$name] ?? 'Working on it';
+}
+
+/**
  * The tool registry — one entry per wrapped read helper. Each is a thin JSON schema; the
  * actual work happens in assistant_dispatch(). Keep results COMPACT (top-N rows, rounded) so
  * we don't blow the token budget — Claude can always ask for more via another call.
@@ -1227,8 +1268,13 @@ function assistant_clean_messages(array $messages): array
  *                        ending with the user's new question. Tool-call/result turns are NOT
  *                        sent by the client — we generate them internally each turn and only
  *                        the final text is returned (so they never need to round-trip).
+ * @param ?callable $onProgress optional per-round progress hook (the SSE status-line UX): called
+ *                        once each time the model requests tools, as $onProgress(string[] $toolNames,
+ *                        int $round), BEFORE the tools run — so the UI can show "Searching
+ *                        transactions…". Best-effort: an exception from it is swallowed, and passing
+ *                        null (the default, e.g. the non-streaming endpoint) is a total no-op.
  */
-function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): array
+function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?callable $onProgress = null): array
 {
     $fail = fn(string $e) => ['ok' => false, 'reply' => null, 'tools' => [], 'rounds' => 0, 'error' => $e, 'usage' => ['input' => 0, 'output' => 0]];
 
@@ -1313,6 +1359,19 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg): arr
         }
         unset($blk);
         $work[] = ['role' => 'assistant', 'content' => $content];
+
+        // Progress hook (SSE status line): announce the tools this round BEFORE running them,
+        // so the UI shows "Searching transactions…" while the dispatch + next round happen.
+        if ($onProgress !== null) {
+            $roundTools = [];
+            foreach ($content as $b) {
+                if (($b['type'] ?? '') === 'tool_use') $roundTools[] = (string)($b['name'] ?? '');
+            }
+            if ($roundTools) {
+                try { $onProgress($roundTools, $round); } catch (Throwable $e) { /* progress is best-effort */ }
+            }
+        }
+
         $results = [];
         foreach ($content as $b) {
             if (($b['type'] ?? '') !== 'tool_use') continue;
