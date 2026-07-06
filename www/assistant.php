@@ -38,7 +38,8 @@ render_header('Assistant', 'assistant', ['narrow' => true]);
     <section class="card assistant-card">
         <p class="muted assistant-intro">
             Ask about your spending, budgets, bills, net worth, investments, retirement, and more.
-            I look up your real data to answer — and I'm read-only, so I can't change anything.
+            I look up your real data to answer — you'll see what I'm checking as I work — and I'm
+            read-only, so I can't change anything.
         </p>
 
         <div id="assistant-thread" class="assistant-thread" aria-live="polite"></div>
