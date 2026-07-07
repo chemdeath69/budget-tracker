@@ -112,25 +112,25 @@ function current_user_role(): ?string
         return $_SESSION['role'];
     }
     $email = strtolower((string)current_user_email());
-    $role  = 'member';
     try {
         global $CONFIG;
         $allow = array_map('strtolower', array_map('trim', (array)($CONFIG['allowed_emails'] ?? [])));
         if (in_array($email, $allow, true)) {
-            $role = 'admin';                       // break-glass — always admin
-        } else {
-            $st = db()->prepare('SELECT role FROM users WHERE email = :e');
-            $st->execute([':e' => $email]);
-            $stored = $st->fetchColumn();
-            if ($stored !== false) {
-                $role = ($stored === 'admin') ? 'admin' : 'member';
-            }
+            $_SESSION['role'] = 'admin';           // break-glass — always admin; safe to cache
+            return 'admin';
         }
+        $st = db()->prepare('SELECT role FROM users WHERE email = :e');
+        $st->execute([':e' => $email]);
+        $stored = $st->fetchColumn();
+        $role = ($stored === 'admin') ? 'admin' : 'member';
+        $_SESSION['role'] = $role;                 // cache only a value we actually read
+        return $role;
     } catch (Throwable $e) {
-        // Pre-migration DB / transient — default to the least privilege.
+        // Pre-migration DB / transient error — return the least privilege for THIS request
+        // only, and DO NOT cache it: caching 'member' on a hiccup would permanently pin a
+        // real admin to member for the rest of their session (code review 5.4).
+        return 'member';
     }
-    $_SESSION['role'] = $role;
-    return $role;
 }
 
 function is_admin(): bool
@@ -235,7 +235,10 @@ function google_auth_url(): string
 /**
  * Handle the OAuth callback: validate state, exchange the code for tokens,
  * read the verified email from the id_token, enforce the allowlist, and
- * upsert the user. On success sets the session; on failure returns an error.
+ * upsert the user. On success sets the session; on failure returns a short
+ * ERROR CODE (not a human message) — login.php maps a fixed whitelist of codes
+ * to canned copy so ?error= can't be used to inject arbitrary phishing text
+ * (code review 5.2). Codes: state | token | verify | disabled | not_allowed | server.
  */
 function google_handle_callback(): ?string
 {
@@ -245,12 +248,12 @@ function google_handle_callback(): ?string
     $code  = $_GET['code'] ?? '';
 
     if (!$state || !isset($_SESSION['oauth_state']) || !hash_equals($_SESSION['oauth_state'], $state)) {
-        return 'Invalid session state. Please try signing in again.';
+        return 'state';
     }
     unset($_SESSION['oauth_state']);
 
     if (!$code) {
-        return 'No authorization code returned by Google.';
+        return 'state';
     }
 
     $post = http_build_query([
@@ -275,18 +278,21 @@ function google_handle_callback(): ?string
 
     if ($resp === false) {
         error_log('OAuth token exchange failed: ' . $err);
-        return 'Could not reach Google to complete sign-in.';
+        return 'token';
     }
 
     $data = json_decode($resp, true);
     if (!is_array($data) || empty($data['id_token'])) {
-        error_log('OAuth token response missing id_token: ' . $resp);
-        return 'Google did not return an identity token.';
+        // Log only the KEYS present, never the values — the token response can carry a live
+        // access_token we must not write to the error log (code review 5.7).
+        error_log('OAuth token response missing id_token (keys: '
+            . implode(',', array_keys(is_array($data) ? $data : [])) . ')');
+        return 'token';
     }
 
     $claims = decode_jwt_payload($data['id_token']);
     if ($claims === null) {
-        return 'Could not read the identity token.';
+        return 'token';
     }
 
     // The id_token came directly from Google's token endpoint over TLS in THIS
@@ -299,18 +305,18 @@ function google_handle_callback(): ?string
 
     if (!hash_equals((string)$CONFIG['google']['client_id'], (string)($claims['aud'] ?? ''))) {
         error_log('OAuth id_token aud mismatch: ' . (string)($claims['aud'] ?? ''));
-        return 'The identity token was issued for a different application.';
+        return 'token';
     }
     $iss = (string)($claims['iss'] ?? '');
     if ($iss !== 'accounts.google.com' && $iss !== 'https://accounts.google.com') {
         error_log('OAuth id_token iss mismatch: ' . $iss);
-        return 'The identity token came from an unexpected issuer.';
+        return 'token';
     }
     if ((int)($claims['exp'] ?? 0) <= time()) {
-        return 'The identity token has expired. Please try signing in again.';
+        return 'state';
     }
     if ($expectNonce === '' || !hash_equals($expectNonce, (string)($claims['nonce'] ?? ''))) {
-        return 'Invalid sign-in nonce. Please try signing in again.';
+        return 'state';
     }
 
     $email    = strtolower(trim((string)($claims['email'] ?? '')));
@@ -320,39 +326,46 @@ function google_handle_callback(): ?string
     $picture  = (string)($claims['picture'] ?? '');
 
     if (!$email || !$verified) {
-        return 'Your Google email is not verified.';
+        return 'verify';
     }
 
-    // DB-backed allowlist + bootstrap (first login → admin) + config break-glass.
+    // DB-backed allowlist + bootstrap (first login → admin) + config break-glass. Serialize
+    // the decide-then-insert behind an advisory lock so two concurrent first logins on a fresh
+    // install can't BOTH pass the empty-table bootstrap check and both become admin (TOCTOU,
+    // code review 5.3). Logins are infrequent, so a brief global lock is cheap.
     $pdo = db();
-    $decision = access_decision($pdo, $email);
-    if (!$decision['allow']) {
-        error_log('Rejected login attempt from: ' . $email . ' (' . ($decision['reason'] ?? '') . ')');
-        access_log_record($pdo, null, 'login', 'rejected', $email);   // audit (best-effort)
-        return ($decision['reason'] ?? '') === 'disabled'
-            ? 'Your access to this site has been disabled. Contact an administrator.'
-            : 'This account is not authorised to use this site.';
-    }
-    $role      = $decision['role'] ?? 'member';
-    $bootstrap = ($decision['reason'] ?? '') === 'bootstrap';
+    $lockKey = 'bt_login_decide';
+    $pdo->prepare('SELECT GET_LOCK(:k, 3)')->execute([':k' => $lockKey]);
+    try {
+        $decision = access_decision($pdo, $email);
+        if (!$decision['allow']) {
+            error_log('Rejected login attempt from: ' . $email . ' (' . ($decision['reason'] ?? '') . ')');
+            access_log_record($pdo, null, 'login', 'rejected', $email);   // audit (best-effort)
+            return ($decision['reason'] ?? '') === 'disabled' ? 'disabled' : 'not_allowed';
+        }
+        $role      = $decision['role'] ?? 'member';
+        $bootstrap = ($decision['reason'] ?? '') === 'bootstrap';
 
-    // Upsert the user and load their id. On CREATE the role/status come from the
-    // decision; an existing row KEEPS its stored role/status (login never downgrades).
-    $stmt = $pdo->prepare(
-        'INSERT INTO users (email, name, role, status, google_sub, last_login_at)
-         VALUES (:email, :name, :role, \'active\', :sub, NOW())
-         ON DUPLICATE KEY UPDATE name = VALUES(name),
-                                 google_sub = VALUES(google_sub),
-                                 last_login_at = NOW()'
-    );
-    $stmt->execute([':email' => $email, ':name' => $name, ':role' => $role, ':sub' => $sub]);
+        // Upsert the user and load their id. On CREATE the role/status come from the
+        // decision; an existing row KEEPS its stored role/status (login never downgrades).
+        $stmt = $pdo->prepare(
+            'INSERT INTO users (email, name, role, status, google_sub, last_login_at)
+             VALUES (:email, :name, :role, \'active\', :sub, NOW())
+             ON DUPLICATE KEY UPDATE name = VALUES(name),
+                                     google_sub = VALUES(google_sub),
+                                     last_login_at = NOW()'
+        );
+        $stmt->execute([':email' => $email, ':name' => $name, ':role' => $role, ':sub' => $sub]);
 
-    // Break-glass / bootstrap: ensure the stored row is admin + active (so the Users
-    // page reflects it and a config-listed admin can never be locked out).
-    if (!empty($decision['force_admin'])) {
-        $pdo->prepare("UPDATE users SET role = 'admin', status = 'active' WHERE email = :e")
-            ->execute([':e' => $email]);
-        $role = 'admin';
+        // Break-glass / bootstrap: ensure the stored row is admin + active (so the Users
+        // page reflects it and a config-listed admin can never be locked out).
+        if (!empty($decision['force_admin'])) {
+            $pdo->prepare("UPDATE users SET role = 'admin', status = 'active' WHERE email = :e")
+                ->execute([':e' => $email]);
+            $role = 'admin';
+        }
+    } finally {
+        $pdo->prepare('SELECT RELEASE_LOCK(:k)')->execute([':k' => $lockKey]);
     }
 
     $uid = (int)$pdo->query('SELECT id FROM users WHERE email = ' . $pdo->quote($email))->fetchColumn();

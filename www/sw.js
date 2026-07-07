@@ -5,7 +5,7 @@
  *     (never cache one user's page and serve it to another; never cache auth).
  *   - Failed navigations fall back to a small offline page.
  * Bump CACHE when the precache list or strategy changes to retire old caches. */
-const CACHE = 'bt-static-v1';
+const CACHE = 'bt-static-v2';
 
 const PRECACHE = [
   '/offline.html',
@@ -37,6 +37,34 @@ function isStatic(url) {
   return url.origin === location.origin && url.pathname.startsWith('/assets/');
 }
 
+/* Store a fresh response and drop any OTHER cached revisions of the same asset. With no
+ * build step the URLs carry a ?v=<mtime> query, so every deploy would otherwise leave the
+ * previous revision behind forever (unbounded growth). Keep only the latest per pathname. */
+function putAndPrune(req, res) {
+  return caches.open(CACHE).then((c) =>
+    c.put(req, res).then(() =>
+      c.keys().then((keys) => {
+        const base = new URL(req.url).pathname;
+        return Promise.all(
+          keys.filter((k) => k.url !== req.url && new URL(k.url).pathname === base)
+              .map((k) => c.delete(k))
+        );
+      })
+    )
+  );
+}
+
+/* A minimal offline page synthesised when /offline.html was never precached (so we never
+ * respondWith(undefined), which would throw and surface as a broken navigation). */
+function offlineFallback() {
+  return caches.match('/offline.html').then((r) => r || new Response(
+    '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Offline</title><body style="font-family:system-ui,sans-serif;padding:2rem;max-width:32rem;margin:auto">' +
+    '<h1>You’re offline</h1><p>This page needs a connection. Reconnect and try again.</p>',
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  ));
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;              // never touch POST/mutations
@@ -49,7 +77,7 @@ self.addEventListener('fetch', (event) => {
         const net = fetch(req).then((res) => {
           if (res && res.ok) {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+            putAndPrune(req, copy);   // store + retire older ?v= revisions of this asset
           }
           return res;
         }).catch(() => hit);
@@ -59,9 +87,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigations: network-only, offline page as fallback.
+  // Navigations: network-only, offline page as fallback (guarded so it never resolves undefined).
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match('/offline.html')));
+    event.respondWith(fetch(req).catch(() => offlineFallback()));
     return;
   }
 

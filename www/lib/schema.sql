@@ -76,7 +76,7 @@ CREATE TABLE accounts (
   last_updated_datetime DATETIME NULL,             -- Plaid balances.last_updated_datetime
   updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                           ON UPDATE CURRENT_TIMESTAMP,
-  missing_since         DATETIME NULL,              -- set when a Plaid item stops returning this account (migration 034, code review 5.9 seed; not yet populated)
+  missing_since         DATETIME NULL,              -- set by sync_balances() when a Plaid item stops returning this account, cleared when it returns (migration 034, code review 5.9); surfaced on settings.php after >=7d
   PRIMARY KEY (account_id),
   KEY idx_accounts_item (item_id),
   CONSTRAINT fk_accounts_item FOREIGN KEY (item_id) REFERENCES items(item_id)

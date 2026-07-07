@@ -724,6 +724,47 @@ function q_cash_history(PDO $pdo, int $uid, int $days = 365): array
     return $out;   // already date-ascending (ORDER BY)
 }
 
+/**
+ * Honest windowed CHANGE for the Cash-on-hand page (code review 5.14). The naïve
+ * "live total − earliest in-window ABH total" OVER-reports whenever a cash account was
+ * LINKED mid-window: its live balance is in the current figure but not in the baseline, so a
+ * new $5k account looks like +$5k of "growth". We fix this by anchoring the delta to a STABLE
+ * population — only the accounts that already had a snapshot on the window's earliest snapshot
+ * date. baseline = Σ their balance THEN; current = Σ their LIVE balance NOW. Returns null when
+ * there's no usable baseline (no history yet). The hero still shows the full live cash total;
+ * only the "since {date}" delta uses this stable subset.
+ */
+function q_cash_change(PDO $pdo, int $uid, int $days): ?array
+{
+    $from = (new DateTimeImmutable('today'))->modify("-{$days} day")->format('Y-m-d');
+    $st = $pdo->prepare(
+        "SELECT abh.snapshot_date, abh.balance, a.balance_current AS live_balance,
+                a.type, a.subtype, a.retirement_flag, i.manual_type
+         FROM account_balance_history abh
+         JOIN accounts a ON a.account_id = abh.account_id
+         JOIN items i ON i.item_id = a.item_id
+         WHERE " . VIS . " AND abh.snapshot_date >= :from
+         ORDER BY abh.snapshot_date ASC"
+    );
+    $st->execute([':uid' => $uid, ':from' => $from]);
+    // Cash = checking/savings only (the forecast.php definition), classified in PHP.
+    $rows = array_values(array_filter(
+        $st->fetchAll(),
+        fn($r) => in_array(account_group($r), ['checking', 'savings'], true)
+    ));
+    if (!$rows) return null;
+
+    $baseDate = (string)$rows[0]['snapshot_date'];   // earliest (ORDER BY ASC)
+    $baseline = 0.0; $current = 0.0; $n = 0;
+    foreach ($rows as $r) {
+        if ((string)$r['snapshot_date'] !== $baseDate) continue;   // one row per account on that date
+        $baseline += (float)$r['balance'];
+        $current  += (float)($r['live_balance'] ?? 0);
+        $n++;
+    }
+    return ['as_of' => $baseDate, 'baseline' => round($baseline, 2), 'current' => round($current, 2), 'accounts' => $n];
+}
+
 /** Spending by category over the last $days days (TRUE expense — outflows only).
  *  Session 86: applies the SAME true-expense exclusions as every other spend read
  *  (transfers via expense_exclude_clause + credit-card payments) so the by-category
@@ -2191,6 +2232,53 @@ function q_goals(PDO $pdo, int $uid): array
     }
     unset($g);
     return $rows;
+}
+
+/**
+ * Accounts a Plaid bank has STOPPED reporting for ≥ $minDays consecutive days (code review
+ * 5.9 — `missing_since` is stamped by sync_balances). Their balance is frozen yet still counts
+ * in net worth, so settings.php SURFACES them ("no longer reported by your bank — hide?"); we
+ * never auto-hide (honest-number). VIS-scoped (VIS already excludes `hidden`). Age is computed
+ * SQL-side (S24-safe). Column-guarded → [] if migration 034 hasn't run yet. Keyed lookups are
+ * built by the caller from `account_id`.
+ */
+function q_stale_missing_accounts(PDO $pdo, int $uid, int $minDays = 7): array
+{
+    try {
+        $st = $pdo->prepare(
+            "SELECT a.account_id, " . ACCT_NAME . " AS name, a.mask, a.visibility,
+                    a.balance_current, i.institution_name, i.user_id AS owner_id,
+                    TIMESTAMPDIFF(DAY, a.missing_since, NOW()) AS missing_days
+             FROM accounts a
+             JOIN items i ON i.item_id = a.item_id
+             WHERE " . VIS . " AND a.missing_since IS NOT NULL
+               AND TIMESTAMPDIFF(DAY, a.missing_since, NOW()) >= :mind
+             ORDER BY missing_days DESC"
+        );
+        $st->bindValue(':uid', $uid, PDO::PARAM_INT);
+        $st->bindValue(':mind', $minDays, PDO::PARAM_INT);
+        $st->execute();
+        return $st->fetchAll();
+    } catch (Throwable $e) {
+        return [];   // pre-migration-034 / transient — never break the page
+    }
+}
+
+/**
+ * Present a liability account's balance HONESTLY, distinguishing money OWED from an
+ * OVERPAYMENT/credit (code review 5.10). Plaid liability convention: balance_current > 0 =
+ * amount owed; a NEGATIVE balance = the account is overpaid (a credit in the holder's favour),
+ * which REDUCES debt and must NOT render as red "debt". Returns:
+ *   ['text'  => money string WITH sign ("-$500.00" owed / "+$50.00 credit" / "$0.00"),
+ *    'class' => 'neg' (owed) | 'pos' (credit) | '' (zero),   // for the amount span
+ *    'signed'=> float ]                                       // net-worth contribution: -bal
+ * Callers must still e() the text at the render site.
+ */
+function liability_balance_display(float $bal): array
+{
+    if ($bal < 0)   return ['text' => '+' . usd(abs($bal)) . ' credit', 'class' => 'pos', 'signed' => -$bal];
+    if ($bal == 0.0) return ['text' => usd(0),                          'class' => '',    'signed' => 0.0];
+    return ['text' => '-' . usd($bal), 'class' => 'neg', 'signed' => -$bal];
 }
 
 /** Liabilities. Optionally scoped to one account. */

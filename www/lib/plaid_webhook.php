@@ -48,8 +48,10 @@ function verify_plaid_webhook(string $rawBody, ?PDO $pdo = null): array
     $payload = json_decode(b64url_decode($p64), true);
     if (!is_array($payload)) return [false, 'bad JWT payload'];
 
-    // Freshness (replay protection): iat within 5 minutes.
-    if (!isset($payload['iat']) || (time() - (int)$payload['iat']) > 300) {
+    // Freshness (replay protection): iat within 5 minutes, in EITHER direction — abs() so a
+    // future-dated token (clock skew or a forged-ahead iat) is rejected too, not just an old
+    // one (code review 5.17).
+    if (!isset($payload['iat']) || abs(time() - (int)$payload['iat']) > 300) {
         return [false, 'stale webhook token'];
     }
 

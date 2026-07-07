@@ -41,7 +41,11 @@ function statement_ocr_enabled(array $cfg): bool
 
 /**
  * An Anthropic-supported image media type for the file, or null.
- * Content-based first (uploaded temp files have no extension), extension as fallback.
+ * Determined from the file's ACTUAL bytes (getimagesize) — no extension fallback: a file that
+ * isn't a readable, supported image is rejected upfront rather than trusting a (possibly
+ * spoofed) .jpg extension and burning a paid vision call on something Anthropic will reject
+ * anyway (code review 5.30). Uploaded temp files have no extension, so content-sniffing is
+ * also the only reliable signal.
  */
 function statement_ocr_media_type(string $path): ?string
 {
@@ -50,11 +54,7 @@ function statement_ocr_media_type(string $path): ?string
     if ($info !== false && isset($info['mime']) && in_array($info['mime'], $supported, true)) {
         return $info['mime'];
     }
-    return [
-        'jpg'  => 'image/jpeg', 'jpeg' => 'image/jpeg',
-        'png'  => 'image/png',  'gif'  => 'image/gif',
-        'webp' => 'image/webp',
-    ][strtolower(pathinfo($path, PATHINFO_EXTENSION))] ?? null;
+    return null;
 }
 
 /**
@@ -185,7 +185,7 @@ function statement_ocr_extract(array $imagePaths, array $cfg): array
             return $fail('Image too large (max 5 MB): ' . basename($path));
         }
         $media = statement_ocr_media_type($path);
-        if ($media === null) return $fail('Unsupported image type: ' . basename($path));
+        if ($media === null) return $fail('Not a readable image (JPEG/PNG/GIF/WebP): ' . basename($path));
         $raw = file_get_contents($path);
         if ($raw === false) return $fail('Cannot read image: ' . basename($path));
         $content[] = [

@@ -83,13 +83,44 @@ function hv_release_slot(PDO $pdo): void
 }
 
 /**
+ * Auth-backoff marker (code review 5.28). A rejected key (401/403) means RentCast did no
+ * billable work, so we refund the slot AND set a per-month marker so we STOP retrying with a
+ * key that can't work — otherwise a placeholder/revoked key would reserve-and-refund (and log)
+ * on every page load. Reuses api_usage as a tiny per-period kv (provider='rentcast_authfail',
+ * separate from the real 'rentcast' counter so it never pollutes hv_usage()). Logs once/period.
+ */
+function hv_mark_auth_backoff(PDO $pdo): void
+{
+    $st = $pdo->prepare("SELECT request_count FROM api_usage WHERE provider='rentcast_authfail' AND period=:p");
+    $st->execute([':p' => hv_period()]);
+    $already = (int)($st->fetchColumn() ?: 0) > 0;
+    $pdo->prepare(
+        "INSERT INTO api_usage (provider, period, request_count) VALUES ('rentcast_authfail', :p, 1)
+         ON DUPLICATE KEY UPDATE request_count = 1"
+    )->execute([':p' => hv_period()]);
+    if (!$already) {
+        error_log('RentCast rejected the API key (401/403) — backing off for ' . hv_period()
+            . '. Fix rentcast.api_key to resume home valuations.');
+    }
+}
+
+/** True if we've already seen a rejected key this month → skip further RentCast calls. */
+function hv_auth_backoff_active(PDO $pdo): bool
+{
+    $st = $pdo->prepare("SELECT request_count FROM api_usage WHERE provider='rentcast_authfail' AND period=:p");
+    $st->execute([':p' => hv_period()]);
+    return (int)($st->fetchColumn() ?: 0) > 0;
+}
+
+/**
  * One RentCast GET, behind the monthly cap. Returns the decoded body, or
  * ['__error'=>reason]. Special error 'monthly_cap' means we refused to send.
  */
 function rentcast_call(PDO $pdo, string $path, array $params): array
 {
-    if (hv_api_key() === '')        return ['__error' => 'no_key'];
-    if (!hv_reserve_slot($pdo))     return ['__error' => 'monthly_cap'];   // <-- the spend guard
+    if (hv_api_key() === '')          return ['__error' => 'no_key'];
+    if (hv_auth_backoff_active($pdo)) return ['__error' => 'auth_backoff'];  // key rejected earlier this month
+    if (!hv_reserve_slot($pdo))       return ['__error' => 'monthly_cap'];   // <-- the spend guard
 
     $url = RENTCAST_BASE . '/' . ltrim($path, '/') . '?' . http_build_query($params);
     $ch = curl_init($url);
@@ -111,6 +142,11 @@ function rentcast_call(PDO $pdo, string $path, array $params): array
     if ($code === 429) {                   // rate-limited → not billed → refund the reserved slot
         hv_release_slot($pdo);
         return ['__error' => 'rate_limited (http 429)'];
+    }
+    if ($code === 401 || $code === 403) {  // key rejected → not billable work → refund + back off (5.28)
+        hv_release_slot($pdo);
+        hv_mark_auth_backoff($pdo);
+        return ['__error' => 'auth http ' . $code . ' (key rejected — backing off this month)'];
     }
     if ($code >= 400)   return ['__error' => 'api http ' . $code . ': ' . substr((string)$body, 0, 200)];
     $json = json_decode((string)$body, true);

@@ -148,8 +148,9 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
 
 <!-- Balance hero -->
 <section class="stat-hero">
-    <p class="eyebrow"><?= $debt ? 'Balance owed' : 'Current balance' ?></p>
-    <div class="big <?= $debt ? 'neg' : '' ?>"><?= e(($debt && $bal > 0 ? '-' : '') . usd(abs($bal))) ?></div>
+    <?php $lb = $debt ? liability_balance_display($bal) : null; ?>
+    <p class="eyebrow"><?= $debt ? ($bal < 0 ? 'Credit balance' : 'Balance owed') : 'Current balance' ?></p>
+    <div class="big <?= $debt ? $lb['class'] : '' ?>"><?= $debt ? e($lb['text']) : e(usd(abs($bal))) ?></div>
     <?php if ($duePill !== ''): ?>
         <p class="stat-sub neg"><?= e($duePill) ?></p>
     <?php elseif ($manual && $acct['last_updated_datetime']): ?>

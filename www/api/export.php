@@ -26,6 +26,16 @@ $merch = trim((string)($_GET['merchant'] ?? ''));
 $amin = trim((string)($_GET['amin'] ?? ''));   // amount-range filter (#12b) — dollar magnitude
 $amax = trim((string)($_GET['amax'] ?? ''));
 
+// Validate ?from/?to as strict Y-m-d (round-trip so "2026-02-31"/garbage is rejected) → 400,
+// rather than passing an arbitrary string into the query (code review 5.15).
+$validYmd = static function ($d): bool {
+    if (!is_string($d) || $d === '') return false;
+    $dt = DateTime::createFromFormat('Y-m-d', $d);
+    return $dt !== false && $dt->format('Y-m-d') === $d;
+};
+if ($from !== null && $from !== '' && !$validYmd($from)) { http_response_code(400); exit('invalid from date'); }
+if ($to   !== null && $to   !== '' && !$validYmd($to))   { http_response_code(400); exit('invalid to date'); }
+
 $where = ['(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))'];
 $params = [':uid' => $uid];
 if ($from) { $where[] = 't.date >= :from'; $params[':from'] = $from; }
@@ -89,8 +99,24 @@ $sql = 'SELECT t.date, t.merchant_name, t.name, t.amount, t.iso_currency_code,
         JOIN items i ON a.item_id = i.item_id
         WHERE ' . implode(' AND ', $where) . '
         ORDER BY t.date DESC';
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+} catch (Throwable $e) {
+    error_log('api/export.php query failed: ' . $e->getMessage());
+    http_response_code(500);
+    exit('could not export transactions');
+}
+
+// CSV formula-injection guard (code review 5.15): a cell whose first char is =,+,-,@ or a
+// control char (tab/CR/LF) is evaluated as a formula by Excel/Sheets. Merchant/description/
+// category/account/institution/note/tags are external data, so prefix such cells with a single
+// quote to force text. (Date/amount/currency/mask/pending are our own numeric/enum values.)
+$csvSafe = static function ($v): string {
+    $s = (string)($v ?? '');
+    if ($s !== '' && strpos("=+-@\t\r\n", $s[0]) !== false) return "'" . $s;
+    return $s;
+};
 
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="transactions-' . date('Y-m-d') . '.csv"');
@@ -100,17 +126,17 @@ fputcsv($out, ['Date', 'Merchant', 'Description', 'Amount', 'Currency', 'Categor
 while ($r = $stmt->fetch()) {
     fputcsv($out, [
         $r['date'],
-        $r['merchant_name'],
-        $r['name'],
+        $csvSafe($r['merchant_name']),
+        $csvSafe($r['name']),
         $r['amount'],
         $r['iso_currency_code'],
-        $r['category'],
+        $csvSafe($r['category']),
         $r['pending'] ? 'yes' : 'no',
-        $r['account_name'],
+        $csvSafe($r['account_name']),
         $r['mask'],
-        $r['institution_name'],
-        $r['note'],
-        $r['tags'],
+        $csvSafe($r['institution_name']),
+        $csvSafe($r['note']),
+        $csvSafe($r['tags']),
     ]);
 }
 fclose($out);

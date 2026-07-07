@@ -154,6 +154,7 @@ function sync_balances(PDO $pdo, string $itemId, string $token): void
         // the UPDATE list (preserve the owner's choices). The Plaid `name` keeps
         // refreshing underneath the display_name override (migration 009).
     );
+    $seen = [];
     foreach ($res['accounts'] ?? [] as $a) {
         $b = $a['balances'] ?? [];
         $upd = $b['last_updated_datetime'] ?? null;
@@ -165,6 +166,28 @@ function sync_balances(PDO $pdo, string $itemId, string $token): void
             ':iso' => $b['iso_currency_code'] ?? 'USD',
             ':upd' => $upd ? date('Y-m-d H:i:s', strtotime($upd)) : null,
         ]);
+        if (isset($a['account_id'])) $seen[] = $a['account_id'];
+    }
+
+    // Reconcile which accounts this Item still reports (code review 5.9). An account that
+    // DROPS OUT of /accounts/balance/get (closed at the bank, product access lost) keeps a
+    // frozen balance in net worth forever unless we notice. Stamp `missing_since` the first
+    // time it's absent; CLEAR it the moment it comes back. We only SURFACE stale-missing
+    // accounts on settings.php (honest-number — never auto-hide), so the balance still counts
+    // until the owner decides. Skip when the item returned NO accounts (likely a transient
+    // product error — don't mass-stamp). Best-effort + column-guarded (migration 034).
+    if ($seen) {
+        try {
+            $ph = implode(',', array_fill(0, count($seen), '?'));
+            $pdo->prepare("UPDATE accounts SET missing_since = NULL
+                           WHERE item_id = ? AND missing_since IS NOT NULL AND account_id IN ($ph)")
+                ->execute(array_merge([$itemId], $seen));
+            $pdo->prepare("UPDATE accounts SET missing_since = NOW()
+                           WHERE item_id = ? AND missing_since IS NULL AND account_id NOT IN ($ph)")
+                ->execute(array_merge([$itemId], $seen));
+        } catch (Throwable $e) {
+            error_log('sync_balances missing_since reconcile failed for ' . $itemId . ': ' . $e->getMessage());
+        }
     }
 }
 

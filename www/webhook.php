@@ -16,6 +16,9 @@ $body = json_decode($raw, true) ?: [];
 $type   = $body['webhook_type'] ?? '';
 $code   = $body['webhook_code'] ?? '';
 $itemId = $body['item_id'] ?? null;
+// item_id is stored in VARCHAR(64) columns (webhook_log/items); a >64-char value (real Plaid
+// item_ids are well under this) would 500 the log insert before the ack. Clamp it (code review 5.18).
+if (is_string($itemId)) $itemId = substr($itemId, 0, 64);
 
 $pdo = db();
 [$verified, $reason] = verify_plaid_webhook($raw, $pdo);   // $pdo → 24h key cache (code review 3.2)
@@ -91,9 +94,11 @@ $known = $pdo->prepare('SELECT 1 FROM items WHERE item_id = ?');
 $known->execute([$itemId]);
 if (!$known->fetchColumn()) {
     error_log("Plaid webhook for UNTRACKED item $itemId ($type/$code) — orphan; cannot /item/remove (no access token).");
-    // Dedup to one alert per orphan: we just inserted this webhook_log row, so a total
-    // count of 1 for this item_id means this is its first-ever sighting.
-    $cnt = $pdo->prepare('SELECT COUNT(*) FROM webhook_log WHERE item_id = ?');
+    // Dedup to one alert per orphan: we just inserted this VERIFIED webhook_log row, so a
+    // verified count of 1 for this item_id means this is its first-ever genuine sighting.
+    // Count only verified=1 rows so an attacker can't pre-seed unverified rows to push the
+    // count past 1 and suppress the first-sighting alert (code review 5.18).
+    $cnt = $pdo->prepare('SELECT COUNT(*) FROM webhook_log WHERE item_id = ? AND verified = 1');
     $cnt->execute([$itemId]);
     if ((int)$cnt->fetchColumn() === 1) {
         require_once __DIR__ . '/lib/mailer.php';

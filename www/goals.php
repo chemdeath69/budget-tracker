@@ -103,15 +103,24 @@ render_header('Savings goals', 'goals', ['narrow' => true]);
                         <span class="goal-tag muted">Manual</span>
                     <?php endif; ?>
                 </span>
-                <span class="muted"><?= e(usd($g['current'])) ?> / <?= e(usd($g['target'])) ?>
-                    <?php if (!$hidden): ?><button class="goal-edit" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Edit goal">✎</button><?php endif; ?>
+                <span class="muted">
+                    <?php if ($hidden): ?>
+                        — / <?= e(usd($g['target'])) ?>
+                    <?php else: ?>
+                        <?= e(usd($g['current'])) ?> / <?= e(usd($g['target'])) ?>
+                        <button class="goal-edit" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Edit goal">✎</button>
+                    <?php endif; ?>
                     <button class="goal-del" data-id="<?= (int)$g['id'] ?>" type="button" aria-label="Delete goal">✕</button></span>
             </div>
-            <div class="budget-bar<?= $g['reached'] ? ' reached' : '' ?>"><span style="width:<?= round($g['pct']) ?>%"></span></div>
-            <p class="muted goal-foot">
-                <?php if ($g['reached']): ?>🎯 Reached<?php else: ?><?= e(usd($g['remaining'])) ?> to go<?php endif; ?>
-                · <?= round($g['pct']) ?>%
-            </p>
+            <?php if ($hidden): // tied to a private account we can't see → no balance-derived progress ?>
+                <p class="muted goal-foot">Progress hidden (private account)</p>
+            <?php else: ?>
+                <div class="budget-bar<?= $g['reached'] ? ' reached' : '' ?>"><span style="width:<?= round($g['pct']) ?>%"></span></div>
+                <p class="muted goal-foot">
+                    <?php if ($g['reached']): ?>🎯 Reached<?php else: ?><?= e(usd($g['remaining'])) ?> to go<?php endif; ?>
+                    · <?= round($g['pct']) ?>%
+                </p>
+            <?php endif; ?>
         </div>
         <?php endforeach; endif; ?>
     </div>

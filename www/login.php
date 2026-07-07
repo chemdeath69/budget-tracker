@@ -7,7 +7,19 @@ if (is_logged_in()) {
     header('Location: /');
     exit;
 }
-$error = $_GET['error'] ?? '';
+// Map a fixed whitelist of error CODES → canned copy. An unknown/garbage ?error= value
+// falls back to a generic message, so the query string can never render arbitrary
+// attacker-supplied text on the sign-in page (code review 5.2).
+$ERROR_MESSAGES = [
+    'state'       => 'Your sign-in session expired. Please try signing in again.',
+    'token'       => 'Could not complete sign-in with Google. Please try again.',
+    'verify'      => 'Your Google email is not verified.',
+    'disabled'    => 'Your access to this site has been disabled. Contact an administrator.',
+    'not_allowed' => 'This account is not authorised to use this site.',
+    'server'      => 'Something went wrong during sign-in. Please try again.',
+];
+$errCode = (string)($_GET['error'] ?? '');
+$error   = $errCode === '' ? '' : ($ERROR_MESSAGES[$errCode] ?? 'Sign-in failed. Please try again.');
 
 // Fresh install (no users yet) → a "become the administrator" welcome. The first
 // successful Google sign-in is auto-allowed + made admin (see lib/auth.php bootstrap).

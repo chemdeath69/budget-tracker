@@ -106,6 +106,20 @@ $label = $isPlaid
     ? $institution
     : (($accountRows[0]['name'] ?? '') !== '' ? (string)$accountRows[0]['name'] : $institution);
 
+// Collect any kept statement PDFs BEFORE the purge deletes their manual_documents rows — the
+// files live outside the DB and would otherwise be orphaned on disk forever (code review 5.8).
+$storedFiles = [];
+if ($accountIds && !$isPlaid) {
+    try {
+        $ph = implode(',', array_fill(0, count($accountIds), '?'));
+        $sf = $pdo->prepare("SELECT stored_path FROM manual_documents WHERE account_id IN ($ph) AND stored_path IS NOT NULL");
+        $sf->execute($accountIds);
+        $storedFiles = array_column($sf->fetchAll(PDO::FETCH_ASSOC), 'stored_path');
+    } catch (Throwable $e) {
+        error_log('unlink: could not list stored files for ' . $itemId . ' — ' . $e->getMessage());
+    }
+}
+
 // 1) Revoke at Plaid (Plaid items only — a manual account has no token to revoke).
 //    Benign "already gone" codes are fine; anything else aborts so we never delete our
 //    copy while the token is still live + billing at Plaid.
@@ -178,6 +192,22 @@ try {
     http_response_code(500);
     echo json_encode(['error' => 'The bank was disconnected at Plaid but its data could not be removed — please try again.']);
     exit;
+}
+
+// 2b) Delete the kept statement PDFs + now-empty per-account dirs from disk (best-effort,
+//     code review 5.8). Realpath-check each file stays under the manual storage root before
+//     unlinking (defence-in-depth against a poisoned stored_path).
+if ($storedFiles) {
+    $baseRaw = ($CONFIG['storage']['manual_dir'] ?? '') ?: (dirname(__DIR__, 2) . '/storage/manual');
+    $base    = realpath($baseRaw) ?: '';
+    $dirs    = [];
+    foreach ($storedFiles as $p) {
+        $rp = realpath((string)$p);
+        if ($rp !== false && $base !== '' && strncmp($rp, $base . DIRECTORY_SEPARATOR, strlen($base) + 1) === 0) {
+            if (@unlink($rp)) $dirs[dirname($rp)] = true;
+        }
+    }
+    foreach (array_keys($dirs) as $d) { @rmdir($d); }   // removes each only if now empty
 }
 
 // 3) Refresh the household net-worth snapshot so the dashboard reflects the removal.

@@ -69,15 +69,31 @@ try {
             $fail(422, 'Enter a valid email address.');
         }
         $role = (($in['role'] ?? 'member') === 'admin') ? 'admin' : 'member';
-        $st = $pdo->prepare('SELECT id, status FROM users WHERE email = :e');
+        $st = $pdo->prepare('SELECT id, status, role FROM users WHERE email = :e');
         $st->execute([':e' => $email]);
         $ex = $st->fetch();
         if ($ex) {
-            if (($ex['status'] ?? '') === 'disabled') {
-                $pdo->prepare("UPDATE users SET status = 'active' WHERE id = :id")->execute([':id' => (int)$ex['id']]);
-                $ok('Existing user re-enabled.');
+            // Upsert semantics (code review 5.16): 'add' on an existing email applies the
+            // requested role and re-enables a disabled account — the role was previously
+            // ignored here. A demotion to member is guarded exactly as set_role is, so 'add'
+            // can't strip the last admin / a break-glass account / your own admin role.
+            $exId = (int)$ex['id'];
+            if ($role === 'member') {
+                if (in_array($email, $breakGlass, true)) {
+                    $fail(422, 'This account is in the server config allowlist and is always an admin.');
+                }
+                if ($exId === $uid) $fail(422, 'You cannot remove your own admin role.');
+                if (($ex['role'] ?? '') === 'admin' && ($ex['status'] ?? '') === 'active' && $activeAdmins() <= 1) {
+                    $fail(422, 'There must be at least one admin.');
+                }
             }
-            $ok('That email is already a user.');
+            if (($ex['status'] ?? '') === 'disabled') {
+                $pdo->prepare("UPDATE users SET status = 'active', role = :r WHERE id = :id")
+                    ->execute([':r' => $role, ':id' => $exId]);
+                $ok('Existing user re-enabled as ' . $role . '.');
+            }
+            $pdo->prepare('UPDATE users SET role = :r WHERE id = :id')->execute([':r' => $role, ':id' => $exId]);
+            $ok('That email is already a user — role set to ' . $role . '.');
         }
         $pdo->prepare("INSERT INTO users (email, role, status, added_by) VALUES (:e, :r, 'active', :by)")
             ->execute([':e' => $email, ':r' => $role, ':by' => $uid]);

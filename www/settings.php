@@ -13,6 +13,10 @@ $admin = is_admin();          // admin-only sections: Users & access, Danger zon
 // accounts here — settings is the only surface that shows them (they're invisible
 // everywhere else in the app, including their own account.php drill-down).
 $owned  = q_owned_accounts($pdo, $uid);
+// Accounts a bank has stopped reporting for ≥7 days (code review 5.9) → badge them below so
+// the owner can drop a frozen balance from net worth via the Visibility control right there.
+$staleMissing = [];
+foreach (q_stale_missing_accounts($pdo, $uid) as $sm) $staleMissing[$sm['account_id']] = (int)$sm['missing_days'];
 // How many accounts each Item owns — for the "Remove bank" confirm (removal is
 // per-Item, so it deletes every account of that bank, not just the clicked row).
 $itemAcctCount = [];
@@ -123,13 +127,19 @@ render_header('Settings', 'settings', ['narrow' => true]);
 <?php if ($owned): ?>
 <section class="block">
     <div class="block-head"><h2>Your linked accounts</h2><span class="muted">Visibility &amp; connection</span></div>
+    <?php if ($staleMissing): ?>
+    <p class="muted load-note">Accounts flagged <em>no longer reported</em> have stopped appearing in your
+        bank's data feed — their balance is frozen but still counts in your net worth. Set one to
+        <strong>Hidden</strong> to drop it, or leave it if the bank is just temporarily quiet.</p>
+    <?php endif; ?>
     <div class="rows">
         <?php foreach ($owned as $a):
-            $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']); ?>
+            $errored = ($a['item_status'] ?? '') === 'error' || !empty($a['error_code']);
+            $missDays = $staleMissing[$a['account_id']] ?? null; ?>
         <div class="row manage-row">
             <span class="row-main">
                 <span class="row-title"><?= e($a['name'] ?: 'Account') ?><?= $a['mask'] ? ' ••' . e($a['mask']) : '' ?><?php if ($a['visibility'] === 'hidden'): ?> <span class="mini-tag">hidden</span><?php endif; ?></span>
-                <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $errored ? ' · <span class="mini-tag warn">needs attention</span>' : '' ?></span>
+                <span class="row-sub"><?= e($a['institution_name'] ?: '') ?><?= $errored ? ' · <span class="mini-tag warn">needs attention</span>' : '' ?><?php if ($missDays !== null): ?> · <span class="mini-tag warn">no longer reported (<?= $missDays ?>d)</span><?php endif; ?></span>
             </span>
             <span class="manage-controls">
                 <select class="select vis-select" data-account="<?= e($a['account_id']) ?>" aria-label="Visibility">

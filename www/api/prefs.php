@@ -33,8 +33,13 @@ try {
     $in  = json_decode(file_get_contents('php://input'), true) ?: [];
     access_log_action($pdo, $uid, 'prefs', 'save');   // audit (best-effort)
 
-    // Read-merge-write: start from the stored blob so we only touch the given keys.
-    $prefs = q_user_prefs($pdo, $uid);
+    // Build a PATCH of only the keys this request touches, then apply it server-side with
+    // JSON_MERGE_PATCH (code review 5.12). The old read-merge-write raced across tabs — a
+    // theme-only save read the blob, then wrote the WHOLE blob back, clobbering a concurrent
+    // dashboard save (and vice-versa). Merging in a single statement removes the read step and
+    // the race. NB MERGE_PATCH deletes keys set to JSON null; this API never patches a key to
+    // null (theme is validated to a value, dashboard to a layout), so nothing is dropped.
+    $patch = [];
 
     if (array_key_exists('theme', $in)) {
         $t = $in['theme'];
@@ -44,7 +49,7 @@ try {
             echo json_encode(['error' => 'invalid theme']);
             exit;
         }
-        $prefs['theme'] = $t;
+        $patch['theme'] = $t;
     }
 
     // Dashboard layout (Phase 3) — the "Customize home" designer posts the full layout.
@@ -57,19 +62,23 @@ try {
             echo json_encode(['error' => 'invalid dashboard layout']);
             exit;
         }
-        $prefs['dashboard'] = $layout;
+        $patch['dashboard'] = $layout;
     }
 
-    $pdo->prepare(
-        'INSERT INTO user_prefs (user_id, prefs)
-         VALUES (:uid, :prefs)
-         ON DUPLICATE KEY UPDATE prefs = VALUES(prefs), updated_at = CURRENT_TIMESTAMP'
-    )->execute([
-        ':uid'   => $uid,
-        ':prefs' => json_encode($prefs, JSON_UNESCAPED_SLASHES),
-    ]);
+    if ($patch) {
+        // Distinct :patch/:patch2 bound to the same JSON — native prepares (emulation off)
+        // reject a reused named placeholder (HY093).
+        $json = json_encode($patch, JSON_UNESCAPED_SLASHES);
+        $pdo->prepare(
+            'INSERT INTO user_prefs (user_id, prefs)
+             VALUES (:uid, :patch)
+             ON DUPLICATE KEY UPDATE prefs = JSON_MERGE_PATCH(COALESCE(prefs, JSON_OBJECT()), :patch2),
+                                     updated_at = CURRENT_TIMESTAMP'
+        )->execute([':uid' => $uid, ':patch' => $json, ':patch2' => $json]);
+    }
 
-    echo json_encode(['ok' => true, 'prefs' => $prefs]);
+    // Echo the authoritative merged prefs (one small read, post-write).
+    echo json_encode(['ok' => true, 'prefs' => q_user_prefs($pdo, $uid)]);
 } catch (Throwable $e) {
     error_log('api/prefs.php error: ' . $e->getMessage());
     http_response_code(500);

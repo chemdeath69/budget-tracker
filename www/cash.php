@@ -30,10 +30,14 @@ usort($cashAccts, fn($x, $y) => abs((float)($y['balance_current'] ?? 0)) <=> abs
 
 $hist = q_cash_history($pdo, $uid, $window);
 
-// Change over the window: current vs the earliest point in it.
-$startBal = $hist ? (float)$hist[0]['balance'] : $cashTotal;
-$chgAbs   = $cashTotal - $startBal;
-$chgPct   = abs($startBal) >= 1.0 ? ($chgAbs / abs($startBal)) * 100 : null;
+// Change over the window, anchored to a STABLE account population (accounts present at the
+// window's first snapshot) so a newly-linked account doesn't inflate "since {date}" (5.14).
+// Only shown when there's a genuine earlier baseline (as_of before today).
+$today  = (new DateTimeImmutable('today'))->format('Y-m-d');
+$change = q_cash_change($pdo, $uid, $window);
+$hasBaseline = $change !== null && $change['as_of'] < $today;
+$chgAbs = $hasBaseline ? ($change['current'] - $change['baseline']) : null;
+$chgPct = ($hasBaseline && abs($change['baseline']) >= 1.0) ? ($chgAbs / abs($change['baseline'])) * 100 : null;
 
 render_header('Cash on hand', 'cash', ['chart' => true]);
 ?>
@@ -60,10 +64,10 @@ render_header('Cash on hand', 'cash', ['chart' => true]);
             <div class="lead-fig">
                 <span class="eyebrow">Liquid cash</span>
                 <div class="big"><?= e(usd($cashTotal)) ?></div>
-                <?php if ($hist && $chgPct !== null): $up = $chgPct >= 0; ?>
+                <?php if ($chgPct !== null): $up = $chgAbs >= 0; ?>
                     <span class="delta <?= $up ? 'up' : 'down' ?>">
                         <?= $up ? '▲' : '▼' ?> <?= ($up ? '+' : '−') . e(usd(abs($chgAbs))) ?>
-                        <span class="delta-sub">since <?= e((new DateTimeImmutable($hist[0]['snapshot_date']))->format('M j')) ?></span>
+                        <span class="delta-sub">since <?= e((new DateTimeImmutable($change['as_of']))->format('M j')) ?></span>
                     </span>
                 <?php endif; ?>
             </div>

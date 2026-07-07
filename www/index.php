@@ -421,7 +421,9 @@ unset($grp);
         $subtotal = 0.0;
         foreach ($rows as $a) {
             $bb = (float)($a['balance_current'] ?? 0);
-            $subtotal += is_liability($a) ? -abs($bb) : $bb;
+            // Liability contributes its SIGNED negation: owed (bb>0) → −bb; an overpaid
+            // credit (bb<0) → +|bb|, which REDUCES the debt subtotal (code review 5.10).
+            $subtotal += is_liability($a) ? -$bb : $bb;
         }
         $negTotal = $subtotal < 0;
     ?>
@@ -449,9 +451,11 @@ unset($grp);
                             <?php if (isset($overdueIds[$a['account_id']])): ?><span class="mini-tag warn">needs update</span><?php endif; ?>
                         </span>
                     </span>
-                    <span class="acct-bal <?= $debt ? 'neg' : '' ?>">
-                        <?= e(($debt && $bal > 0 ? '-' : '') . usd(abs($bal))) ?>
-                    </span>
+                    <?php if ($debt): $lb = liability_balance_display($bal); ?>
+                    <span class="acct-bal <?= $lb['class'] ?>"><?= e($lb['text']) ?></span>
+                    <?php else: ?>
+                    <span class="acct-bal"><?= e(usd(abs($bal))) ?></span>
+                    <?php endif; ?>
                     <span class="chev" aria-hidden="true">›</span>
                 </a>
                 <?php endforeach; ?>
