@@ -3590,6 +3590,33 @@ function q_manual_statement_status(PDO $pdo, int $uid, bool $overdueOnly = false
 }
 
 /**
+ * Loan subtypes that plausibly ARE the home mortgage. Used to narrow the "which
+ * account is the mortgage" fallback so a car/student/personal loan is never promoted
+ * to "the mortgage" on a self-hosted install that has other loans but no linked home
+ * loan (which would poison equity, the 360-mo amortization, and the FRED refi card).
+ */
+const MORTGAGE_SUBTYPES = ['mortgage', 'home equity', 'heloc', 'home'];
+
+/**
+ * Pick the account that is "the mortgage" from an already-fetched account set:
+ * an explicit subtype='mortgage' first, else — only if none — the first type='loan'
+ * whose subtype is mortgage-plausible (MORTGAGE_SUBTYPES). Returns null when nothing
+ * qualifies (→ the honest no-mortgage empty state). Shared by q_home_equity() and
+ * q_mortgage() so both agree on the same account.
+ */
+function pick_mortgage_account(array $accounts): ?array
+{
+    foreach ($accounts as $a) { if (($a['subtype'] ?? '') === 'mortgage') return $a; }
+    foreach ($accounts as $a) {
+        if (($a['type'] ?? '') === 'loan'
+            && in_array(strtolower((string)($a['subtype'] ?? '')), MORTGAGE_SUBTYPES, true)) {
+            return $a;
+        }
+    }
+    return null;
+}
+
+/**
  * Home value vs. mortgage → equity, for the dashboard card. Returns null when no
  * home address is configured or no valuation has been stored yet.
  *
@@ -3597,7 +3624,8 @@ function q_manual_statement_status(PDO $pdo, int $uid, bool $overdueOnly = false
  * item/account, so the VIS clause doesn't apply to it). The MORTGAGE side, however,
  * is taken from $accounts — which the caller already fetched via q_accounts(), so it
  * is visibility-scoped: a user who can't see the mortgage just gets equity=null.
- * Mortgage = the first account with subtype 'mortgage', else the first type 'loan'.
+ * Mortgage = an account with subtype 'mortgage', else a mortgage-plausible loan
+ * (pick_mortgage_account()).
  */
 function q_home_equity(PDO $pdo, array $accounts): ?array
 {
@@ -3614,9 +3642,7 @@ function q_home_equity(PDO $pdo, array $accounts): ?array
     $hv = $st->fetch();
     if (!$hv) return null;
 
-    $mort = null;
-    foreach ($accounts as $a) { if (($a['subtype'] ?? '') === 'mortgage') { $mort = $a; break; } }
-    if (!$mort) { foreach ($accounts as $a) { if (($a['type'] ?? '') === 'loan') { $mort = $a; break; } } }
+    $mort = pick_mortgage_account($accounts);
     $bal = $mort ? (float)($mort['balance_current'] ?? 0) : null;
 
     // Net-worth scope → scale the VALUE by the ownership factor (default 1.0). The
@@ -3638,15 +3664,13 @@ function q_home_equity(PDO $pdo, array $accounts): ?array
 
 /**
  * The visible mortgage account + its Plaid liability detail, or null.
- * Mortgage = first account with subtype 'mortgage', else first type 'loan'.
+ * Mortgage = an account with subtype 'mortgage', else a mortgage-plausible loan
+ * (pick_mortgage_account()).
  * Returns ['account'=>row, 'liab'=>row, 'raw'=>decoded Plaid mortgage, 'balance'=>current].
  */
 function q_mortgage(PDO $pdo, int $uid): ?array
 {
-    $accts = q_accounts($pdo, $uid);
-    $m = null;
-    foreach ($accts as $a) { if (($a['subtype'] ?? '') === 'mortgage') { $m = $a; break; } }
-    if (!$m) { foreach ($accts as $a) { if (($a['type'] ?? '') === 'loan') { $m = $a; break; } } }
+    $m = pick_mortgage_account(q_accounts($pdo, $uid));
     if (!$m) return null;
 
     $st = $pdo->prepare(
