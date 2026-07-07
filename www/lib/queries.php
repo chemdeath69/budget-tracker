@@ -226,6 +226,16 @@ function q_last_synced(PDO $pdo): ?string
     return $v !== false && $v !== null ? (string)$v : null;
 }
 
+/** Seconds since the most recent Plaid sync (NULL if never synced). Age is computed
+ *  SQL-side so it dodges the S24 EDT-server / PDT-app re-parse trap — feed the result
+ *  to activity_ago(), NEVER time_ago() on the raw timestamp. */
+function q_last_synced_age(PDO $pdo): ?int
+{
+    $v = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, MAX(last_synced_at), NOW()) FROM items
+                      WHERE source = 'plaid' AND status <> 'removed'")->fetchColumn();
+    return $v !== false && $v !== null ? (int)$v : null;
+}
+
 /** All accounts visible to $uid, ordered by institution then name. */
 function q_accounts(PDO $pdo, int $uid): array
 {
@@ -3263,6 +3273,7 @@ function q_users(PDO $pdo): array
         return $pdo->query(
             "SELECT u.id, u.email, u.name, u.role, u.status, u.added_by,
                     u.created_at, u.last_login_at,
+                    TIMESTAMPDIFF(SECOND, u.last_login_at, NOW()) AS last_login_age_s,
                     (u.google_sub IS NOT NULL) AS has_logged_in,
                     (SELECT COUNT(*) FROM items i WHERE i.user_id = u.id) AS item_count
              FROM users u

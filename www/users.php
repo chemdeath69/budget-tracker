@@ -62,7 +62,7 @@ render_header('Users & access', 'settings', ['narrow' => true, 'back' => '/setti
             $disabled  = ($u['status'] ?? 'active') === 'disabled';
             $isAdmin   = ($u['role'] ?? 'member') === 'admin';
             $items     = (int)$u['item_count'];
-            $last      = $u['last_login_at'] ? time_ago((string)$u['last_login_at']) : 'never';
+            $last      = $u['last_login_at'] ? activity_ago((int)$u['last_login_age_s']) : 'never';   // SQL-side age (S24-safe)
             // Role control + Disable are locked for: yourself, and break-glass config accounts.
             $lockMgmt  = $isSelf || $protected;
         ?>

@@ -74,7 +74,7 @@ $rfView = build_refunds_view(q_refund_watches($pdo, $uid), [], date('Y-m-d'));
 $goals    = q_goals($pdo, $uid);
 $overdue  = q_manual_statement_status($pdo, $uid, true);
 $overdueIds = array_column($overdue, 'account_id', 'account_id');
-$lastSync = q_last_synced($pdo);
+$lastSyncAge = q_last_synced_age($pdo);   // seconds ago (SQL-side; S24-safe), NULL if never
 $hasPlaid = false;
 foreach ($accounts as $a) { if (($a['source'] ?? 'plaid') === 'plaid') { $hasPlaid = true; break; } }
 
@@ -346,7 +346,7 @@ $first = trim(explode(' ', (string)($_SESSION['name'] ?? ''))[0] ?? '');
 <?php if ($hasPlaid): ?>
 <div class="refresh-row">
     <button type="button" class="btn-ghost sm" data-refresh>Refresh</button>
-    <?php if ($lastSync): ?><span class="muted refresh-stamp">Updated <?= e(time_ago($lastSync)) ?></span><?php endif; ?>
+    <?php if ($lastSyncAge !== null): ?><span class="muted refresh-stamp">Updated <?= e(activity_ago($lastSyncAge)) ?></span><?php endif; ?>
 </div>
 <?php endif; ?>
 
