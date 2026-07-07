@@ -126,7 +126,7 @@ if ($type === 'INVESTMENTS_TRANSACTIONS' && in_array($code, ['DEFAULT_UPDATE', '
 }
 
 if ($type === 'ITEM' && in_array($code, ['ERROR', 'PENDING_EXPIRATION', 'USER_PERMISSION_REVOKED'], true)) {
-    require __DIR__ . '/lib/mailer.php';
+    require_once __DIR__ . '/lib/mailer.php';
     // Honour the household alert toggles (Session 25, TODO #14) so this matches the
     // parallel connection-broken alert in sync.php — otherwise turning off connection
     // alerts (or the master email switch) on settings.php would silence sync.php's path
