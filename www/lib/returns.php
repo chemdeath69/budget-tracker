@@ -169,9 +169,15 @@ function ret_bench_lookup(array $priceRows): array
  * |amount| at that day's close (adds shares); a sell withdraws |amount| (removes
  * shares, floored at 0). Returns null if ANY lot date predates benchmark coverage
  * (so we never compare against a gappy benchmark).
+ *
+ * ⚠️ ORDER-SENSITIVE: a sell replayed before its buys hits the max(0,…) floor and
+ * silently loses its withdrawal, overstating the terminal value. Callers pass lots
+ * in whatever order the query returned (security.php's q_security_lots is DESC), so
+ * we sort a COPY by trade_date ASC here — chronological is the only correct replay.
  */
 function ret_benchmark_value(array $lots, callable $priceAsOf, float $latest): ?float
 {
+    usort($lots, fn($a, $b) => strcmp((string)$a['trade_date'], (string)$b['trade_date']));
     $shares = 0.0;
     foreach ($lots as $l) {
         $cf = ret_lot_cashflow($l);                 // investor CF: − = buy, + = sell
