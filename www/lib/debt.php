@@ -43,10 +43,18 @@ function debt_normalize(array $l): ?array
 
     // The LIVE account balance is what's owed now; the liabilities-product `outstanding_balance`
     // can be a stale last-statement figure (e.g. a card paid down since the statement), so prefer
-    // balance_current and only fall back to outstanding_balance when it's missing.
-    $bal = (float)($l['balance_current'] ?? 0);
-    if ($bal <= 0) $bal = (float)($l['outstanding_balance'] ?? 0);
-    $bal = abs($bal);
+    // balance_current and only fall back to outstanding_balance when it's genuinely MISSING (null /
+    // absent). balance_current is authoritative: on a credit/loan account Plaid reports it POSITIVE
+    // when money is owed, so an explicit 0-or-negative current means paid off (or overpaid) — that's
+    // "no debt", NOT "missing". We must not resurrect the stale statement figure over it, nor abs()
+    // an overpaid (negative) card back into a phantom balance.
+    $cur = $l['balance_current'] ?? null;
+    if ($cur === null || $cur === '') {
+        $bal = abs((float)($l['outstanding_balance'] ?? 0));   // genuinely missing → stale fallback
+    } else {
+        $bal = (float)$cur;
+        if ($bal <= 0.005) return null;                        // paid off / overpaid → no debt
+    }
     if ($bal <= 0.005) return null;
 
     $aprRaw     = $l['apr_percentage'] ?? null;
