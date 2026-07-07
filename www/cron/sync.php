@@ -109,6 +109,31 @@ foreach ($items as $item) {
     }
 }
 
+// Resync sweep (code review 3.4). Any item flagged resync_pending during this run — a
+// webhook that lost the per-item advisory lock while the cron held it — gets one more pass
+// so its announced update isn't dropped for ~24h. sync_item() clears the flag on acquire,
+// so this only re-runs the genuine stragglers (usually none). Best-effort.
+try {
+    $pend = $pdo->query("SELECT item_id, user_id, access_token_enc, transactions_cursor, institution_name
+                         FROM items WHERE resync_pending = 1 AND status <> 'removed' AND source = 'plaid'")->fetchAll();
+    $reSynced = 0;
+    foreach ($pend as $item) {
+        try { $r = sync_item($pdo, $item, 'cron'); }
+        catch (Throwable $e) { $r = ['ok' => false, 'error' => $e->getMessage()]; }
+        $ok  = !empty($r['ok']) && empty($r['skipped']);
+        if ($ok) $reSynced++;
+        $msg = $ok ? "resync +{$r['added']}/~{$r['modified']}/-{$r['removed']}"
+                   : (empty($r['skipped']) ? 'FAILED — ' . ($r['error'] ?? '?') : 'still locked — skipped');
+        echo "  resync {$item['item_id']}: {$msg}\n";
+        sync_run_step($pdo, $runId, "resync:{$item['item_id']}", $ok || !empty($r['skipped']), $msg, $item['institution_name'] ?? null);
+    }
+    if ($reSynced > 0) write_networth_snapshot($pdo);
+    if ($pend) echo "[" . date('Y-m-d H:i:s T') . "] resync sweep: {$reSynced}/" . count($pend) . " re-synced\n";
+} catch (Throwable $e) {
+    echo "[" . date('Y-m-d H:i:s T') . "] resync sweep: FAILED — " . $e->getMessage() . "\n";
+    sync_run_step($pdo, $runId, 'resync_sweep', false, 'FAILED — ' . $e->getMessage());
+}
+
 // Re-age manual vehicle assets (#40) into accounts.balance_current BEFORE the snapshot +
 // balance-history below read it, so the depreciation curve advances day by day and net
 // worth/history pick it up. Pure local math (no external call); try/catch per the S22
@@ -278,10 +303,14 @@ try {
     sync_run_step($pdo, $runId, 'spend_alerts', false, 'FAILED — ' . $e->getMessage());
 }
 
-// Prune the access log to the ~90-day retention window, then close out the run capture
-// (stamps finished_at + rolls up step_count / error_count / ok). Both best-effort.
+// Prune the access + webhook logs to the ~90-day retention window, then close out the run
+// capture (stamps finished_at + rolls up step_count / error_count / ok). All best-effort.
 $pruned = access_log_prune($pdo);
 echo "[" . date('Y-m-d H:i:s T') . "] access log: pruned {$pruned} old row(s)\n";
 sync_run_step($pdo, $runId, 'prune_access_log', true, "pruned {$pruned} old row(s)");
+
+$prunedWh = webhook_log_prune($pdo);   // code review 3.2 — webhook_log previously grew unbounded
+echo "[" . date('Y-m-d H:i:s T') . "] webhook log: pruned {$prunedWh} old row(s)\n";
+sync_run_step($pdo, $runId, 'prune_webhook_log', true, "pruned {$prunedWh} old row(s)");
 sync_run_finish($pdo, $runId);
 echo "[" . date('Y-m-d H:i:s T') . "] sync run #" . ($runId ?? 0) . " recorded.\n";

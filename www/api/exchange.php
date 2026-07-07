@@ -54,15 +54,41 @@ try {
         ':iname' => $institution['name'] ?? null,
         ':tok'   => encrypt_secret($accessToken),
     ]);
-
-    // Initial sync (balances + transactions history + extras), then snapshot.
-    $item = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor FROM items WHERE item_id = ' . $pdo->quote($itemId))->fetch();
-    sync_item($pdo, $item, 'manual');
-    write_networth_snapshot($pdo);
-
-    echo json_encode(['ok' => true, 'item_id' => $itemId]);
 } catch (Throwable $ex) {
     error_log('exchange error: ' . $ex->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Could not link the account.']);
+    exit;
+}
+
+// Ack the browser NOW — the Item row (with its token) is safely persisted, so Link's UI can
+// show success immediately (code review 3.8). The initial sync pulls up to 730 days of
+// history + liabilities + investments and can be slow; a slow institution running it
+// IN-REQUEST risked an FPM timeout mid-sync → the user retries Link → a SECOND Plaid Item
+// for the same bank (double billing, the S96 orphan class). Running it AFTER the ack, in the
+// background, removes that failure mode (link.php tolerates data arriving late; webhooks also
+// fire). Same fastcgi_finish_request technique as api/refresh.php.
+echo json_encode(['ok' => true, 'item_id' => $itemId]);
+
+session_write_close();
+ignore_user_abort(true);
+@set_time_limit(0);
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+} else {
+    while (ob_get_level() > 0) ob_end_flush();
+    flush();
+}
+
+// Initial sync (balances + transactions history + extras), then snapshot — best-effort now
+// that the browser already has its success. A failure here just means data arrives on the
+// next webhook / cron / Refresh instead.
+try {
+    $item = $pdo->query('SELECT item_id, user_id, access_token_enc, transactions_cursor FROM items WHERE item_id = ' . $pdo->quote($itemId))->fetch();
+    if ($item) {
+        sync_item($pdo, $item, 'manual');
+        write_networth_snapshot($pdo);
+    }
+} catch (Throwable $ex) {
+    error_log('exchange background sync error: ' . $ex->getMessage());
 }

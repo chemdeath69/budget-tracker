@@ -10,8 +10,11 @@ require_once __DIR__ . '/mailer.php';
  * cron/sync.php. All functions take an open PDO ($pdo).
  */
 
-/** Sync everything for one Item row (assoc: item_id, user_id, access_token_enc, transactions_cursor). */
-function sync_item(PDO $pdo, array $item, string $trigger): array
+/**
+ * Sync everything for one Item row (assoc: item_id, user_id, access_token_enc, transactions_cursor).
+ * $isReentry is internal (code review 3.4) — true on the single self-retry pass, to bound it.
+ */
+function sync_item(PDO $pdo, array $item, string $trigger, bool $isReentry = false): array
 {
     // Per-item advisory lock: stop the exchange-sync, webhook and cron from
     // processing the same Item at once (avoids redundant work + duplicate
@@ -19,59 +22,103 @@ function sync_item(PDO $pdo, array $item, string $trigger): array
     $lockName = 'bt_sync_' . substr(hash('sha256', $item['item_id']), 0, 40);
     $got = (int) $pdo->query('SELECT GET_LOCK(' . $pdo->quote($lockName) . ', 0)')->fetchColumn();
     if ($got !== 1) {
-        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, true, 'skipped: sync already running');
+        // Another sync holds the lock. Flag that fresh work is pending (code review 3.4) so
+        // the holder does one more pass after releasing — otherwise a webhook-announced
+        // update arriving right now is acked and silently DROPPED for up to ~24h. The
+        // nightly cron also sweeps any flag left set. Best-effort (a failed flag just falls
+        // back to the cron sweep / next webhook).
+        try { $pdo->prepare('UPDATE items SET resync_pending = 1 WHERE item_id = ?')->execute([$item['item_id']]); }
+        catch (Throwable $e) { /* flag is best-effort */ }
+        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, true, 'skipped: sync already running (resync queued)');
         return ['ok' => true, 'skipped' => true, 'added' => 0, 'modified' => 0, 'removed' => 0];
     }
 
+    // We hold the lock. Clear the pending flag: THIS pass satisfies anyone who set it before
+    // we acquired the lock; anyone who sets it AFTER (while we run) trips the re-entry below.
+    try { $pdo->prepare('UPDATE items SET resync_pending = 0 WHERE item_id = ?')->execute([$item['item_id']]); }
+    catch (Throwable $e) { /* best-effort */ }
+
+    $result = null;
     try {
-    $token = decrypt_secret($item['access_token_enc']);
-    if ($token === null) {
-        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, 'decrypt failed');
-        return ['ok' => false, 'error' => 'decrypt failed'];
-    }
-
-    // Household alert prefs (TODO #14) — read once; used for the large-tx threshold
-    // (passed into sync_transactions) and to gate the connection-broken alert below.
-    $alertCfg = alert_settings($pdo);
-
-    $counts = ['added' => 0, 'modified' => 0, 'removed' => 0];
-    try {
-        // Balances first — upserts accounts rows (transactions FK needs them).
-        sync_balances($pdo, $item['item_id'], $token);
-        $counts = sync_transactions($pdo, $item, $token, $alertCfg);
-        // Best-effort extras.
-        try { sync_liabilities($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('liab: ' . $e->getMessage()); }
-        try { sync_investments($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest: ' . $e->getMessage()); }
-        try { sync_investment_transactions($pdo, $item, $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest_tx: ' . $e->getMessage()); }
-        try { sync_recurring($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('recurring: ' . $e->getMessage()); }
-
-        $pdo->prepare('UPDATE items SET status="active", error_code=NULL, last_synced_at=NOW() WHERE item_id=?')
-            ->execute([$item['item_id']]);
-        log_sync($pdo, $item['item_id'], $trigger, $counts['added'], $counts['modified'], $counts['removed'], true, null);
-        return ['ok' => true] + $counts;
-    } catch (PlaidException $ex) {
-        $code = $ex->plaidCode ?? '';
-        $pdo->prepare('UPDATE items SET status="error", error_code=? WHERE item_id=?')
-            ->execute([$code, $item['item_id']]);
-        if (in_array($code, ['ITEM_LOGIN_REQUIRED', 'PENDING_EXPIRATION'], true)
-            && $alertCfg['email_enabled'] && $alertCfg['connection_alert_enabled']) {
-            send_alert('Bank connection needs attention',
-                "An institution connection requires re-authentication (error: $code).\n" .
-                "Item: {$item['item_id']}\nPlease re-link it in Budget Tracker.");
+        $token = decrypt_secret($item['access_token_enc']);
+        if ($token === null) {
+            log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, 'decrypt failed');
+            return ['ok' => false, 'error' => 'decrypt failed'];   // finally still releases the lock
         }
-        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
-        return ['ok' => false, 'error' => $ex->getMessage()];
-    } catch (Throwable $ex) {
-        // Non-Plaid failure (e.g. a transient PDOException — deadlock, FK race,
-        // "server has gone away"). Don't mark the Item broken (that status is for
-        // re-link prompts); just log and bail THIS item so the cron loop and its
-        // post-loop snapshot/price/home-value steps still run for everything else.
-        log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
-        return ['ok' => false, 'error' => $ex->getMessage()];
-    }
+
+        // Household alert prefs (TODO #14) — read once; used for the large-tx threshold
+        // (passed into sync_transactions) and to gate the connection-broken alert below.
+        $alertCfg = alert_settings($pdo);
+
+        $counts = ['added' => 0, 'modified' => 0, 'removed' => 0];
+        try {
+            // Balances first — upserts accounts rows (transactions FK needs them).
+            sync_balances($pdo, $item['item_id'], $token);
+            // code review 3.7: a mid-pagination mutation is Plaid's EXPECTED race marker,
+            // not a broken item — retry the cursor loop ONCE from the last saved cursor
+            // (nothing is persisted until it completes) before letting it mark the item.
+            try {
+                $counts = sync_transactions($pdo, $item, $token, $alertCfg);
+            } catch (PlaidException $pe) {
+                if (($pe->plaidCode ?? '') === 'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION') {
+                    error_log('sync: mutation during pagination for ' . $item['item_id'] . ' — retrying once');
+                    $counts = sync_transactions($pdo, $item, $token, $alertCfg);
+                } else {
+                    throw $pe;
+                }
+            }
+            // Best-effort extras.
+            try { sync_liabilities($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('liab: ' . $e->getMessage()); }
+            try { sync_investments($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest: ' . $e->getMessage()); }
+            try { sync_investment_transactions($pdo, $item, $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('invest_tx: ' . $e->getMessage()); }
+            try { sync_recurring($pdo, $item['item_id'], $token); } catch (Throwable $e) { if (!plaid_benign($e)) error_log('recurring: ' . $e->getMessage()); }
+
+            $pdo->prepare('UPDATE items SET status="active", error_code=NULL, last_synced_at=NOW() WHERE item_id=?')
+                ->execute([$item['item_id']]);
+            // Healthy again — clear the connection-alert dedup key so a later break re-alerts
+            // immediately instead of waiting out the window (code review 3.3).
+            clear_connection_alert($pdo, (string)$item['item_id']);
+            log_sync($pdo, $item['item_id'], $trigger, $counts['added'], $counts['modified'], $counts['removed'], true, null);
+            $result = ['ok' => true] + $counts;
+        } catch (PlaidException $ex) {
+            $code = $ex->plaidCode ?? '';
+            $pdo->prepare('UPDATE items SET status="error", error_code=? WHERE item_id=?')
+                ->execute([$code, $item['item_id']]);
+            // Route through the deduped helper (code review 3.3) so a broken bank doesn't
+            // email on every nightly sync + every webhook retry until re-linked.
+            if (in_array($code, ['ITEM_LOGIN_REQUIRED', 'PENDING_EXPIRATION'], true)) {
+                send_connection_alert($pdo, (string)$item['item_id'], $code, $alertCfg);
+            }
+            log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
+            $result = ['ok' => false, 'error' => $ex->getMessage()];
+        } catch (Throwable $ex) {
+            // Non-Plaid failure (e.g. a transient PDOException — deadlock, FK race,
+            // "server has gone away"). Don't mark the Item broken (that status is for
+            // re-link prompts); just log and bail THIS item so the cron loop and its
+            // post-loop snapshot/price/home-value steps still run for everything else.
+            log_sync($pdo, $item['item_id'], $trigger, 0, 0, 0, false, $ex->getMessage());
+            $result = ['ok' => false, 'error' => $ex->getMessage()];
+        }
     } finally {
         $pdo->query('SELECT RELEASE_LOCK(' . $pdo->quote($lockName) . ')');
     }
+
+    // code review 3.4 — single retry: if a concurrent caller announced fresh work while we
+    // held the lock, do exactly ONE more pass (resuming from the freshly-advanced cursor).
+    // $isReentry bounds it to one; the cron sweep is the backstop for anything set during
+    // the re-entry itself.
+    if (!$isReentry && !empty($result['ok']) && empty($result['skipped'])) {
+        try {
+            $pend = $pdo->prepare('SELECT transactions_cursor, resync_pending FROM items WHERE item_id = ?');
+            $pend->execute([$item['item_id']]);
+            $row = $pend->fetch();
+            if ($row && (int)$row['resync_pending'] === 1) {
+                $item['transactions_cursor'] = $row['transactions_cursor'];   // resume where this pass left off
+                return sync_item($pdo, $item, $trigger, true);
+            }
+        } catch (Throwable $e) { /* the cron sweep will catch it */ }
+    }
+    return $result;
 }
 
 /**
@@ -155,6 +202,7 @@ function sync_transactions(PDO $pdo, array $item, string $token, ?array $alertCf
         ? (float)$alertCfg['large_tx_threshold'] : 0.0;
     $largeAlerts = [];
 
+    $guard = 0;
     do {
         $body = ['access_token' => $token, 'count' => 500];
         if ($cursor !== null) $body['cursor'] = $cursor;
@@ -172,9 +220,21 @@ function sync_transactions(PDO $pdo, array $item, string $token, ?array $alertCf
         foreach ($res['modified'] ?? [] as $t) { upsert_tx($ins, $t); $modified++; }
         foreach ($res['removed'] ?? [] as $r) { $del->execute([$r['transaction_id']]); $removed++; }
 
-        $cursor  = $res['next_cursor'] ?? $cursor;
         $hasMore = (bool)($res['has_more'] ?? false);
-    } while ($hasMore);
+        // code review 3.6: Plaid always returns next_cursor; its absence is anomalous.
+        // The old `?? $cursor` re-sent the SAME cursor → an infinite spin. Stop instead and
+        // keep the last good cursor (upserts are idempotent; the next sync resumes cleanly).
+        if (!isset($res['next_cursor'])) {
+            error_log('sync_transactions: missing next_cursor for ' . $item['item_id']
+                      . ' (has_more=' . ($hasMore ? '1' : '0') . ') — stopping');
+            break;
+        }
+        $cursor = $res['next_cursor'];
+    } while ($hasMore && ++$guard < TRANSACTIONS_SYNC_MAX_PAGES);   // 3.6: hard page cap (200×500 = 100k tx)
+    if ($hasMore && $guard >= TRANSACTIONS_SYNC_MAX_PAGES) {
+        error_log('sync_transactions: hit ' . TRANSACTIONS_SYNC_MAX_PAGES . '-page cap for '
+                  . $item['item_id'] . ' — cursor persisted, resumes next sync');
+    }
 
     $pdo->prepare('UPDATE items SET transactions_cursor=? WHERE item_id=?')
         ->execute([$cursor, $item['item_id']]);
@@ -387,6 +447,11 @@ function sync_investment_transactions(PDO $pdo, array $item, string $token): voi
         // Stop when we've covered the reported total, an empty page, or a sanity cap.
     } while ($batch && $offset < $total && ++$guard < 200);
 }
+
+/** Hard page cap for the /transactions/sync cursor loop (code review 3.6) — mirrors the
+ *  ++$guard<200 cap on the investment-tx loop. 200 pages × 500 = 100k tx per run; if hit,
+ *  the cursor is persisted and the next sync resumes (no data loss, just bounded). */
+const TRANSACTIONS_SYNC_MAX_PAGES = 200;
 
 /** First Plaid invest-tx pull window (≤ Plaid's 24-month cap) and the incremental window. */
 const INV_TX_BACKFILL_DAYS = 720;

@@ -17,16 +17,39 @@ $type   = $body['webhook_type'] ?? '';
 $code   = $body['webhook_code'] ?? '';
 $itemId = $body['item_id'] ?? null;
 
-[$verified, $reason] = verify_plaid_webhook($raw);
-
 $pdo = db();
+[$verified, $reason] = verify_plaid_webhook($raw, $pdo);   // $pdo → 24h key cache (code review 3.2)
+
 // This endpoint is intentionally public (it verifies Plaid's signed JWT below instead of
-// requiring login), and it logs EVERY hit — including unverified ones — before the bail-out.
-// Cap the stored payload so an unauthenticated caller can't write arbitrarily large rows
-// (storage amplification); a genuine Plaid webhook body is well under 16 KB.
-$logPayload = strlen($raw) > 16384 ? substr($raw, 0, 16384) : $raw;
-$pdo->prepare('INSERT INTO webhook_log (webhook_type, webhook_code, item_id, verified, payload) VALUES (?,?,?,?,?)')
-    ->execute([$type, $code, $itemId, $verified ? 1 : 0, $logPayload]);
+// requiring login), and it logs EVERY hit — including unverified ones — before the bail-out,
+// because the orphan-item detection (further down) counts these rows.
+//
+// The `payload` column is JSON, so a non-JSON or oversized body would make the INSERT throw
+// → HTTP 500 BEFORE we can ack (code review 3.1). And an unauthenticated caller must not be
+// able to store arbitrary large bodies (storage amplification, 3.2). So:
+//   - unverified request        → log the type/code/verified=0 row, but payload = NULL
+//   - verified, valid JSON <16KB → store the body verbatim
+//   - verified but odd body      → store a small, always-valid envelope
+$logPayload = null;
+if ($verified) {
+    json_decode($raw);
+    $validJson = ($raw !== '' && json_last_error() === JSON_ERROR_NONE);
+    if ($validJson && strlen($raw) <= 16384) {
+        $logPayload = $raw;
+    } elseif ($raw !== '') {
+        $logPayload = json_encode(
+            ['truncated' => true, 'bytes' => strlen($raw), 'prefix' => substr($raw, 0, 200)],
+            JSON_INVALID_UTF8_SUBSTITUTE
+        );
+    }
+}
+// Never let the log insert break the ack path (belt-and-braces try/catch).
+try {
+    $pdo->prepare('INSERT INTO webhook_log (webhook_type, webhook_code, item_id, verified, payload) VALUES (?,?,?,?,?)')
+        ->execute([$type, $code, $itemId, $verified ? 1 : 0, $logPayload]);
+} catch (Throwable $e) {
+    error_log('webhook_log insert failed: ' . $e->getMessage());
+}
 
 if (!$verified) {
     error_log('Rejected Plaid webhook: ' . $reason);
@@ -46,6 +69,7 @@ if (!$itemId) exit;
 // fastcgi_finish_request closes the request immediately; else flush the buffers.
 // (Orphan detection + the syncs below all run AFTER this ack so none can delay it.)
 ignore_user_abort(true);
+@set_time_limit(0);   // a HISTORICAL_UPDATE backfill sync can outrun the web SAPI's limit (code review 3.8)
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
@@ -127,14 +151,11 @@ if ($type === 'INVESTMENTS_TRANSACTIONS' && in_array($code, ['DEFAULT_UPDATE', '
 
 if ($type === 'ITEM' && in_array($code, ['ERROR', 'PENDING_EXPIRATION', 'USER_PERMISSION_REVOKED'], true)) {
     require_once __DIR__ . '/lib/mailer.php';
-    // Honour the household alert toggles (Session 25, TODO #14) so this matches the
-    // parallel connection-broken alert in sync.php — otherwise turning off connection
-    // alerts (or the master email switch) on settings.php would silence sync.php's path
-    // but not this one.
+    // Route through send_connection_alert() so this shares ONE dedup with sync.php's
+    // PlaidException branch (code review 3.3) — otherwise a broken bank emailed on every
+    // webhook retry AND every nightly sync. It honours the household alert toggles too, so
+    // it stays in lock-step with sync.php (turning off connection alerts silences both).
     $ac = alert_settings($pdo);
-    if ($ac['email_enabled'] && $ac['connection_alert_enabled']) {
-        send_alert('Bank connection needs attention',
-            "Plaid reported an ITEM $code for item $itemId. You may need to re-link this bank.");
-    }
+    send_connection_alert($pdo, (string)$itemId, $code, $ac);
     $pdo->prepare('UPDATE items SET status="error", error_code=? WHERE item_id=?')->execute([$code, $itemId]);
 }

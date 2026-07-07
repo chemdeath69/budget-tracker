@@ -14,8 +14,12 @@ require_once __DIR__ . '/plaid.php';
  *
  * Pure PHP + OpenSSL (no external JWT library).
  * Returns [bool ok, string reason].
+ *
+ * $pdo (optional) enables the plaid_webhook_keys cache (code review 3.2): without it the
+ * key is fetched from Plaid on every call (an outbound cURL + up-to-30s timeout per hit,
+ * with an attacker-supplied kid). Pass a PDO so a legit kid is fetched once per 24h.
  */
-function verify_plaid_webhook(string $rawBody): array
+function verify_plaid_webhook(string $rawBody, ?PDO $pdo = null): array
 {
     $jwt = $_SERVER['HTTP_PLAID_VERIFICATION'] ?? '';
     if ($jwt === '') return [false, 'missing Plaid-Verification header'];
@@ -29,13 +33,8 @@ function verify_plaid_webhook(string $rawBody): array
         return [false, 'bad JWT header'];
     }
 
-    // Fetch the public key for this kid.
-    try {
-        $res = plaid_call('/webhook_verification_key/get', ['key_id' => $header['kid']]);
-    } catch (Throwable $e) {
-        return [false, 'could not fetch verification key: ' . $e->getMessage()];
-    }
-    $jwk = $res['key'] ?? null;
+    // Fetch (or read from the 24h cache) the public key for this kid.
+    $jwk = plaid_webhook_key($pdo, (string)$header['kid']);
     if (!$jwk || ($jwk['crv'] ?? '') !== 'P-256' || empty($jwk['x']) || empty($jwk['y'])) {
         return [false, 'unexpected verification key'];
     }
@@ -62,6 +61,65 @@ function verify_plaid_webhook(string $rawBody): array
     }
 
     return [true, 'ok'];
+}
+
+/**
+ * Return the JWK (assoc array) for a Plaid webhook `kid`, using the plaid_webhook_keys
+ * cache when a PDO is given (code review 3.2). A cached kid <24h old is returned without
+ * hitting Plaid; otherwise we fetch from /webhook_verification_key/get and cache it.
+ * The distinct-kid count is capped (KID_CACHE_MAX) so an attacker spraying random kids
+ * can't grow the table unbounded (an unknown kid still fails the live fetch → not cached).
+ * Returns null on any failure. Never throws.
+ */
+function plaid_webhook_key(?PDO $pdo, string $kid): ?array
+{
+    $KID_CACHE_MAX = 10;   // cap distinct cached kids (kid-spray growth guard)
+
+    if ($pdo) {
+        try {
+            $st = $pdo->prepare(
+                'SELECT key_json FROM plaid_webhook_keys
+                 WHERE kid = ? AND fetched_at > (NOW() - INTERVAL 24 HOUR)'
+            );
+            $st->execute([$kid]);
+            $cached = $st->fetchColumn();
+            if ($cached !== false) {
+                $k = json_decode((string)$cached, true);
+                if (is_array($k)) return $k;
+            }
+        } catch (Throwable $e) {
+            // Cache read failed → fall through to a live fetch (never fatal).
+        }
+    }
+
+    try {
+        $res = plaid_call('/webhook_verification_key/get', ['key_id' => $kid]);
+    } catch (Throwable $e) {
+        error_log('plaid webhook key fetch failed for kid ' . $kid . ': ' . $e->getMessage());
+        return null;
+    }
+    $jwk = $res['key'] ?? null;
+    if (!is_array($jwk)) return null;
+
+    if ($pdo) {
+        try {
+            // Only write if this kid already exists (a refresh) or we're under the cap —
+            // the kid-spray growth guard.
+            $ex = $pdo->prepare('SELECT 1 FROM plaid_webhook_keys WHERE kid = ?');
+            $ex->execute([$kid]);
+            $known = (bool)$ex->fetchColumn();
+            $count = (int)$pdo->query('SELECT COUNT(*) FROM plaid_webhook_keys')->fetchColumn();
+            if ($known || $count < $KID_CACHE_MAX) {
+                $pdo->prepare(
+                    'INSERT INTO plaid_webhook_keys (kid, key_json, fetched_at) VALUES (?, ?, NOW())
+                     ON DUPLICATE KEY UPDATE key_json = VALUES(key_json), fetched_at = NOW()'
+                )->execute([$kid, json_encode($jwk)]);
+            }
+        } catch (Throwable $e) {
+            // Cache write is best-effort — verification still proceeds with the live key.
+        }
+    }
+    return $jwk;
 }
 
 function b64url_decode(string $s): string

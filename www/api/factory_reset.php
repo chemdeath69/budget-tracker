@@ -113,27 +113,47 @@ $wipe = [
     'credit_reports', 'credit_tradelines', 'credit_inquiries', 'credit_flags',
     'api_usage',
 ];
-$cleared = 0;
+$cleared    = 0;
+$wipeErrors = [];
 try {
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     foreach ($wipe as $t) {
         try { $pdo->exec("DELETE FROM `{$t}`"); $cleared++; }
-        catch (Throwable $e) { /* table may not exist on an older DB — skip */ }
+        catch (PDOException $e) {
+            // Distinguish a genuinely-absent table (older DB — fine to skip) from a REAL
+            // failure like a lock-wait timeout or permission error, which must NOT be
+            // swallowed into a false ok:true partial wipe (code review 3.5). 1146 =
+            // ER_NO_SUCH_TABLE (SQLSTATE 42S02).
+            $errno = (int)($e->errorInfo[1] ?? 0);
+            if ($errno === 1146 || $e->getCode() === '42S02') continue;
+            $wipeErrors[] = $t . ': ' . $e->getMessage();
+            error_log('factory_reset: wipe failed for ' . $t . ' — ' . $e->getMessage());
+        }
     }
 } finally {
-    $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');   // always restore FK enforcement
 }
 
 // Re-seed the default single-row settings (matches the migration seeds → a clean baseline).
 try { $pdo->exec('INSERT INTO retirement_settings (id) VALUES (1)'); } catch (Throwable $e) {}
 try { $pdo->exec('INSERT INTO spending_plan (id) VALUES (1)'); }       catch (Throwable $e) {}
 
-// 3) Clear stored manual-document files on disk (best-effort).
+// 3) Clear stored manual-document files on disk (best-effort). RECURSIVE (code review
+//    3.5 / 5.8) — the old top-level glob left files in per-account subdirectories behind.
 $filesDeleted = 0;
 $dir = $CONFIG['storage']['manual_dir'] ?? '';
 if ($dir !== '' && is_dir($dir)) {
-    foreach (glob(rtrim($dir, '/') . '/*') ?: [] as $f) {
-        if (is_file($f) && @unlink($f)) $filesDeleted++;
+    try {
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($it as $f) {
+            if ($f->isDir()) { @rmdir($f->getPathname()); }               // remove now-empty subdirs
+            elseif (@unlink($f->getPathname())) { $filesDeleted++; }       // files + symlinks
+        }
+    } catch (Throwable $e) {
+        error_log('factory_reset: storage cleanup error — ' . $e->getMessage());
     }
 }
 
@@ -142,14 +162,18 @@ try { write_networth_snapshot($pdo); } catch (Throwable $e) {
     error_log('factory_reset: snapshot rewrite failed — ' . $e->getMessage());
 }
 
-access_log_action($pdo, $uid, 'factory_reset', 'complete',
-    "revoked={$revoked} archived={$archived} cleared={$cleared} files={$filesDeleted}");   // audit (best-effort)
+$ok = empty($wipeErrors);
+access_log_action($pdo, $uid, 'factory_reset', $ok ? 'complete' : 'complete_with_errors',
+    "revoked={$revoked} archived={$archived} cleared={$cleared} files={$filesDeleted} errors=" . count($wipeErrors));   // audit (best-effort)
 
+if (!$ok) http_response_code(500);
 echo json_encode([
-    'ok'             => true,
+    'ok'             => $ok,
     'revoked'        => $revoked,
     'archived'       => $archived,
     'failed'         => $failed,
     'tables_cleared' => $cleared,
     'files_deleted'  => $filesDeleted,
+    'errors'         => $wipeErrors,   // real (non-"table missing") wipe failures — a partial reset (3.5)
+    'error'          => $ok ? null : ('Reset incomplete — ' . count($wipeErrors) . ' table(s) failed to clear: ' . implode('; ', $wipeErrors)),
 ]);

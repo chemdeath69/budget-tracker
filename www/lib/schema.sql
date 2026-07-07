@@ -48,6 +48,7 @@ CREATE TABLE items (
   consent_expiration   DATETIME NULL,
   created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_synced_at       DATETIME NULL,
+  resync_pending       TINYINT(1) NOT NULL DEFAULT 0,  -- set when a sync was GET_LOCK-skipped; holder re-syncs, cron sweeps (migration 034, code review 3.4)
   PRIMARY KEY (item_id),
   KEY idx_items_user (user_id),
   CONSTRAINT fk_items_user FOREIGN KEY (user_id) REFERENCES users(id)
@@ -75,6 +76,7 @@ CREATE TABLE accounts (
   last_updated_datetime DATETIME NULL,             -- Plaid balances.last_updated_datetime
   updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                           ON UPDATE CURRENT_TIMESTAMP,
+  missing_since         DATETIME NULL,              -- set when a Plaid item stops returning this account (migration 034, code review 5.9 seed; not yet populated)
   PRIMARY KEY (account_id),
   KEY idx_accounts_item (item_id),
   CONSTRAINT fk_accounts_item FOREIGN KEY (item_id) REFERENCES items(item_id)
@@ -427,6 +429,19 @@ CREATE TABLE webhook_log (
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_webhooklog_item (item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- plaid_webhook_keys — cache of Plaid's ES256 webhook-verification keys (migration
+-- 034, code review 3.2). verify_plaid_webhook() looked up the key from Plaid on EVERY
+-- webhook (an outbound call + 30s timeout per hit, kid attacker-controlled). Cache a
+-- legit kid for 24h; the distinct-kid count is capped in code (kid-spray guard).
+-- ---------------------------------------------------------------------------
+CREATE TABLE plaid_webhook_keys (
+  kid         VARCHAR(128) NOT NULL,                 -- Plaid JWT 'kid' (public key id)
+  key_json    JSON         NOT NULL,                 -- the raw JWK from /webhook_verification_key/get
+  fetched_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- last pull (24h TTL, checked in code)
+  PRIMARY KEY (kid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------------------------

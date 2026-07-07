@@ -111,6 +111,23 @@ function access_log_prune(PDO $pdo, int $days = ACCESS_LOG_RETENTION_DAYS): int
     }
 }
 
+/**
+ * Prune webhook_log to a retention window (code review 3.2). Only access_log was pruned,
+ * so webhook_log grew forever — an unauthenticated caller could pile up rows. Keep ~90
+ * days (a 90-day boundary is far from any midnight so the EDT/PDT clock skew is irrelevant
+ * here). Best-effort — returns rows deleted. Called from the nightly cron.
+ */
+function webhook_log_prune(PDO $pdo, int $days = ACCESS_LOG_RETENTION_DAYS): int
+{
+    try {
+        $st = $pdo->prepare('DELETE FROM webhook_log WHERE created_at < (NOW() - INTERVAL ? DAY)');
+        $st->execute([max(1, $days)]);
+        return $st->rowCount();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
 /* --- Sync-run capture (cron/sync.php) ------------------------------------- */
 
 /** Open a sync run; returns its id (or null if capture is unavailable — callers no-op). */

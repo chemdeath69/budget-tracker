@@ -41,6 +41,70 @@ function send_alert(string $subject, string $body): void
 }
 
 /**
+ * Connection-attention alert WITH DEDUP (code review 3.3). A broken bank
+ * (ITEM_LOGIN_REQUIRED / PENDING_EXPIRATION / an ITEM ERROR webhook) otherwise emailed on
+ * EVERY failed sync — the nightly cron AND every webhook retry — until re-linked, i.e. a
+ * nightly (or worse) spam stream. Both sync.php's PlaidException branch and webhook.php's
+ * ITEM branch route through here so they share one dedup.
+ *
+ * Dedup via the alert_log table (like spend_alerts): send at most once per
+ * CONNECTION_ALERT_DEDUP_DAYS per item. A successful sync clears the item's key
+ * (clear_connection_alert), so a genuinely fresh break re-alerts immediately rather than
+ * being suppressed by an old crossing. Period/"today" are PHP app-TZ (the S24 trap).
+ *
+ * Caller passes the already-read $cfg (alert_settings) so we don't re-query it. Returns
+ * true iff an email was actually sent. Never throws.
+ */
+const CONNECTION_ALERT_DEDUP_DAYS = 7;
+
+function send_connection_alert(PDO $pdo, string $itemId, string $code, array $cfg): bool
+{
+    if (empty($cfg['email_enabled']) || empty($cfg['connection_alert_enabled'])) return false;
+
+    try {
+        // Already alerted for this item within the window? Then stay quiet.
+        $since = date('Y-m-d', strtotime('-' . CONNECTION_ALERT_DEDUP_DAYS . ' days'));   // app TZ
+        $chk = $pdo->prepare(
+            "SELECT 1 FROM alert_log
+             WHERE alert_type = 'connection' AND alert_key = ? AND sent_on >= ? LIMIT 1"
+        );
+        $chk->execute([$itemId, $since]);
+        if ($chk->fetchColumn()) return false;
+
+        // Claim this crossing (period = today's date, so sent_on advances each real send;
+        // INSERT IGNORE dedups a same-day double-fire from cron + webhook).
+        $today = date('Y-m-d');
+        $pdo->prepare(
+            "INSERT IGNORE INTO alert_log (alert_type, alert_key, period, sent_on)
+             VALUES ('connection', ?, ?, ?)"
+        )->execute([$itemId, $today, $today]);
+    } catch (Throwable $e) {
+        // If the dedup bookkeeping fails, fall through and still alert — a rare duplicate
+        // email beats silently dropping a real "your bank needs re-linking" notice.
+        error_log('connection alert dedup failed for ' . $itemId . ': ' . $e->getMessage());
+    }
+
+    send_alert('Bank connection needs attention',
+        "Plaid reports that a linked bank needs attention (error: $code).\n" .
+        "Item: $itemId\nYou may need to re-link this bank in Budget Tracker.");
+    return true;
+}
+
+/**
+ * Clear an item's connection-alert dedup key after a HEALTHY sync (code review 3.3) so a
+ * later re-break alerts immediately instead of waiting out the dedup window. Best-effort.
+ */
+function clear_connection_alert(PDO $pdo, string $itemId): void
+{
+    try {
+        $pdo->prepare("DELETE FROM alert_log WHERE alert_type = 'connection' AND alert_key = ?")
+            ->execute([$itemId]);
+    } catch (Throwable $e) {
+        // best-effort — a stale key just means the next break waits out the window
+    }
+}
+
+/**
  * Send a multipart (plain-text + HTML) email to the configured alert recipients.
  * Best-effort. Used by the weekly digest (TODO #15) — event alerts keep using the
  * plain-text send_alert() above. Same recipients/from transport from config['alerts'].
