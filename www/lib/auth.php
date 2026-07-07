@@ -12,7 +12,70 @@ require_once __DIR__ . '/activity.php';   // best-effort access-log writers (log
 
 function is_logged_in(): bool
 {
+    if (empty($_SESSION['user_email'])) {
+        return false;
+    }
+    // Re-validate the live session against the DB on every request (once per
+    // request — see enforce_account_status()): a mid-session disable/demote
+    // takes effect immediately instead of surviving until the user logs out.
+    enforce_account_status();
     return !empty($_SESSION['user_email']);
+}
+
+/**
+ * Re-check the signed-in account's status + role against the `users` table and
+ * enforce the result on the live session. Runs at most once per request (a
+ * static guard collapses the many is_logged_in() calls a page/endpoint makes
+ * into a single indexed lookup).
+ *
+ *   - status='disabled' (or the row is gone) → destroy the session now, so a
+ *     revoked user is bounced on their very next click, not at next login.
+ *   - otherwise → refresh $_SESSION['role'] from the stored row, so a demote/
+ *     promote takes effect immediately (an ex-admin loses users.php /
+ *     factory_reset the instant they act, not at next login).
+ *
+ * BREAK-GLASS (config['allowed_emails']) accounts are un-lockoutable — always
+ * admin, never disabled — decided WITHOUT a DB read, exactly as
+ * access_decision() does. A transient DB error is swallowed (keep the cached
+ * role for this request; never lock out a real user on a hiccup — cf. 5.4).
+ */
+function enforce_account_status(): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    if (empty($_SESSION['user_email'])) {
+        return;
+    }
+    $email = strtolower((string)$_SESSION['user_email']);
+
+    global $CONFIG;
+    $allow = array_map('strtolower', array_map('trim', (array)($CONFIG['allowed_emails'] ?? [])));
+    if (in_array($email, $allow, true)) {
+        $_SESSION['role'] = 'admin';   // break-glass — always admin, never revoked
+        return;
+    }
+
+    try {
+        $st = db()->prepare('SELECT role, status FROM users WHERE email = :e');
+        $st->execute([':e' => $email]);
+        $row = $st->fetch();
+    } catch (Throwable $e) {
+        // Pre-migration DB / transient error — do NOT revoke or downgrade on a
+        // hiccup; keep the current session as-is for this request.
+        return;
+    }
+
+    // No row (deleted from the allowlist) or explicitly disabled → revoke now.
+    if (!$row || ($row['status'] ?? 'active') === 'disabled') {
+        logout();   // clears $_SESSION + destroys the session cookie
+        return;
+    }
+
+    $_SESSION['role'] = (($row['role'] ?? 'member') === 'admin') ? 'admin' : 'member';
 }
 
 function current_user_email(): ?string
