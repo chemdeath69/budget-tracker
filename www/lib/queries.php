@@ -494,10 +494,14 @@ function nw_home_at(array $tl, string $date): float
  */
 function q_networth(PDO $pdo): array
 {
+    // Take the NEWEST 730 daily snapshots (DESC + LIMIT), then re-order ascending for
+    // plotting — same pattern as q_fred_history(). An ASC LIMIT froze the series at the
+    // OLDEST 730 rows, so after ~2 years the line stopped advancing (code review 2.1).
     $rows = $pdo->query(
         "SELECT snapshot_date, net_worth FROM balance_snapshots
-         ORDER BY snapshot_date ASC LIMIT 730"
+         ORDER BY snapshot_date DESC LIMIT 730"
     )->fetchAll();
+    $rows = array_reverse($rows);
     $tl = nw_home_timeline($pdo);
     foreach ($rows as &$r) {
         $r['net_worth'] = round((float)$r['net_worth'] + nw_home_at($tl, (string)$r['snapshot_date']), 2);
