@@ -133,6 +133,11 @@ function webull_parse_statement_summary(string $text): array
             break;
         }
     }
+    // Layout drift can leave total_value unmatched; refuse the ingest rather than
+    // silently NULL the account's balance out of net worth (like a missing period).
+    if ($totalValue === null) {
+        throw new ManualIngestError('Statement layout not recognized — total value not found in that PDF.');
+    }
     // Closing cash from CASH BALANCE DETAIL ("Closing  <sipc>  <fdic>  <total>").
     $cash = null;
     foreach ($lines as $ln) {
@@ -291,6 +296,10 @@ function webull_parse_statement_apex(string $text): array
         $totalValue = wb_f($m[2]);
     } elseif (preg_match('/TOTAL PRICED PORTFOLIO\s+\$?([\d,]+\.\d{2})/', $text, $m)) {
         $totalValue = wb_f($m[1]);
+    }
+    // Refuse rather than silently NULL the balance out of net worth (see summary parser).
+    if ($totalValue === null) {
+        throw new ManualIngestError('Statement layout not recognized — total value not found in that Apex statement.');
     }
     // Cash = closing "NET ACCOUNT BALANCE" (fallback "Total Cash (Net Portfolio Balance)").
     $cash = null;
