@@ -51,9 +51,21 @@ if (!assistant_enabled($CONFIG)) {
 
 $pdo = db();
 $uid = current_user_id();
+
+// Cross-request spend ceiling (code review 4.3) — before we do any paid work.
+if (assistant_rate_limited($pdo, (int)$uid, $CONFIG)) {
+    http_response_code(429);
+    echo json_encode(['ok' => false, 'error' => "You've reached the assistant's question limit for now. Please try again later."]);
+    exit;
+}
+
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $messages = is_array($in['messages'] ?? null) ? $in['messages'] : [];
 access_log_action($pdo, (int)$uid, 'assistant', 'ask');   // audit (best-effort; question text not logged)
+
+// Don't hold the per-session file lock for the whole multi-second agentic loop (code review
+// 4.1) — it would block the user's other tabs. Everything we need from the session is read.
+session_write_close();
 
 try {
     $res = assistant_respond($pdo, $uid, $messages, $CONFIG);

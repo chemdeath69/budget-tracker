@@ -8,12 +8,19 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
-const usd = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Sign goes OUTSIDE the $ ("−$1,234.00", not "$-1,234.00") — 5.24. Uses the typographic
+// minus (U+2212) to match the rest of the UI; axis labels + tooltips inherit this.
+const usd = n => {
+  const v = Number(n || 0);
+  return (v < 0 ? '−' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 const usdCompact = n => {
-  const a = Math.abs(Number(n) || 0);
-  if (a >= 1e6) return '$' + (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'k';
-  return '$' + Math.round(n);
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '';
+  const a = Math.abs(v);
+  if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (a >= 1e3) return sign + '$' + Math.round(a / 1e3) + 'k';
+  return sign + '$' + Math.round(a);
 };
 /* Curated "Quiet Wealth" chart-series palette (brass · teal · slate · gold ·
    sage · clay · rose · taupe), read from the CSS --ch-* tokens so it stays
@@ -97,6 +104,7 @@ function initCharts() {
   Chart.defaults.color = c.muted;
 
   $$('canvas[data-chart]').forEach(canvas => {
+   try {                                    // one malformed blob must not kill every later chart (5.25)
     const d = readData(canvas);
     if (!d) return;
     const type = canvas.dataset.chart;
@@ -341,6 +349,7 @@ function initCharts() {
         },
       });
     }
+   } catch (e) { console.error('chart render failed (' + (canvas.dataset.src || canvas.dataset.chart) + ')', e); }
   });
 }
 
@@ -433,7 +442,13 @@ function initAutoSubmit() {
 // Category options ([{value:TAG,label:Friendly}]) emitted server-side per page.
 let CATEGORY_OPTIONS = [];
 
+// Read the canonical category TAG from the chip's data-tag attribute (rendered server-side and
+// set by makeCatChip), NOT reconstructed from the display label — a custom category whose label
+// ≠ tag (migration 024, e.g. tag AT_T / label "AT&T") would otherwise fork identity (4.4). A
+// legacy chip with no data-tag (a page cached from before this deploy) falls back to the old
+// label→tag reconstruction so it degrades gracefully.
 const chipTag = chip => {
+  if (chip.dataset.tag !== undefined) return chip.dataset.tag;
   const label = chip.textContent.trim();
   return label === 'Set category' ? '' : label.toUpperCase().replace(/ /g, '_');
 };
@@ -444,6 +459,7 @@ function makeCatChip(tx, tag) {
   btn.type = 'button';
   btn.className = 'cat-chip';
   btn.dataset.tx = tx;
+  btn.dataset.tag = tag || '';           // canonical tag → chipTag() reads this back
   btn.textContent = tag ? prettyCat(tag) : 'Set category';
   btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openCatPicker(btn); });
   return btn;
@@ -511,10 +527,14 @@ function initRecategorize() {
 /* ---- Account visibility -------------------------------------------------- */
 function initVisibility() {
   $$('.vis-select[data-account]').forEach(sel => {
+    let prev = sel.value;
     sel.addEventListener('change', async () => {
       sel.disabled = true;
-      await postJSON('/api/account.php', { action: 'visibility', account_id: sel.dataset.account, visibility: sel.value });
+      const out = await postJSON('/api/account.php', { action: 'visibility', account_id: sel.dataset.account, visibility: sel.value });
       sel.disabled = false;
+      // Don't silently swallow a failure on a privacy control (5.23) — revert + tell the user.
+      if (out && out.ok) prev = sel.value;
+      else { sel.value = prev; toast((out && out.error) || 'Could not change visibility.'); }
     });
   });
 }
@@ -655,10 +675,12 @@ function initUsers() {
     });
   }
   $$('.role-select[data-uid]').forEach(sel => {
+    let prev = sel.value;
     sel.addEventListener('change', async () => {
       const out = await postJSON('/api/users.php', { action: 'set_role', id: Number(sel.dataset.uid), role: sel.value });
+      // Reload only on success; on failure revert + leave the page so the toast is readable (5.26).
       if (out && out.ok) location.reload();
-      else { toast((out && out.error) || 'Could not change the role.'); location.reload(); }
+      else { sel.value = prev; toast((out && out.error) || 'Could not change the role.'); }
     });
   });
   $$('[data-user-status]').forEach(btn => {
@@ -1443,25 +1465,46 @@ function initAssistant() {
     }
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
-    let buf = '', result = null;
+    let buf = '', result = null, progressed = false;
+
+    // Parse one SSE frame. Data lines join with "\n" (SSE spec) and only a single leading
+    // space after the colon is stripped — the old code trim()'d + concatenated without a
+    // separator, corrupting any multi-line payload (5.22). ":" comment lines (our flush
+    // padding) carry neither field and are ignored.
+    const handleFrame = frame => {
+      let ev = 'message'; const dataLines = [];
+      frame.split(/\r?\n/).forEach(line => {
+        if (line.indexOf('event:') === 0) ev = line.slice(6).trim();
+        else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).replace(/^ /, ''));
+      });
+      if (!dataLines.length) return;
+      let p; try { p = JSON.parse(dataLines.join('\n')); } catch (e) { return; }
+      if (ev === 'open') progressed = true;
+      else if (ev === 'status') { progressed = true; if (p.label && onStatus) onStatus(p.label); }
+      else if (ev === 'done') result = p;
+      else if (ev === 'error') result = { ok: false, error: p.error };
+    };
+
+    const RE = /\r?\n\r?\n/;   // accept LF or CRLF frame separators (5.22)
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      let i;
-      while ((i = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
-        let ev = 'message', data = '';
-        frame.split('\n').forEach(line => {
-          if (line.indexOf('event:') === 0) ev = line.slice(6).trim();
-          else if (line.indexOf('data:') === 0) data += line.slice(5).trim();
-        });
-        if (!data) continue;
-        let p; try { p = JSON.parse(data); } catch (e) { continue; }
-        if (ev === 'status' && p.label && onStatus) onStatus(p.label);
-        else if (ev === 'done') result = p;
-        else if (ev === 'error') result = { ok: false, error: p.error };
+      let m;
+      while ((m = RE.exec(buf)) !== null) {
+        handleFrame(buf.slice(0, m.index));
+        buf = buf.slice(m.index + m[0].length);
       }
+    }
+    // Process any residual bytes left when the reader closed mid-frame (no trailing blank line).
+    if (result == null && buf.trim()) handleFrame(buf);
+
+    // Stream ended with no terminal frame. If we'd already made progress (open/status seen),
+    // the run was live on the server and likely billed — do NOT silently re-run the whole
+    // tool loop on the non-streaming endpoint (4.2). Surface a retry instead. Only a stream
+    // that died before ANY progress returns null → caller falls back to api/assistant.php.
+    if (result == null && progressed) {
+      return { ok: false, error: 'The connection dropped before I finished. Please ask again.' };
     }
     return result;
   }
@@ -1596,35 +1639,14 @@ function initWhatif() {
 }
 
 /* ---- Boot ---------------------------------------------------------------- */
-initDrawer();
-initCharts();
-initChartSwatches();
-initFilters();
-initAutoSubmit();
-initRecategorize();
-initVisibility();
-initRetirement();
-initAllocation();
-initRename();
-initStatementCadence();
-initRefresh();
-initUnlink();
-initUsers();
-initFactoryReset();
-initBudgets();
-initGoals();
-initAlertSettings();
-initTheme();
-initDashDesigner();
-initTxNotes();
-initTxTags();
-initTxSplits();
-initRules();
-initTxRules();
-initRefundFlag();
-initRefunds();
-initCategories();
-initStatementImport();
-initCreditImport();
-initAssistant();
-initWhatif();
+// Run each init in isolation: one throwing (e.g. a malformed data blob) must not abort the
+// rest of the boot sequence and leave later features (recategorize, notes, assistant…) dead (5.25).
+[
+  initDrawer, initCharts, initChartSwatches, initFilters, initAutoSubmit,
+  initRecategorize, initVisibility, initRetirement, initAllocation, initRename,
+  initStatementCadence, initRefresh, initUnlink, initUsers, initFactoryReset,
+  initBudgets, initGoals, initAlertSettings, initTheme, initDashDesigner,
+  initTxNotes, initTxTags, initTxSplits, initRules, initTxRules,
+  initRefundFlag, initRefunds, initCategories, initStatementImport, initCreditImport,
+  initAssistant, initWhatif,
+].forEach(fn => { try { fn(); } catch (e) { console.error((fn.name || 'init') + ' failed', e); } });

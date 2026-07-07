@@ -132,6 +132,8 @@ return [
         'assistant_model' => '',   // optional override for the chat assistant; empty = use `model` above.
                                    // Recommended: 'claude-sonnet-5' (near-Opus tool use, same $3/$15 sticker) —
                                    // the assistant sends thinking:disabled for it automatically (snappy Q&A).
+        'daily_ask_cap'   => 100,  // per-user rolling-24h ceiling on assistant questions (cross-request spend
+                                   // guard, code review 4.3). 0/absent = default 100. Over the cap → friendly 429.
     ],
 
     // The home/property to value with RentCast (refreshed ~monthly by cron/sync.php)

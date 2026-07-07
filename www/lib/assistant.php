@@ -48,6 +48,40 @@ function assistant_enabled(array $cfg): bool
 }
 
 /**
+ * Cross-request spend ceiling (code review 4.3). Per-request caps (8 rounds / 200k tokens
+ * ≈ $0.60+ each) already bound a single question; this bounds how many questions a user can
+ * fire in a rolling 24-hour window, so a stuck client / abusive loop can't run up an
+ * open-ended Anthropic bill. Counts prior `assistant:ask` rows in access_log — DB clock on
+ * BOTH sides (created_at default + NOW()), so it dodges the S24 EDT/PDT trap (a rolling 24h
+ * window, not a calendar day, precisely to avoid a TZ-anchored midnight compare).
+ * Owner-tunable via `config['anthropic']['daily_ask_cap']` (0/absent → default 100).
+ * Fail-OPEN on any DB error — the per-request caps remain the hard floor on cost.
+ */
+const ASSISTANT_DAILY_ASK_CAP = 100;
+
+function assistant_ask_cap(array $cfg): int
+{
+    $c = (int)($cfg['anthropic']['daily_ask_cap'] ?? 0);
+    return $c > 0 ? $c : ASSISTANT_DAILY_ASK_CAP;
+}
+
+function assistant_rate_limited(PDO $pdo, int $uid, array $cfg): bool
+{
+    if ($uid <= 0) return false;
+    try {
+        $st = $pdo->prepare(
+            "SELECT COUNT(*) FROM access_log
+              WHERE user_id = ? AND event_type = 'action' AND label = 'assistant:ask'
+                AND created_at > (NOW() - INTERVAL 24 HOUR)"
+        );
+        $st->execute([$uid]);
+        return (int)$st->fetchColumn() >= assistant_ask_cap($cfg);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
  * The chat model. Reuses the existing `anthropic` config key; an optional
  * `anthropic.assistant_model` overrides the OCR model (which must stay a vision Sonnet).
  * Defaults to claude-sonnet-4-6 — strong tool use + good with finance reasoning.
@@ -1387,7 +1421,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
             $results[] = [
                 'type'        => 'tool_result',
                 'tool_use_id' => $b['id'] ?? '',
-                'content'     => json_encode($res, JSON_UNESCAPED_SLASHES),
+                'content'     => json_encode($res, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
             ];
         }
         if (!$results) {
@@ -1403,6 +1437,8 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
             $work[] = ['role' => 'user', 'content' => 'You have gathered enough data — answer now without calling more tools.'];
             $json = assistant_http($key, $buildBody($work));
             if (isset($json['__error'])) return $fail('Sorry — I could not finish that. Please try again.');
+            $tokIn  += (int)($json['usage']['input_tokens'] ?? 0);
+            $tokOut += (int)($json['usage']['output_tokens'] ?? 0);
             $text = '';
             foreach (($json['content'] ?? []) as $b) {
                 if (($b['type'] ?? '') === 'text') $text .= $b['text'];

@@ -41,7 +41,7 @@ require __DIR__ . '/../lib/assistant.php';
 @ini_set('zlib.output_compression', '0');
 @ini_set('output_buffering', '0');
 @ini_set('implicit_flush', '1');
-while (ob_get_level() > 0) @ob_end_flush();
+while (ob_get_level() > 0) { if (!@ob_end_flush()) break; }   // stop if a buffer won't flush (5.20)
 
 header('Content-Type: text/event-stream; charset=utf-8');
 header('Cache-Control: no-cache, no-transform');
@@ -74,6 +74,15 @@ if (!assistant_enabled($CONFIG))           { $sse('error', ['error' => 'the assi
 
 $pdo = db();
 $uid = current_user_id();
+
+// Cross-request spend ceiling (code review 4.3) — surfaced as an error FRAME (HTTP 200), like
+// the other guards. A terminal error frame → the client won't fall back to api/assistant.php
+// (which would also 429), so no double billing.
+if (assistant_rate_limited($pdo, (int)$uid, $CONFIG)) {
+    $sse('error', ['error' => "You've reached the assistant's question limit for now. Please try again later."]);
+    exit;
+}
+
 $in  = json_decode(file_get_contents('php://input'), true) ?: [];
 $messages = is_array($in['messages'] ?? null) ? $in['messages'] : [];
 access_log_action($pdo, (int)$uid, 'assistant', 'ask');   // audit (best-effort; question text not logged)
@@ -91,6 +100,17 @@ $onProgress = function (array $tools) use ($sse) {
     $sse('status', ['label' => implode(' · ', $labels), 'tools' => array_values($tools)]);
 };
 
+// Belt-and-braces (code review 4.2b): a fatal inside the agentic loop would tear PHP down
+// WITHOUT a terminal frame — the client then can't tell "done" from "died" and silently
+// re-bills via the fallback endpoint. Guarantee exactly one terminal frame from the
+// shutdown path if we never reach a normal done/error below.
+$terminated = false;
+register_shutdown_function(function () use ($sse, &$terminated) {
+    if ($terminated) return;
+    $terminated = true;
+    $sse('error', ['error' => 'the assistant hit an error']);
+});
+
 try {
     $res = assistant_respond($pdo, $uid, $messages, $CONFIG, $onProgress);
     if (!empty($res['ok'])) {
@@ -99,7 +119,9 @@ try {
         // A controlled failure (bad input, transport) — surface the friendly message.
         $sse('error', ['error' => $res['error'] ?? 'could not answer that']);
     }
+    $terminated = true;
 } catch (Throwable $e) {
     error_log('api/assistant_stream: ' . $e->getMessage());
     $sse('error', ['error' => 'the assistant hit an error']);
+    $terminated = true;
 }
