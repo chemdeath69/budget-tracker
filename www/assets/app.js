@@ -1298,8 +1298,9 @@ function prettyCat(c) {
   return c.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
 }
 
-/* Statement photo-import (Session 55, #25): thumbnail previews with per-page remove,
-   and a "Reading…" submit state (the extraction call takes ~10-30s). */
+/* Statement import (Session 55, #25): a PDF or page-photo previews with per-file remove,
+   and a "Reading…" submit state (the extraction call takes ~10-30s). Images get a
+   thumbnail; a PDF gets a document chip (no client-side thumbnail). */
 function initStatementImport() {
   const form = document.getElementById('import-form');
   if (!form) return;
@@ -1307,6 +1308,9 @@ function initStatementImport() {
   const previews = document.getElementById('import-previews');
   const submit = document.getElementById('import-submit');
   if (!input || !previews) return;
+
+  const isAccepted = f => f.type.startsWith('image/') || f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  const isPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
 
   // The file input is immutable, so we keep our own list and rebuild a DataTransfer.
   let files = [];
@@ -1317,16 +1321,25 @@ function initStatementImport() {
     files.forEach((f, i) => {
       const cell = document.createElement('div');
       cell.className = 'file-thumb';
-      const img = document.createElement('img');
-      img.alt = f.name;
-      img.src = URL.createObjectURL(f);
-      img.onload = () => URL.revokeObjectURL(img.src);
+      if (isPdf(f)) {
+        // A PDF can't be thumbnailed client-side — show a document chip instead.
+        cell.classList.add('file-thumb-doc');
+        const ic = document.createElement('span'); ic.className = 'file-thumb-ic'; ic.textContent = '📄';
+        cell.appendChild(ic);
+      } else {
+        const img = document.createElement('img');
+        img.alt = f.name;
+        img.src = URL.createObjectURL(f);
+        img.onload = () => URL.revokeObjectURL(img.src);
+        cell.appendChild(img);
+      }
       const x = document.createElement('button');
       x.type = 'button'; x.className = 'file-thumb-x'; x.textContent = '×';
-      x.setAttribute('aria-label', 'Remove page'); x.title = 'Remove page';
+      x.setAttribute('aria-label', 'Remove file'); x.title = 'Remove file';
       x.addEventListener('click', () => { files.splice(i, 1); sync(); });
-      cell.appendChild(img); cell.appendChild(x);
-      const n = document.createElement('span'); n.className = 'file-thumb-n'; n.textContent = 'Page ' + (i + 1);
+      cell.appendChild(x);
+      const n = document.createElement('span'); n.className = 'file-thumb-n';
+      n.textContent = isPdf(f) ? (f.name.length > 18 ? f.name.slice(0, 15) + '…' : f.name) : ('Page ' + (i + 1));
       cell.appendChild(n);
       previews.appendChild(cell);
     });
@@ -1339,7 +1352,7 @@ function initStatementImport() {
   }
   input.addEventListener('change', () => {
     for (const f of input.files) {
-      if (f.type.startsWith('image/') && files.length < MAX) files.push(f);
+      if (isAccepted(f) && files.length < MAX) files.push(f);
     }
     sync();
   });

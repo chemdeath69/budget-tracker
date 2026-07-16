@@ -77,19 +77,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!$valid) {
             flash_set('error', 'Choose one of your 401(k) accounts.');
         } else {
-            // Collect the uploaded pages (one statement = several photos).
+            // Collect the upload (one statement = one PDF, or several page photos).
             $paths = [];
             $f = $_FILES['pages'] ?? null;
             if ($f && is_array($f['tmp_name'])) {
                 foreach ($f['tmp_name'] as $k => $tmp) {
                     if (($f['error'][$k] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
-                    if (!is_uploaded_file($tmp) || @getimagesize($tmp) === false) continue;
+                    // Accept a PDF or a supported image (content-sniffed, not by extension).
+                    if (!is_uploaded_file($tmp) || statement_ocr_kind($tmp) === null) continue;
                     $paths[] = $tmp;
                     if (count($paths) >= STATEMENT_OCR_MAX_IMAGES) break;
                 }
             }
             if (!$paths) {
-                flash_set('error', 'Add at least one photo of the statement (image files only).');
+                flash_set('error', 'Add the statement as a PDF or photos (PDF or JPEG/PNG images).');
             } else {
                 $res = statement_ocr_extract($paths, $GLOBALS['CONFIG']);
                 if (!$res['ok']) {
@@ -235,9 +236,10 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
 
 <?php if ($importEnabled && !$pf): ?>
 <section class="card import-card">
-    <h2>📷 Import from photo</h2>
-    <p class="muted">Snap or upload the statement pages — several photos for one statement is fine.
-        We'll read the balance, holdings and activity and pre-fill the form for you to check before saving.</p>
+    <h2>📄 Import from PDF or photo</h2>
+    <p class="muted">Upload the statement as a PDF, or snap/upload the pages as photos — several
+        photos for one statement is fine. We'll read the balance, holdings and activity and
+        pre-fill the form for you to check before saving.</p>
     <form method="post" enctype="multipart/form-data" class="stack-form" id="import-form">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="extract">
@@ -252,9 +254,9 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
             </select>
         </label>
         <label class="field">
-            <span class="field-label">Statement pages <span class="muted">(up to <?= STATEMENT_OCR_MAX_IMAGES ?> images)</span></span>
+            <span class="field-label">Statement <span class="muted">(a PDF, or up to <?= STATEMENT_OCR_MAX_IMAGES ?> photos)</span></span>
             <input class="input file-input" type="file" name="pages[]" id="import-files"
-                   accept="image/*" capture="environment" multiple required>
+                   accept="application/pdf,image/*" capture="environment" multiple required>
         </label>
         <div class="file-previews" id="import-previews"></div>
         <button class="btn" type="submit" id="import-submit">Read statement</button>
@@ -268,7 +270,7 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
     <p class="muted">Read from
         <?= e($pf['provider'] ?: 'your statement') ?><?= !empty($pf['plan_name']) ? ' — ' . e($pf['plan_name']) : '' ?><?php
         if (!empty($pf['period_start']) && !empty($pf['period_end'])) echo ' · ' . e($pf['period_start']) . ' → ' . e($pf['period_end']); ?>.
-        Check the figures below, then <strong>Save</strong>. If anything is wrong, retake the photo and import again.</p>
+        Check the figures below, then <strong>Save</strong>. If anything is wrong, re-upload the PDF or a clearer photo and import again.</p>
     <?php foreach (($prefill['warnings'] ?? []) as $w): ?>
         <div class="notice warn"><?= e($w) ?></div>
     <?php endforeach; ?>

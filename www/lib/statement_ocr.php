@@ -1,12 +1,14 @@
 <?php
 /**
- * statement_ocr.php — vision OCR for manual 401(k) statement photos (Session 55, TODO #25).
+ * statement_ocr.php — vision/document OCR for manual 401(k) statements (Session 55, TODO #25).
  *
- * Reads one or more statement page images (phone photos are fine — the vision model
- * tolerates skew/shadows) via the Anthropic (Claude) Messages API and returns a
- * provider-agnostic structured array the retirement-statement importer pre-fills a
- * review form from. NOTHING here writes to the DB or auto-saves — the page renders the
- * result for the owner to confirm first (see retirement_statement.php).
+ * Reads a statement as EITHER a PDF (the recordkeeper's downloaded statement) OR one or
+ * more page images (phone photos are fine — the vision model tolerates skew/shadows) via
+ * the Anthropic (Claude) Messages API and returns a provider-agnostic structured array
+ * the retirement-statement importer pre-fills a review form from. NOTHING here writes to
+ * the DB or auto-saves — the page renders the result for the owner to confirm first (see
+ * retirement_statement.php). A PDF is sent as a native `document` block (mirrors
+ * lib/credit_ocr.php); images are sent as `image` blocks. The two can be mixed in one call.
  *
  * Provider-agnostic by design: the two real statements differ a lot —
  *   • Empower (Visual Comfort): 4 funding sources, employee/employer split columns,
@@ -21,7 +23,7 @@
  *
  * Public API:
  *   statement_ocr_enabled(array $cfg): bool
- *   statement_ocr_extract(array $imagePaths, array $cfg): array
+ *   statement_ocr_extract(array $filePaths, array $cfg): array
  *        → ['ok'=>bool, 'data'=>array|null, 'error'=>?string, 'warnings'=>string[],
  *           'usage'=>array|null]
  */
@@ -29,9 +31,10 @@
 const STATEMENT_OCR_ENDPOINT   = 'https://api.anthropic.com/v1/messages';
 const STATEMENT_OCR_VERSION    = '2023-06-01';
 const STATEMENT_OCR_MAXTOKENS  = 4096;     // the schema is large (holdings+sources+activity); ~2¢ leaves headroom
-const STATEMENT_OCR_TIMEOUT    = 90;       // seconds — vision calls are slow
-const STATEMENT_OCR_MAX_IMAGES = 6;        // a statement is a handful of pages
-const STATEMENT_OCR_MAX_BYTES  = 5 * 1024 * 1024;  // Anthropic per-image limit
+const STATEMENT_OCR_TIMEOUT    = 180;      // seconds — a multi-page PDF is slow to read
+const STATEMENT_OCR_MAX_IMAGES = 6;        // a statement is one PDF, or a handful of page photos
+const STATEMENT_OCR_MAX_BYTES  = 5 * 1024 * 1024;   // Anthropic per-image limit
+const STATEMENT_OCR_PDF_BYTES  = 32 * 1024 * 1024;  // Anthropic PDF limit
 
 /** Feature on only when a real key is present (empty string = disabled). */
 function statement_ocr_enabled(array $cfg): bool
@@ -40,15 +43,17 @@ function statement_ocr_enabled(array $cfg): bool
 }
 
 /**
- * An Anthropic-supported image media type for the file, or null.
- * Determined from the file's ACTUAL bytes (getimagesize) — no extension fallback: a file that
- * isn't a readable, supported image is rejected upfront rather than trusting a (possibly
- * spoofed) .jpg extension and burning a paid vision call on something Anthropic will reject
- * anyway (code review 5.30). Uploaded temp files have no extension, so content-sniffing is
- * also the only reliable signal.
+ * Detect the upload kind from its ACTUAL bytes → 'pdf' | an image media type | null.
+ * Content-sniffing (not the extension): a file that isn't a readable PDF/supported image is
+ * rejected upfront rather than trusting a (possibly spoofed) extension and burning a paid
+ * vision call on something Anthropic will reject anyway (code review 5.30). Uploaded temp
+ * files have no extension, so sniffing the bytes is also the only reliable signal.
  */
-function statement_ocr_media_type(string $path): ?string
+function statement_ocr_kind(string $path): ?string
 {
+    $head = (string)@file_get_contents($path, false, null, 0, 5);
+    if (strncmp($head, '%PDF-', 5) === 0) return 'pdf';
+
     $supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     $info = @getimagesize($path);
     if ($info !== false && isset($info['mime']) && in_array($info['mime'], $supported, true)) {
@@ -145,8 +150,8 @@ function statement_ocr_schema(): array
 function statement_ocr_prompt(): string
 {
     return <<<TXT
-You are reading photographed pages of a single retirement (401k/403b) account statement.
-Extract the figures into the extract_statement tool. Rules:
+You are reading a single retirement (401k/403b) account statement — either a PDF or
+photographed pages. Extract the figures into the extract_statement tool. Rules:
 - Use values EXACTLY as printed (no rounding); strip "$" and thousands commas.
 - If a field is not shown, use null — never guess or compute a value the statement doesn't state.
 - Dates as YYYY-MM-DD. The statement period end (the "as of" date) is period_end.
@@ -162,36 +167,40 @@ TXT;
 /**
  * Run the extraction. Returns a normalized result envelope. Never throws.
  *
- * @param string[] $imagePaths absolute paths to image files (1..STATEMENT_OCR_MAX_IMAGES)
+ * @param string[] $filePaths absolute paths to the uploaded file(s): one PDF, or
+ *                            1..STATEMENT_OCR_MAX_IMAGES page images (or a mix).
  */
-function statement_ocr_extract(array $imagePaths, array $cfg): array
+function statement_ocr_extract(array $filePaths, array $cfg): array
 {
     $fail = fn(string $e) => ['ok' => false, 'data' => null, 'error' => $e, 'warnings' => [], 'usage' => null];
 
     $key = trim((string)($cfg['anthropic']['api_key'] ?? ''));
     if ($key === '')                     return $fail('Anthropic API key not configured.');
-    if (!$imagePaths)                    return $fail('No images provided.');
-    if (count($imagePaths) > STATEMENT_OCR_MAX_IMAGES) {
+    if (!$filePaths)                     return $fail('No file provided.');
+    if (count($filePaths) > STATEMENT_OCR_MAX_IMAGES) {
         return $fail('Too many pages (max ' . STATEMENT_OCR_MAX_IMAGES . ').');
     }
     $model = trim((string)($cfg['anthropic']['model'] ?? '')) ?: 'claude-sonnet-4-6';
 
-    // Build the multimodal content: every image, then the instruction.
+    // Build the content: each file as a document (PDF) or image block, then the instruction.
     $content = [];
-    foreach ($imagePaths as $path) {
-        if (!is_file($path) || !is_readable($path)) return $fail('Cannot read image: ' . basename($path));
+    foreach ($filePaths as $path) {
+        if (!is_file($path) || !is_readable($path)) return $fail('Cannot read upload: ' . basename($path));
+        $kind = statement_ocr_kind($path);
+        if ($kind === null) return $fail('Unsupported file (use a PDF or JPEG/PNG/GIF/WebP): ' . basename($path));
         $bytes = filesize($path);
-        if ($bytes === false || $bytes > STATEMENT_OCR_MAX_BYTES) {
-            return $fail('Image too large (max 5 MB): ' . basename($path));
+        $limit = $kind === 'pdf' ? STATEMENT_OCR_PDF_BYTES : STATEMENT_OCR_MAX_BYTES;
+        if ($bytes === false || $bytes > $limit) {
+            return $fail('File too large: ' . basename($path));
         }
-        $media = statement_ocr_media_type($path);
-        if ($media === null) return $fail('Not a readable image (JPEG/PNG/GIF/WebP): ' . basename($path));
         $raw = file_get_contents($path);
-        if ($raw === false) return $fail('Cannot read image: ' . basename($path));
-        $content[] = [
-            'type'   => 'image',
-            'source' => ['type' => 'base64', 'media_type' => $media, 'data' => base64_encode($raw)],
-        ];
+        if ($raw === false) return $fail('Cannot read upload: ' . basename($path));
+        $b64 = base64_encode($raw);
+        if ($kind === 'pdf') {
+            $content[] = ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $b64]];
+        } else {
+            $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $kind, 'data' => $b64]];
+        }
     }
     $content[] = ['type' => 'text', 'text' => statement_ocr_prompt()];
 
