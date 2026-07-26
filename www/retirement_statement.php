@@ -11,9 +11,10 @@ require __DIR__ . '/lib/statement_import.php';  // save holdings + activity
 require_login();
 
 /**
- * Enter (or correct) a quarterly 401(k) statement. Owner-only — you record your own
- * mailings. A statement is one row in retirement_statements, bucketed by quarter
- * (account_id, period_key): re-entering a quarter UPDATES it. Saving also refreshes
+ * Enter (or correct) a quarterly 401(k) statement. Open to any household member who can
+ * SEE the account (Session 110) — these are paper mailings and either partner may be the
+ * one holding the envelope. A statement is one row in retirement_statements, bucketed by
+ * quarter (account_id, period_key): re-entering a quarter UPDATES it. Saving also refreshes
  * the account's current balance, the per-account balance history and today's
  * net-worth snapshot, so the dashboard + net worth reflect it immediately.
  *
@@ -42,17 +43,21 @@ function ret_inval($v): string
     return ($v === null || $v === '') ? '' : (is_numeric($v) ? number_format((float)$v, 2, '.', '') : '');
 }
 
-// Only the owner of a *manual* 401(k) may record its statements. Statement entry
-// overwrites balance_current + account_balance_history, which must never touch a
-// Plaid-synced retirement account (q_retirement_accounts() also returns those) —
-// is_retirement() narrows the list to hand-tracked 401(k)s, so the <select> can't
-// offer a Plaid account and a forged POST for one fails the $valid check below.
-$owned = array_values(array_filter(
+// Every *manual* 401(k) the user can SEE is a valid target — NOT just the ones they own.
+// q_retirement_accounts() is already VIS-scoped, so this can never include an account the
+// user isn't allowed to see, and `created_by` on the row records who actually entered it.
+// (Session 110: the old `owner_id === $uid` filter left a non-owner with no path at all —
+// the empty state funnelled them into "Add a 401(k)" and they created a DUPLICATE account.)
+// Statement entry overwrites balance_current + account_balance_history, which must never
+// touch a Plaid-synced retirement account (q_retirement_accounts() also returns those) —
+// is_retirement() narrows the list to hand-tracked 401(k)s, so the <select> can't offer a
+// Plaid account and a forged POST for one fails the $valid check below.
+$targets = array_values(array_filter(
     q_retirement_accounts($pdo, $uid),
-    fn($a) => (int)$a['owner_id'] === $uid && is_retirement($a)
+    fn($a) => is_retirement($a)
 ));
 
-$importEnabled = statement_ocr_enabled($GLOBALS['CONFIG']) && $owned;
+$importEnabled = statement_ocr_enabled($GLOBALS['CONFIG']) && $targets;
 $prefill = null;   // set by the 'extract' action → pre-fills + review section below
 $preAcct = (string)($_GET['account_id'] ?? '');
 
@@ -69,13 +74,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $acctId = (string)($_POST['account_id'] ?? '');
         $valid  = null;
-        foreach ($owned as $a) { if ($a['account_id'] === $acctId) { $valid = $a; break; } }
+        foreach ($targets as $a) { if ($a['account_id'] === $acctId) { $valid = $a; break; } }
         $preAcct = $acctId;
 
         if (!$importEnabled) {
             flash_set('error', 'Photo import is not configured.');
         } elseif (!$valid) {
-            flash_set('error', 'Choose one of your 401(k) accounts.');
+            flash_set('error', 'Choose one of the 401(k) accounts you can see.');
         } else {
             // Collect the upload (one statement = one PDF, or several page photos).
             $paths = [];
@@ -114,14 +119,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $acctId = (string)($_POST['account_id'] ?? '');
         $valid  = null;
-        foreach ($owned as $a) { if ($a['account_id'] === $acctId) { $valid = $a; break; } }
+        foreach ($targets as $a) { if ($a['account_id'] === $acctId) { $valid = $a; break; } }
 
         $date = trim((string)($_POST['statement_date'] ?? ''));
         $bal  = ret_num($_POST['balance'] ?? '');
         $ts   = $date !== '' ? strtotime($date) : false;
 
         $err = null;
-        if (!$valid)                              $err = 'Choose one of your 401(k) accounts.';
+        if (!$valid)                              $err = 'Choose one of the 401(k) accounts you can see.';
         elseif ($ts === false)                    $err = 'Enter a valid statement date.';
         elseif ($ts > strtotime(date('Y-m-d')))   $err = 'The statement date is in the future.';
         elseif ($bal === null || $bal < 0)        $err = 'Enter the statement balance.';
@@ -226,10 +231,11 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
     <div class="notice <?= $fl['type'] === 'error' ? 'warn' : ($fl['type'] === 'ok' ? 'ok' : '') ?>"><?= e($fl['msg']) ?></div>
 <?php endforeach; ?>
 
-<?php if (!$owned): ?>
+<?php if (!$targets): ?>
 <section class="card">
     <h2>No 401(k) to update</h2>
-    <p class="muted">You don't own a manually-tracked 401(k) yet. Add one first, then enter its statements.</p>
+    <p class="muted">There's no manually-tracked 401(k) in your household yet. Add one first, then
+        enter its statements — either of you can keep it up to date afterwards.</p>
     <a class="btn" href="/retirement_add.php">Add a 401(k)</a>
 </section>
 <?php else: ?>
@@ -246,9 +252,9 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
         <label class="field">
             <span class="field-label">Account</span>
             <select class="select" name="account_id" required>
-                <?php foreach ($owned as $a): ?>
+                <?php foreach ($targets as $a): $own = owner_first_name($a['owner_id'] ?? null); ?>
                     <option value="<?= e($a['account_id']) ?>"<?= $a['account_id'] === $preAcct ? ' selected' : '' ?>>
-                        <?= e($a['name'] ?: '401(k)') ?><?= $a['institution_name'] ? ' — ' . e($a['institution_name']) : '' ?>
+                        <?= e($a['name'] ?: '401(k)') ?><?= $a['institution_name'] ? ' — ' . e($a['institution_name']) : '' ?><?= $own !== '' ? ' · ' . e($own) : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -326,9 +332,9 @@ render_header('Add a statement', 'retirement', ['back' => '/retirement.php', 'na
         <label class="field">
             <span class="field-label">Account</span>
             <select class="select" name="account_id" required>
-                <?php foreach ($owned as $a): ?>
+                <?php foreach ($targets as $a): $own = owner_first_name($a['owner_id'] ?? null); ?>
                     <option value="<?= e($a['account_id']) ?>"<?= $a['account_id'] === $preAcct ? ' selected' : '' ?>>
-                        <?= e($a['name'] ?: '401(k)') ?><?= $a['institution_name'] ? ' — ' . e($a['institution_name']) : '' ?>
+                        <?= e($a['name'] ?: '401(k)') ?><?= $a['institution_name'] ? ' — ' . e($a['institution_name']) : '' ?><?= $own !== '' ? ' · ' . e($own) : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>

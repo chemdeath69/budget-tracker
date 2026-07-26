@@ -664,6 +664,11 @@ a.cat-row:hover { background: var(--surface-2); }
 }
 .switch:checked::after { transform: translateX(19px); }
 .switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Generic "switch + wrapping label" row for a checkbox inside a .stack-form (S110 —
+   the duplicate-401(k) override). Top-aligned so a two-line label doesn't drag the
+   toggle off-centre at mobile widths. */
+.check-row { display: flex; align-items: flex-start; gap: 10px; font-size: .9rem; color: var(--ink-2); }
+.check-row .field-label { font-weight: 600; }
 
 /* ---- Settings section row + segmented control (Phase 2 — Appearance) ----- */
 /* A generic label↔control row inside a settings .card (mirrors .alert-row but
