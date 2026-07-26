@@ -32,12 +32,15 @@ if (!csrf_check_request()) {
 }
 access_log_action($pdo, (int)$uid, 'manual_upload', 'upload', $accountId !== '' ? $accountId : null);   // audit (best-effort)
 
+// Authorization is VISIBILITY, not ownership (Session 110). q_account() already applies the
+// VIS clause, so reaching this point means the caller is allowed to see the account — and any
+// household member who can see a manual account may bring it up to date. Statements are paper
+// mailings that either partner may be the one to receive; the old owner-only rule left the
+// non-owner with no path at all, which is how a DUPLICATE 401(k) got created in production.
+// The uploader is recorded on the document row (manual_ingest's $uid) and in the access log.
 $acct = $accountId !== '' ? q_account($pdo, $uid, $accountId) : null;
 if (!$acct || !is_manual($acct)) {
     upload_done('error', 'Account not found.', '/settings.php');
-}
-if ((int)$acct['owner_id'] !== $uid) {
-    upload_done('error', 'Only the owner can update this account.', $back);
 }
 
 $f = $_FILES['document'] ?? null;

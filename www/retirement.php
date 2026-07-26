@@ -434,8 +434,7 @@ render_header('Retirement', 'retirement', ['chart' => true]);
         <?php foreach ($view['cards'] as $c):
             $a = $c['account'];
             $manual = $c['manual'];
-            $stale = $manual && $c['stale_days'] !== null && $c['stale_days'] > 120;
-            $owner = (int)$a['owner_id'] === $uid; ?>
+            $stale = $manual && $c['stale_days'] !== null && $c['stale_days'] > 120; ?>
         <section class="card" id="account-<?= e($a['account_id']) ?>">
             <div class="acct-card" style="padding:0">
                 <span class="acct-icon"><?= nav_icon('nest') ?></span>
@@ -454,7 +453,9 @@ render_header('Retirement', 'retirement', ['chart' => true]);
                 </span>
                 <span class="row-side">
                     <span class="acct-bal"><?= e(usd($c['balance'])) ?></span>
-                    <?php if ($manual && $owner): ?><a class="btn-ghost sm" href="/retirement_statement.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Add statement</a><?php endif; ?>
+                    <?php /* Statement entry is open to anyone who can SEE the account (S110) — not
+                             just its owner; a non-owner with no path here created a DUPLICATE 401(k). */ ?>
+                    <?php if ($manual): ?><a class="btn-ghost sm" href="/retirement_statement.php?account_id=<?= e(urlencode($a['account_id'])) ?>">Add statement</a><?php endif; ?>
                 </span>
             </div>
             <?php if ($c['holdings']): ?>

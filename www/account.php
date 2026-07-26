@@ -133,12 +133,11 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
     <div class="notice warn">
         This account needs a new statement — <?= e(statement_overdue_label($stmtStatus)) ?>
         (expected <?= e(strtolower(statement_cadence_label($stmtStatus['cadence']))) ?>).
-        <?php if ($owner): ?>
-            <?php if (is_retirement($acct)): ?>
-                <a href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement ›</a>
-            <?php else: ?>
-                Upload the latest statement below.
-            <?php endif; ?>
+        <?php /* Anyone who can SEE a manual account may bring it up to date (S110). */ ?>
+        <?php if (is_retirement($acct)): ?>
+            <a href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement ›</a>
+        <?php else: ?>
+            Upload the latest statement below.
         <?php endif; ?>
     </div>
 <?php endif; ?>
@@ -380,10 +379,11 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
     <h2>Retirement account</h2>
     <p class="muted">This 401(k) is kept current by entering each statement (balance + contributions)
         on the Retirement page, where it rolls into your combined total and projection.</p>
-    <?php if ($owner): ?><a class="btn" href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement</a><?php endif; ?>
+    <a class="btn" href="/retirement_statement.php?account_id=<?= e(urlencode($accountId)) ?>">Add a statement</a>
     <a class="btn-ghost" href="/retirement.php">Open Retirement ›</a>
 </section>
-<?php elseif ($manual && $owner): ?>
+<?php elseif ($manual && $manualCfg): /* S110: any member who can SEE it may upload; $manualCfg
+                                         means the type actually has an ingest handler. */ ?>
 <section class="card update-card">
     <h2>Update <?= e($manualCfg['label'] ?? 'account') ?></h2>
     <p class="muted">Upload a document to refresh balances, holdings and transactions. Re-uploading
@@ -400,7 +400,8 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
 </section>
 <?php elseif ($manual && !$mdocs): ?>
 <section class="card">
-    <p class="muted">No documents uploaded yet. The owner can upload a statement to populate this account.</p>
+    <p class="muted">No documents uploaded yet. This account type doesn't accept document uploads —
+        its value is kept current from the Manage controls.</p>
 </section>
 <?php endif; ?>
 
