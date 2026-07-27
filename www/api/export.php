@@ -13,7 +13,7 @@ $uid = current_user_id();
 $pdo = db();
 access_log_action($pdo, (int)$uid, 'export', 'csv');   // audit (best-effort)
 
-// Optional filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&q=text&account_id=...&category=TAG&tag=name
+// Optional filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&q=text&account_id=...&category=TAG&tag=name&event=ID
 // Must stay in lock-step with q_transactions (lib/queries.php) so the CSV matches
 // the on-screen filtered list it's exported from.
 $from = $_GET['from'] ?? null;
@@ -25,6 +25,7 @@ $tag  = trim((string)($_GET['tag'] ?? ''));
 $merch = trim((string)($_GET['merchant'] ?? ''));
 $amin = trim((string)($_GET['amin'] ?? ''));   // amount-range filter (#12b) — dollar magnitude
 $amax = trim((string)($_GET['amax'] ?? ''));
+$event = (int)($_GET['event'] ?? 0);           // event/trip membership (migration 035)
 
 // Validate ?from/?to as strict Y-m-d (round-trip so "2026-02-31"/garbage is rejected) → 400,
 // rather than passing an arbitrary string into the query (code review 5.15).
@@ -67,6 +68,18 @@ if ($tag !== '') {
     $where[] = "EXISTS (SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
                         WHERE tt.transaction_id = t.transaction_id AND tg.name = :tag)";
     $params[':tag'] = normalize_tag($tag);
+}
+if ($event > 0) {
+    // Event/trip membership (migration 035) — the inner join to `events` re-applies the
+    // EVENT-level gate so a crafted ?event= for someone else's PRIVATE event exports
+    // nothing. Distinct :ev* placeholders → HY093-safe. Lock-step with q_transactions_where.
+    $where[] = "EXISTS (SELECT 1 FROM event_transactions etf
+                          JOIN events evf ON evf.event_id = etf.event_id
+                         WHERE etf.transaction_id = t.transaction_id
+                           AND etf.event_id = :evid
+                           AND (evf.visibility = 'shared' OR evf.created_by = :evuid))";
+    $params[':evid']  = $event;
+    $params[':evuid'] = $uid;
 }
 if ($q !== '') {
     // Escape the user's own LIKE metacharacters (% _ \) so a literal '_' (common in

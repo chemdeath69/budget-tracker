@@ -731,6 +731,57 @@ CREATE TABLE custom_categories (
   UNIQUE KEY uq_tag (tag)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------------------------
+-- events / event_transactions — group transactions into a named EVENT (a trip,
+-- a wedding, a move) to see its total cost + category breakdown (migration 035).
+--
+-- ⚠️ `events` is the app's FIRST user-owned object carrying its OWN visibility flag
+-- (until now only `accounts` had one; goals/budgets/rules are household-shared):
+--   shared  → every household member sees the event
+--   private → only created_by sees it
+-- The event-level gate (EVIS in queries.php: `visibility='shared' OR created_by=:euid`)
+-- decides whether you see the EVENT AT ALL; the usual account-level VIS clause still
+-- decides which of its member transactions you can see INSIDE it. An event's headline
+-- net total sums ALL members on non-hidden accounts (honest number), and the slice the
+-- viewer can't see renders as one masked "Private accounts" line (the q_goals precedent).
+--
+-- Membership is WHOLE-transaction (no partial amounts — use transaction_splits for that)
+-- and a tx may belong to several events. Money-IN members (refunds/reimbursements,
+-- amount < 0) SUBTRACT, so the total is a NET cost.
+--
+-- Edit rights: any member may attach/detach a transaction THEY can see to a shared event;
+-- rename / dates / note / visibility / delete are created_by-only.
+-- ---------------------------------------------------------------------------
+CREATE TABLE events (
+  event_id   INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name       VARCHAR(120) NOT NULL,
+  visibility ENUM('shared','private') NOT NULL DEFAULT 'shared',
+  created_by INT UNSIGNED NOT NULL,          -- users.id; the creator manages it (no FK — users convention)
+  start_date DATE         NULL,              -- optional; drives the in-range "suggestions" list
+  end_date   DATE         NULL,
+  note       VARCHAR(500) NULL,
+  created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (event_id),
+  KEY idx_events_vis (visibility, created_by)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The junction (mirrors transaction_tags). transaction_id CASCADEs because a Plaid
+-- `removed` DELETEs the transactions row. NB the pending→posted hand-off is handled in
+-- CODE, not by the FK: Plaid issues a NEW transaction_id when a pending tx posts and
+-- removes the old row, so lib/sync.php remap_tx_meta() copies the membership (and the
+-- other per-tx annotations) forward BEFORE the cascade fires.
+CREATE TABLE event_transactions (
+  event_id       INT UNSIGNED NOT NULL,
+  transaction_id VARCHAR(64)  NOT NULL,
+  added_by       INT UNSIGNED NOT NULL,
+  added_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (event_id, transaction_id),
+  KEY idx_et_tx (transaction_id),
+  CONSTRAINT fk_et_event FOREIGN KEY (event_id)       REFERENCES events (event_id)             ON DELETE CASCADE,
+  CONSTRAINT fk_et_tx    FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Savings goals (#9, migration 017). Household-shared. A goal is either tied to an account
 -- (account_id SET → progress = that account's live balance_current) or manual (account_id NULL
 -- → progress = current_amount). Progress is derived at READ time in q_goals() (queries.php).

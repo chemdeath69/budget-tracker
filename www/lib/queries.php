@@ -18,6 +18,23 @@ declare(strict_types=1);
 const VIS = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = :uid))';
 
 /**
+ * Event-level visibility gate (events / trips, migration 035). `events` is the app's FIRST
+ * user-owned object carrying its OWN visibility flag — until now only `accounts` had one
+ * (goals / budgets / rules are household-shared). It layers ON TOP of VIS, it does not
+ * replace it:
+ *
+ *   EVIS  decides whether you see the EVENT AT ALL (shared → everyone; private → creator).
+ *   VIS   still decides which of that event's MEMBER TRANSACTIONS you can see inside it.
+ *
+ * So a shared event may legitimately contain transactions on another member's private
+ * account: they count toward the honest net total but are never itemised for you — the
+ * difference surfaces as one masked "Private accounts" line (the q_goals() precedent).
+ * Requires `events` aliased `e`; binds `:euid` (deliberately NOT `:uid`, so a query that
+ * also carries VIS keeps one placeholder per name — HY093).
+ */
+const EVIS = '(e.visibility = "shared" OR e.created_by = :euid)';
+
+/**
  * Effective account name SQL fragment: the owner's display-name override when set,
  * else the original Plaid/manual name (migration 009). SELECT it as `name` /
  * `account_name` so every page renders the rename transparently without touching
@@ -1664,6 +1681,21 @@ function q_transactions_where(int $uid, array $opts = []): array
                             WHERE tt.transaction_id = t.transaction_id AND tg.name = :tag)";
         $params[':tag'] = normalize_tag((string)$opts['tag']);
     }
+    if (!empty($opts['event'])) {
+        // Event membership filter (migration 035) — "show me everything in this trip".
+        // EXISTS keeps it one row per transaction (no JOIN fan-out), and the inner join to
+        // `events` re-applies the EVENT-level gate so a crafted ?event=<id> for someone
+        // else's PRIVATE event matches nothing instead of leaking its membership. (The
+        // account-level VIS clause above still scopes WHICH member rows come back.)
+        // Distinct :ev* placeholders → HY093-safe. Keep in lock-step with api/export.php.
+        $where[] = "EXISTS (SELECT 1 FROM event_transactions etf
+                              JOIN events evf ON evf.event_id = etf.event_id
+                             WHERE etf.transaction_id = t.transaction_id
+                               AND etf.event_id = :evid
+                               AND (evf.visibility = 'shared' OR evf.created_by = :evuid))";
+        $params[':evid']  = (int)$opts['event'];
+        $params[':evuid'] = $uid;
+    }
     if (!empty($opts['merchant'])) {
         // Exact merchant match — the #5 "Top merchants" leaderboard click-through. Match
         // the SAME display expression the leaderboard groups by (merchant_name, else the
@@ -1975,10 +2007,14 @@ function all_tags(PDO $pdo): array
  * the whole page in two `IN (…)` queries (no per-row N+1) and sets, on each row:
  *   $row['tags']   => [['id'=>int,'name'=>str], …]            (alphabetical)
  *   $row['splits'] => [['category'=>str,'amount'=>float,'note'=>?str], …]
+ *   $row['events'] => [['id'=>int,'name'=>str], …]            (migration 035; needs $uid)
  * `note` is already selected by q_transactions. Mutates $rows in place. The rows are
- * already VIS-scoped by the feeding query, so this needs no visibility clause.
+ * already VIS-scoped by the feeding query, so this needs no visibility clause — EXCEPT the
+ * events fold-in, which carries its own EVENT-level gate (another member's PRIVATE event
+ * must not surface as a chip on a transaction you share with them). Pass $uid to get event
+ * chips; omit it and `events` comes back empty (no leak by default).
  */
-function attach_tx_meta(PDO $pdo, array &$rows): void
+function attach_tx_meta(PDO $pdo, array &$rows, ?int $uid = null): void
 {
     if (!$rows) return;
     $ids = [];
@@ -2027,11 +2063,36 @@ function attach_tx_meta(PDO $pdo, array &$rows): void
         ];
     }
 
+    // Event memberships (migration 035) for the meta strip's event chips. EVENT-gated
+    // inline (shared OR mine) — a shared transaction must never advertise that it sits in
+    // another member's PRIVATE trip. Positional binds → HY093-safe. Defensive try/catch so
+    // a pre-migration DB degrades to "no chips" instead of 500ing the whole ledger.
+    $eventsByTx = [];
+    if ($uid !== null) {
+        try {
+            $es = $pdo->prepare(
+                "SELECT et.transaction_id, e.event_id, e.name
+                 FROM event_transactions et
+                 JOIN events e ON e.event_id = et.event_id
+                 WHERE et.transaction_id IN ($ph)
+                   AND (e.visibility = 'shared' OR e.created_by = ?)
+                 ORDER BY e.name"
+            );
+            $es->execute(array_merge($ids, [$uid]));
+            foreach ($es->fetchAll() as $row) {
+                $eventsByTx[$row['transaction_id']][] = ['id' => (int)$row['event_id'], 'name' => $row['name']];
+            }
+        } catch (Throwable $e) {
+            $eventsByTx = [];
+        }
+    }
+
     foreach ($rows as &$r) {
         $tid = $r['transaction_id'] ?? '';
         $r['tags']   = $tagsByTx[$tid]   ?? [];
         $r['splits'] = $splitsByTx[$tid] ?? [];
         $r['refund'] = $refundByTx[$tid] ?? null;
+        $r['events'] = $eventsByTx[$tid] ?? [];
     }
     unset($r);
 }
@@ -2232,6 +2293,239 @@ function q_goals(PDO $pdo, int $uid): array
     }
     unset($g);
     return $rows;
+}
+
+/* ---- Events / trips (migration 035) ---------------------------------------
+ * An event groups transactions under a name ("Maui 2026") so you can see what the whole
+ * thing cost. Two gates apply, and they are NOT the same gate (see the EVIS docblock):
+ *   - EVIS  → can you see the EVENT (shared → everyone; private → the creator).
+ *   - VIS   → which of its MEMBER TRANSACTIONS can you see inside it.
+ *
+ * Honest-number contract: the headline net total sums EVERY member transaction on a
+ * non-hidden account (no VIS) — otherwise a shared trip would show two different "totals"
+ * to two members. What the viewer can't itemise is reported separately as a masked
+ * "Private accounts — $X (N transactions)" line. `hidden` accounts count NOWHERE (the
+ * app-wide rule), so they're excluded from the honest total too.
+ *
+ * Sign convention is the ledger's (`+` = money out, `−` = money in), so an attached refund
+ * or reimbursement SUBTRACTS → the total is a NET cost. The true-expense exclusions
+ * (transfers / CC payments) are deliberately NOT applied: membership is explicit, so if the
+ * user attached it, it counts. Only `ext_source` rows (brokerage activity, not spending)
+ * are blocked, and that's enforced at ATTACH time in api/account.php.
+ */
+
+/**
+ * Per-event aggregates for the given event ids, keyed by event_id. Returns, per event:
+ *   n_all / total_all       every member on a non-hidden account  (the HONEST net total)
+ *   n_vis / total_vis       the slice this viewer can itemise      (VIS-scoped)
+ *   hidden_n / hidden_total the masked remainder (all − vis), + `masked` bool
+ * All-positional binds (`?`) because the VIS expression appears twice — repeated named
+ * placeholders are an HY093 500 on this host, positional repeats are fine. The two `?`
+ * before the id list are both $uid; bind order follows SQL text order (SELECT then WHERE).
+ */
+function q_event_totals(PDO $pdo, int $uid, array $eventIds): array
+{
+    $ids = array_values(array_unique(array_map('intval', $eventIds)));
+    if (!$ids) return [];
+    $ph  = implode(',', array_fill(0, count($ids), '?'));
+    $vis = '(a.visibility <> "hidden" AND (a.visibility = "shared" OR i.user_id = ?))';
+
+    $st = $pdo->prepare(
+        "SELECT et.event_id,
+                COUNT(DISTINCT t.transaction_id) AS n_all,
+                COALESCE(SUM(t.amount), 0) AS total_all,
+                COUNT(DISTINCT CASE WHEN $vis THEN t.transaction_id END) AS n_vis,
+                COALESCE(SUM(CASE WHEN $vis THEN t.amount ELSE 0 END), 0) AS total_vis
+         FROM event_transactions et
+         JOIN transactions t ON t.transaction_id = et.transaction_id
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE a.visibility <> 'hidden' AND et.event_id IN ($ph)
+         GROUP BY et.event_id"
+    );
+    $st->execute(array_merge([$uid, $uid], $ids));
+
+    $out = [];
+    foreach ($st->fetchAll() as $r) {
+        $out[(int)$r['event_id']] = event_totals_shape(
+            (int)$r['n_all'], (float)$r['total_all'], (int)$r['n_vis'], (float)$r['total_vis']
+        );
+    }
+    // An event with no members (or whose only members sit on hidden accounts) produces no
+    // GROUP BY row — give it an explicit zeroed shape so every caller can read the keys.
+    foreach ($ids as $id) {
+        if (!isset($out[$id])) $out[$id] = event_totals_shape(0, 0.0, 0, 0.0);
+    }
+    return $out;
+}
+
+/** The canonical totals shape (one place, so the list page + detail page can't diverge). */
+function event_totals_shape(int $nAll, float $totalAll, int $nVis, float $totalVis): array
+{
+    return [
+        'n_all'        => $nAll,
+        'total_all'    => round($totalAll, 2),
+        'n_vis'        => $nVis,
+        'total_vis'    => round($totalVis, 2),
+        'hidden_n'     => max(0, $nAll - $nVis),
+        'hidden_total' => round($totalAll - $totalVis, 2),
+        'masked'       => ($nAll - $nVis) > 0,
+    ];
+}
+
+/** Every event this user may see (EVIS), newest trip first, each with its totals. */
+function q_events(PDO $pdo, int $uid): array
+{
+    $st = $pdo->prepare(
+        "SELECT e.event_id, e.name, e.visibility, e.created_by, e.start_date, e.end_date,
+                e.note, e.created_at
+         FROM events e
+         WHERE " . EVIS . "
+         ORDER BY COALESCE(e.start_date, DATE(e.created_at)) DESC, e.event_id DESC"
+    );
+    $st->execute([':euid' => $uid]);
+    $rows = $st->fetchAll();
+    if (!$rows) return [];
+
+    $totals = q_event_totals($pdo, $uid, array_column($rows, 'event_id'));
+    foreach ($rows as &$e) {
+        $e['id']         = (int)$e['event_id'];
+        $e['can_manage'] = ((int)$e['created_by'] === $uid);
+        $e += $totals[(int)$e['event_id']] ?? event_totals_shape(0, 0.0, 0, 0.0);
+    }
+    unset($e);
+    return $rows;
+}
+
+/** One event by id, EVIS-gated → null when it doesn't exist OR isn't the viewer's to see
+ *  (the caller renders the same "not found" shell for both, so a private event never
+ *  confirms its own existence). Carries `can_manage` (creator-only actions) + the totals. */
+function q_event(PDO $pdo, int $uid, int $eventId): ?array
+{
+    if ($eventId <= 0) return null;
+    $st = $pdo->prepare(
+        "SELECT e.event_id, e.name, e.visibility, e.created_by, e.start_date, e.end_date,
+                e.note, e.created_at, e.updated_at
+         FROM events e
+         WHERE e.event_id = :eid AND " . EVIS
+    );
+    $st->execute([':eid' => $eventId, ':euid' => $uid]);
+    $e = $st->fetch();
+    if (!$e) return null;
+
+    $e['id']         = (int)$e['event_id'];
+    $e['can_manage'] = ((int)$e['created_by'] === $uid);
+    $e += q_event_totals($pdo, $uid, [(int)$e['event_id']])[(int)$e['event_id']]
+          ?? event_totals_shape(0, 0.0, 0, 0.0);
+    return $e;
+}
+
+/**
+ * Signed per-category breakdown of ONE event, VIS-scoped (only what this viewer can
+ * itemise). Uses the standard SPLIT_JOIN + EFF_CAT/EFF_AMT machinery so the numbers
+ * reconcile with the spending pages — membership stays whole-tx, splits only decide which
+ * categories the amount lands in. Signed: an attached refund REDUCES its own category.
+ * ⚠️ GROUP BY the explicit EFF_CAT expression, never the bare alias (the S30 trap —
+ * transaction_splits has its own `category` column). Binds :eid + :uid once each.
+ */
+function q_event_breakdown(PDO $pdo, int $uid, int $eventId): array
+{
+    $st = $pdo->prepare(
+        "SELECT " . EFF_CAT . " AS category,
+                SUM(" . EFF_AMT . ") AS total,
+                COUNT(DISTINCT t.transaction_id) AS n
+         FROM event_transactions et
+         JOIN transactions t ON t.transaction_id = et.transaction_id
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         " . SPLIT_JOIN . "
+         WHERE et.event_id = :eid AND " . VIS . "
+         GROUP BY " . EFF_CAT . "
+         ORDER BY total DESC"
+    );
+    $st->execute([':eid' => $eventId, ':uid' => $uid]);
+    return $st->fetchAll();
+}
+
+/** The member transactions of an event the viewer can see (VIS), newest first. Selects the
+ *  SAME column set as q_transactions() so the standard row markup + render_tx_meta() work
+ *  unchanged. Binds :eid + :uid once each (RULE_CAT has no binds) → HY093-safe. */
+function q_event_transactions(PDO $pdo, int $uid, int $eventId, int $limit = 100, int $offset = 0): array
+{
+    $limit  = max(1, min(500, $limit));
+    $offset = max(0, $offset);
+    $st = $pdo->prepare(
+        "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.logo_url, t.amount,
+                t.pending, t.note,
+                COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary) AS category,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id,
+                et.added_by
+         FROM event_transactions et
+         JOIN transactions t ON t.transaction_id = et.transaction_id
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE et.event_id = :eid AND " . VIS . "
+         ORDER BY t.date DESC, t.imported_at DESC
+         LIMIT " . $limit . " OFFSET " . $offset
+    );
+    $st->execute([':eid' => $eventId, ':uid' => $uid]);
+    return $st->fetchAll();
+}
+
+/**
+ * "Did you mean to add these?" — transactions inside the event's date range that the viewer
+ * can see and hasn't attached YET. Requires a start date (no range = no suggestions, which
+ * is why the page hides the card). `ext_source` rows are excluded because they're brokerage
+ * activity, not spending — the same rule the attach endpoint enforces. Capped (default 50)
+ * so a wide range can't dump the whole ledger into the page.
+ */
+function q_event_suggestions(PDO $pdo, int $uid, int $eventId, ?string $from, ?string $to, int $limit = 50): array
+{
+    if ($eventId <= 0 || $from === null || $from === '') return [];
+    $limit = max(1, min(200, $limit));
+    // An open-ended event (start set, no end) suggests up to today — an end date in the
+    // future would invent transactions that can't exist yet.
+    $end = ($to !== null && $to !== '') ? $to : date('Y-m-d');
+
+    $st = $pdo->prepare(
+        "SELECT t.transaction_id, t.date, t.merchant_name, t.name, t.logo_url, t.amount, t.pending,
+                COALESCE(t.category_override, " . RULE_CAT . ", t.pfc_primary) AS category,
+                " . ACCT_NAME . " AS account_name, a.mask, a.account_id, i.user_id AS owner_id
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.account_id
+         JOIN items i ON a.item_id = i.item_id
+         WHERE " . VIS . "
+           AND t.date >= :from AND t.date <= :to
+           AND t.ext_source IS NULL
+           AND NOT EXISTS (SELECT 1 FROM event_transactions ets
+                            WHERE ets.transaction_id = t.transaction_id AND ets.event_id = :eid)
+         ORDER BY t.date DESC, t.imported_at DESC
+         LIMIT " . $limit
+    );
+    $st->execute([':uid' => $uid, ':from' => $from, ':to' => $end, ':eid' => $eventId]);
+    return $st->fetchAll();
+}
+
+/** [['id'=>int,'name'=>str], …] of the events this user may attach to (EVIS) — feeds the
+ *  per-row "+ event" picker. Newest trip first, capped: the picker is a <select>, not a
+ *  search box. */
+function q_event_options(PDO $pdo, int $uid, int $limit = 100): array
+{
+    $limit = max(1, min(500, $limit));
+    try {
+        $st = $pdo->prepare(
+            "SELECT e.event_id AS id, e.name
+             FROM events e
+             WHERE " . EVIS . "
+             ORDER BY COALESCE(e.start_date, DATE(e.created_at)) DESC, e.event_id DESC
+             LIMIT " . $limit
+        );
+        $st->execute([':euid' => $uid]);
+        $rows = $st->fetchAll();
+    } catch (Throwable $e) {
+        return [];   // pre-migration DB → no picker options, never a 500
+    }
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'name' => (string)$r['name']], $rows);
 }
 
 /**

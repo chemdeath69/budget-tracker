@@ -109,7 +109,7 @@ $wipe = [
     'manual_documents', 'manual_tax_summaries', 'retirement_statements', 'retirement_settings',
     'spending_plan', 'allocation_targets', 'security_asset_class', 'security_expense_ratio',
     'vehicle_assets', 'tags', 'transaction_tags', 'transaction_splits', 'refund_watch',
-    'category_rules', 'custom_categories', 'goals',
+    'category_rules', 'custom_categories', 'goals', 'events', 'event_transactions',
     'credit_reports', 'credit_tradelines', 'credit_inquiries', 'credit_flags',
     'api_usage',
 ];

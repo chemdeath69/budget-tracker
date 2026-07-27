@@ -24,11 +24,17 @@ $fQ     = trim((string)($_GET['q'] ?? ''));
 $fMerch = trim((string)($_GET['merchant'] ?? ''));   // exact-merchant filter (#5 leaderboard click-through)
 $fMin   = trim((string)($_GET['amin'] ?? ''));        // amount-range filter (#12b) — dollar magnitude
 $fMax   = trim((string)($_GET['amax'] ?? ''));
+// Event/trip membership filter (migration 035) — the drill-through from event.php. Kept
+// out of the filter bar (there's no bounded <select> worth spending a row on); it surfaces
+// as a removable pill like `merchant`. q_transactions_where() re-applies the EVENT gate, so
+// a crafted id for someone else's private trip matches nothing.
+$fEvent = (int)($_GET['event'] ?? 0);
 $filters = array_filter([
     'account_id' => $fAcct,
     'category'   => $fCat,
     'tag'        => $fTag,
     'merchant'   => $fMerch,
+    'event'      => $fEvent > 0 ? $fEvent : '',
     'from'       => $fFrom,
     'to'         => $fTo,
     'amin'       => $fMin,
@@ -41,7 +47,11 @@ $hasFilters = (bool)$filters;
 $rows    = q_transactions($pdo, $uid, $filters + ['limit' => PAGE_SIZE + 1, 'offset' => page_offset($page)]);
 $hasNext = count($rows) > PAGE_SIZE;
 $txns    = array_slice($rows, 0, PAGE_SIZE);
-attach_tx_meta($pdo, $txns);   // notes/tags/splits for the page (#8)
+attach_tx_meta($pdo, $txns, (int)$uid);   // notes/tags/splits/events for the page (#8, 035)
+$evOptions = q_event_options($pdo, $uid);  // "+ event" picker options (migration 035)
+// Name for the active-event pill. q_event() is EVIS-gated, so an id the viewer may not see
+// resolves to null → no pill (and the filter above already matched nothing).
+$fEventRow = $fEvent > 0 ? q_event($pdo, $uid, $fEvent) : null;
 
 // CSV export honours the active filters (same param names as api/export.php).
 $exportHref = '/api/export.php' . ($filters ? '?' . http_build_query($filters) : '');
@@ -89,14 +99,23 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
     </div>
 </form>
 
-<?php if ($fMerch !== ''):
-    // Merchant filter has no <select> in the bar (too many payees) — surface it as a removable
-    // pill. The "remove" link keeps every OTHER active filter, dropping only `merchant`.
-    $without = $filters; unset($without['merchant']);
-    $clearHref = '/transactions.php' . ($without ? '?' . http_build_query($without) : ''); ?>
+<?php if ($fMerch !== '' || $fEventRow): ?>
     <div class="active-filters">
-        <span class="filter-pill">Merchant: <strong><?= e($fMerch) ?></strong>
-            <a href="<?= e($clearHref) ?>" aria-label="Remove merchant filter">✕</a></span>
+        <?php if ($fMerch !== ''):
+            // Merchant filter has no <select> in the bar (too many payees) — surface it as a
+            // removable pill. The "remove" link keeps every OTHER active filter, dropping
+            // only `merchant`.
+            $without = $filters; unset($without['merchant']);
+            $clearHref = '/transactions.php' . ($without ? '?' . http_build_query($without) : ''); ?>
+            <span class="filter-pill">Merchant: <strong><?= e($fMerch) ?></strong>
+                <a href="<?= e($clearHref) ?>" aria-label="Remove merchant filter">✕</a></span>
+        <?php endif; ?>
+        <?php if ($fEventRow):
+            $withoutEv = $filters; unset($withoutEv['event']);
+            $clearEvHref = '/transactions.php' . ($withoutEv ? '?' . http_build_query($withoutEv) : ''); ?>
+            <span class="filter-pill">Event: <strong><a href="/event.php?id=<?= (int)$fEventRow['id'] ?>"><?= e($fEventRow['name']) ?></a></strong>
+                <a href="<?= e($clearEvHref) ?>" aria-label="Remove event filter">✕</a></span>
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 
@@ -151,5 +170,6 @@ render_header('Transactions', 'transactions', ['narrow' => true]);
 
 <script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script type="application/json" id="tag-options"><?= json_encode($tagOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+<script type="application/json" id="event-options"><?= json_encode($evOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
 <?php render_footer(); ?>
