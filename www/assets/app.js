@@ -830,6 +830,233 @@ function initGoals() {
   });
 }
 
+/* ---- Events / trips (migration 035) -------------------------------------- */
+/* events.php: one add/edit form reused for both (a per-row ✎ populates the hidden
+   id → UPDATE, + Add opens it blank → INSERT). Mirrors initGoals(). The ✎/✕ buttons
+   are only rendered for the creator, so there's nothing to hide here. */
+function initEvents() {
+  const form = $('#add-event-form');
+  if (!form) return;
+  const addBtn = $('#add-event-btn'), cancelBtn = $('#event-cancel');
+  const idEl = $('#event-id'), nameEl = $('#event-name');
+  const startEl = $('#event-start'), endEl = $('#event-end');
+  const visEl = $('#event-visibility'), noteEl = $('#event-note');
+
+  const reset = () => {
+    idEl.value = ''; nameEl.value = ''; startEl.value = ''; endEl.value = '';
+    visEl.value = 'shared'; noteEl.value = '';
+  };
+  const open = () => { form.hidden = false; nameEl.focus(); };
+
+  if (addBtn) addBtn.addEventListener('click', () => { if (form.hidden) { reset(); open(); } else { form.hidden = true; } });
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { form.hidden = true; reset(); });
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = nameEl.value.trim();
+    if (!name) return;
+    const body = {
+      name,
+      visibility: visEl.value,
+      start_date: startEl.value,
+      end_date: endEl.value,
+      note: noteEl.value.trim(),
+    };
+    const id = Number(idEl.value);
+    if (id > 0) body.id = id;
+    const out = await postJSON('/api/events.php', body);
+    if (out && out.ok) location.reload();
+    else toast((out && out.error) || 'Could not save event');
+  });
+
+  $$('.event-edit[data-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.ev-row');
+      if (!row) return;
+      idEl.value = row.dataset.id;
+      nameEl.value = row.dataset.name || '';
+      startEl.value = row.dataset.start || '';
+      endEl.value = row.dataset.end || '';
+      visEl.value = row.dataset.visibility || 'shared';
+      noteEl.value = row.dataset.note || '';
+      open();
+    });
+  });
+
+  $$('.event-del[data-id]').forEach(del => {
+    del.addEventListener('click', async () => {
+      const row = del.closest('.ev-row');
+      const label = (row && row.dataset.name) ? '“' + row.dataset.name + '”' : 'this event';
+      // Deleting an event never deletes a transaction — say so, so the confirm isn't scary.
+      if (!confirm('Delete ' + label + '? The transactions in it are not deleted.')) return;
+      const out = await postJSON('/api/events.php', { id: Number(del.dataset.id) }, 'DELETE');
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not delete event');
+    });
+  });
+}
+
+/* event.php Manage card (creator only) + the per-row Remove + the suggestion Add. */
+function initEventDetail() {
+  const form = $('#event-manage-form');
+  if (form) {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const name = $('#mev-name').value.trim();
+      if (!name) return;
+      const out = await postJSON('/api/events.php', {
+        id: Number($('#mev-id').value),
+        name,
+        visibility: $('#mev-visibility').value,
+        start_date: $('#mev-start').value,
+        end_date: $('#mev-end').value,
+        note: $('#mev-note').value.trim(),
+      });
+      if (out && out.ok) location.reload();
+      else toast((out && out.error) || 'Could not save event');
+    });
+    const del = $('#mev-delete');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm('Delete this event? The transactions in it are not deleted.')) return;
+      const out = await postJSON('/api/events.php', { id: Number(del.dataset.id) }, 'DELETE');
+      if (out && out.ok) location.href = '/events.php';
+      else toast((out && out.error) || 'Could not delete event');
+    });
+  }
+
+  // Detach from the event — reload so the total + breakdown recompute.
+  $$('.ev-remove[data-tx][data-event]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const out = await postJSON('/api/account.php', {
+        action: 'remove_from_event', transaction_id: btn.dataset.tx, event_id: Number(btn.dataset.event),
+      });
+      if (out && out.ok) location.reload();
+      else { btn.disabled = false; toast((out && out.error) || 'Could not remove from the event'); }
+    });
+  });
+
+  // Suggestions: add in place (no reload — the user is likely adding several in a row),
+  // then fade the row out. The totals above go stale until reload, so say so once.
+  let added = 0;
+  $$('.ev-suggest-add[data-tx][data-event]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const out = await postJSON('/api/account.php', {
+        action: 'add_to_event', transaction_id: btn.dataset.tx, event_id: Number(btn.dataset.event),
+      });
+      if (out && out.ok) {
+        const row = btn.closest('.ev-suggest-row');
+        if (row) row.remove();
+        added++;
+        toast(added === 1 ? 'Added — reload to update the total' : added + ' added — reload to update the total');
+      } else {
+        btn.disabled = false;
+        toast((out && out.error) || 'Could not add to the event');
+      }
+    });
+  });
+}
+
+/* The per-transaction "+ event" picker in the meta strip. Swaps the button for an
+   inline <select> of the events this user may attach to (emitted as #event-options),
+   plus a "＋ New event…" sentinel that quick-creates one then attaches to it — the
+   same shape as the recategorize picker's new-category flow. */
+let EVENT_OPTIONS = [];
+function makeEventChip(tx, id, name) {
+  const chip = document.createElement('span');
+  chip.className = 'event-chip';
+  chip.dataset.eventId = id;
+  const a = document.createElement('a');
+  a.href = '/event.php?id=' + encodeURIComponent(id);
+  a.textContent = name;
+  chip.appendChild(a);
+  const x = document.createElement('button');
+  x.type = 'button'; x.className = 'event-x';
+  x.dataset.tx = tx; x.dataset.eventId = id;
+  x.setAttribute('aria-label', 'Remove from ' + name);
+  x.textContent = '×';
+  chip.appendChild(x);
+  return chip;
+}
+function initTxEvents() {
+  const el = document.getElementById('event-options');
+  if (el) { try { EVENT_OPTIONS = JSON.parse(el.textContent) || []; } catch (e) { EVENT_OPTIONS = []; } }
+  if (!$('.tx-meta')) return;
+
+  // Detach — delegated so chips added during this page load work too.
+  document.addEventListener('click', async e => {
+    const x = e.target.closest('.event-x');
+    if (!x) return;
+    e.preventDefault();
+    const out = await postJSON('/api/account.php', {
+      action: 'remove_from_event', transaction_id: x.dataset.tx, event_id: Number(x.dataset.eventId),
+    });
+    if (out && out.ok) { const chip = x.closest('.event-chip'); chip && chip.remove(); }
+    else toast((out && out.error) || 'Could not remove from the event');
+  });
+
+  $$('.event-add-btn[data-tx]').forEach(btn => btn.addEventListener('click', () => openEventPicker(btn)));
+}
+function openEventPicker(btn) {
+  const tx = btn.dataset.tx;
+  const wrap = btn.parentElement;   // .tx-events
+
+  const sel = document.createElement('select');
+  sel.className = 'cat-chip-select event-select';
+  sel.add(new Option('— choose an event —', ''));
+  EVENT_OPTIONS.forEach(ev => sel.add(new Option(ev.name, String(ev.id))));
+  const NEW_EVENT = '__new__';
+  sel.add(new Option('＋ New event…', NEW_EVENT));
+  btn.replaceWith(sel);
+
+  let done = false;
+  const restore = () => { if (done) return; done = true; if (sel.isConnected) sel.replaceWith(btn); };
+
+  sel.addEventListener('change', async () => {
+    if (done) return;
+    let eventId = sel.value;
+    if (eventId === '') { restore(); return; }
+    done = true;
+
+    let eventName = sel.options[sel.selectedIndex].text;
+    if (eventId === NEW_EVENT) {
+      const name = (window.prompt('New event name (a trip, a wedding, a move)') || '').trim();
+      if (!name) { if (sel.isConnected) sel.replaceWith(btn); return; }
+      // Quick-create defaults to shared with no dates — the events page is where you
+      // refine that. Creating and attaching are two calls, like "＋ New category…".
+      const created = await postJSON('/api/events.php', { name });
+      if (!created || !created.ok) {
+        toast((created && created.error) || 'Could not create the event.');
+        if (sel.isConnected) sel.replaceWith(btn);
+        return;
+      }
+      eventId = String(created.event.id);
+      eventName = created.event.name;
+      EVENT_OPTIONS.unshift({ id: created.event.id, name: created.event.name });   // later pickers this load
+    }
+
+    const out = await postJSON('/api/account.php', {
+      action: 'add_to_event', transaction_id: tx, event_id: Number(eventId),
+    });
+    if (sel.isConnected) sel.replaceWith(btn);
+    if (out && out.ok && out.event) {
+      if (wrap && !wrap.querySelector('.event-chip[data-event-id="' + out.event.id + '"]')) {
+        const chip = makeEventChip(tx, out.event.id, out.event.name || eventName);
+        // btn is normally back in `wrap` by now; if the strip changed under us, append
+        // rather than throw a NotFoundError on a stale reference node.
+        if (wrap.contains(btn)) wrap.insertBefore(chip, btn); else wrap.appendChild(chip);
+      }
+    } else {
+      toast((out && out.error) || 'Could not add to the event');
+    }
+  });
+  sel.addEventListener('blur', () => setTimeout(restore, 150));
+
+  sel.focus();
+  try { sel.showPicker && sel.showPicker(); } catch (e) { /* not all browsers */ }
+}
+
 /* ---- Alert settings (TODO #14) ------------------------------------------- */
 /* Household-shared notification prefs on settings.php. Any [data-alert] control
    change gathers the whole panel and POSTs it to api/alerts.php; toasts on save.
@@ -1658,8 +1885,8 @@ function initWhatif() {
   initDrawer, initCharts, initChartSwatches, initFilters, initAutoSubmit,
   initRecategorize, initVisibility, initRetirement, initAllocation, initRename,
   initStatementCadence, initRefresh, initUnlink, initUsers, initFactoryReset,
-  initBudgets, initGoals, initAlertSettings, initTheme, initDashDesigner,
-  initTxNotes, initTxTags, initTxSplits, initRules, initTxRules,
+  initBudgets, initGoals, initEvents, initEventDetail, initAlertSettings, initTheme, initDashDesigner,
+  initTxNotes, initTxTags, initTxEvents, initTxSplits, initRules, initTxRules,
   initRefundFlag, initRefunds, initCategories, initStatementImport, initCreditImport,
   initAssistant, initWhatif,
 ].forEach(fn => { try { fn(); } catch (e) { console.error((fn.name || 'init') + ' failed', e); } });

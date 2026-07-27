@@ -236,6 +236,13 @@ function sync_transactions(PDO $pdo, array $item, string $token, ?array $alertCf
         foreach ($res['added'] ?? [] as $t) {
             upsert_tx($ins, $t);
             $added++;
+            // A posted transaction that replaces a pending one carries the old id. Move the
+            // user's annotations (event membership, tags, note, splits, refund flag,
+            // category override) onto the new row BEFORE the paired `removed` DELETE
+            // cascades them away. Skipped on the first bulk import — nothing to move yet.
+            if (!$firstInit && !empty($t['pending_transaction_id'])) {
+                remap_tx_meta($pdo, (string)$t['pending_transaction_id'], (string)$t['transaction_id']);
+            }
             if ($threshold > 0 && (float)$t['amount'] > $threshold && empty($t['pending'])) {
                 $largeAlerts[] = $t;
             }
@@ -281,6 +288,102 @@ function sync_transactions(PDO $pdo, array $item, string $token, ?array $alertCf
     }
 
     return ['added' => $added, 'modified' => $modified, 'removed' => $removed];
+}
+
+/**
+ * Carry a transaction's USER-AUTHORED metadata across the pending→posted hand-off.
+ *
+ * ⚠️ Why this exists (found while building events, migration 035): when a pending charge
+ * posts, Plaid issues a **brand-new `transaction_id`** and `removed`s the pending one. Our
+ * child tables all FK the transaction id `ON DELETE CASCADE`, so the DELETE silently takes
+ * the user's annotations with it — an event membership, tag, note, split or refund flag put
+ * on a pending charge would just VANISH a day or two later with no trace. Nothing remapped
+ * them before this; the posted row carries `pending_transaction_id`, which is the link.
+ *
+ * Called from the `added` loop BEFORE the matching `removed` DELETE fires (Plaid returns
+ * both, and the added row must already exist for the FKs to accept the copies). Idempotent:
+ * every copy is INSERT IGNORE on a natural key, splits are copied only when the target has
+ * none (they have a surrogate PK, so a re-run could otherwise duplicate them), and the
+ * `note`/`category_override` columns are only filled when the destination is still NULL —
+ * so nothing the user set on the POSTED row is ever clobbered.
+ *
+ * Best-effort by construction: it's wrapped in try/catch because losing an annotation must
+ * never abort a sync. Skipped entirely on a first bulk import (no annotations can exist yet,
+ * and it would run per transaction over the whole backfill).
+ */
+function remap_tx_meta(PDO $pdo, string $oldId, string $newId): void
+{
+    if ($oldId === '' || $newId === '' || $oldId === $newId) return;
+    try {
+        // One cheap indexed gate — the vast majority of posted transactions carry nothing.
+        // Distinct placeholder names: native prepares reject a reused :name (HY093).
+        $chk = $pdo->prepare(
+            '(SELECT 1 FROM event_transactions  WHERE transaction_id = :a LIMIT 1)
+             UNION ALL (SELECT 1 FROM transaction_tags   WHERE transaction_id = :b LIMIT 1)
+             UNION ALL (SELECT 1 FROM transaction_splits WHERE transaction_id = :c LIMIT 1)
+             UNION ALL (SELECT 1 FROM refund_watch       WHERE transaction_id = :d LIMIT 1)
+             UNION ALL (SELECT 1 FROM transactions       WHERE transaction_id = :e
+                          AND (note IS NOT NULL OR category_override IS NOT NULL) LIMIT 1)
+             LIMIT 1'
+        );
+        $chk->execute([':a' => $oldId, ':b' => $oldId, ':c' => $oldId, ':d' => $oldId, ':e' => $oldId]);
+        if (!$chk->fetchColumn()) return;
+
+        // Events (migration 035) — PK (event_id, transaction_id) makes IGNORE exact.
+        $pdo->prepare(
+            'INSERT IGNORE INTO event_transactions (event_id, transaction_id, added_by, added_at)
+             SELECT event_id, :new, added_by, added_at FROM event_transactions WHERE transaction_id = :old'
+        )->execute([':new' => $newId, ':old' => $oldId]);
+        $pdo->prepare('DELETE FROM event_transactions WHERE transaction_id = ?')->execute([$oldId]);
+
+        // Tags (#8) — PK (transaction_id, tag_id).
+        $pdo->prepare(
+            'INSERT IGNORE INTO transaction_tags (transaction_id, tag_id, created_by, created_at)
+             SELECT :new, tag_id, created_by, created_at FROM transaction_tags WHERE transaction_id = :old'
+        )->execute([':new' => $newId, ':old' => $oldId]);
+        $pdo->prepare('DELETE FROM transaction_tags WHERE transaction_id = ?')->execute([$oldId]);
+
+        // Splits (#8) — surrogate PK, so copy ONLY into an unsplit target (never duplicate).
+        // NB a posted amount that differs from the pending one (a tip) leaves the copied
+        // splits not summing to the parent — that's the already-handled "stale split" state:
+        // SPLIT_JOIN stops exploding them and render_tx_meta badges "amount changed — review".
+        $hasSplits = $pdo->prepare('SELECT 1 FROM transaction_splits WHERE transaction_id = ? LIMIT 1');
+        $hasSplits->execute([$newId]);
+        if (!$hasSplits->fetchColumn()) {
+            $pdo->prepare(
+                'INSERT INTO transaction_splits (transaction_id, category, amount, note, created_by)
+                 SELECT :new, category, amount, note, created_by FROM transaction_splits WHERE transaction_id = :old'
+            )->execute([':new' => $newId, ':old' => $oldId]);
+        }
+        $pdo->prepare('DELETE FROM transaction_splits WHERE transaction_id = ?')->execute([$oldId]);
+
+        // Refund watch (#34) — PK transaction_id.
+        $pdo->prepare(
+            'INSERT IGNORE INTO refund_watch (transaction_id, status, matched_tx_id, created_by, created_at, resolved_at)
+             SELECT :new, status, matched_tx_id, created_by, created_at, resolved_at
+               FROM refund_watch WHERE transaction_id = :old'
+        )->execute([':new' => $newId, ':old' => $oldId]);
+        $pdo->prepare('DELETE FROM refund_watch WHERE transaction_id = ?')->execute([$oldId]);
+
+        // The two per-row overrides the sync UPSERT already preserves by id — fill them
+        // forward only where the posted row hasn't got its own value.
+        $src = $pdo->prepare('SELECT note, category_override FROM transactions WHERE transaction_id = ?');
+        $src->execute([$oldId]);
+        $prev = $src->fetch();
+        if ($prev) {
+            if ($prev['note'] !== null && $prev['note'] !== '') {
+                $pdo->prepare('UPDATE transactions SET note = ? WHERE transaction_id = ? AND note IS NULL')
+                    ->execute([$prev['note'], $newId]);
+            }
+            if ($prev['category_override'] !== null && $prev['category_override'] !== '') {
+                $pdo->prepare('UPDATE transactions SET category_override = ? WHERE transaction_id = ? AND category_override IS NULL')
+                    ->execute([$prev['category_override'], $newId]);
+            }
+        }
+    } catch (Throwable $e) {
+        // Never let a metadata hand-off break a sync — log and move on.
+        error_log('remap_tx_meta: ' . $oldId . ' → ' . $newId . ' failed: ' . $e->getMessage());
+    }
 }
 
 function upsert_tx(PDOStatement $ins, array $t): void

@@ -208,6 +208,68 @@ if ($action === 'remove_tag') {
     exit;
 }
 
+/** True if $uid may attach to / detach from this event — i.e. the EVENT-level gate (shared,
+ *  or it's theirs). Note this is NOT the creator gate: any member may curate the membership
+ *  of a shared event, but only the creator may rename/re-date/delete it (api/events.php).
+ *  Returns false for a missing event too, so a crafted id can't probe for existence. */
+function event_visible(PDO $pdo, int $eventId, int $uid): bool
+{
+    if ($eventId <= 0) return false;
+    $st = $pdo->prepare(
+        'SELECT 1 FROM events WHERE event_id = ? AND (visibility = "shared" OR created_by = ?)'
+    );
+    $st->execute([$eventId, $uid]);
+    return (bool)$st->fetchColumn();
+}
+
+if ($action === 'add_to_event') {
+    // Attach a transaction to an event (migration 035) — the per-row "+ event" picker.
+    // THREE gates: the tx must be visible to this user (VIS, same as the tag/note actions),
+    // the event must be visible to them (EVIS), and the tx must not be an `ext_source` row
+    // (brokerage/manual investment activity isn't spending, so it has no place in a trip
+    // total). Membership is whole-transaction; a tx may belong to several events.
+    $txId    = (string)($in['transaction_id'] ?? '');
+    $eventId = (int)($in['event_id'] ?? 0);
+
+    if (!tx_visible($pdo, $txId, $uid))        { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+    if (!event_visible($pdo, $eventId, $uid))  { http_response_code(404); echo json_encode(['error' => 'event not found']); exit; }
+
+    $ex = $pdo->prepare('SELECT ext_source FROM transactions WHERE transaction_id = ?');
+    $ex->execute([$txId]);
+    $row = $ex->fetch();
+    if ($row === false) { http_response_code(404); echo json_encode(['error' => 'transaction not found']); exit; }
+    if ($row['ext_source'] !== null) {
+        http_response_code(422);
+        echo json_encode(['error' => 'investment activity can\'t be added to an event']);
+        exit;
+    }
+
+    // INSERT IGNORE on the (event_id, transaction_id) PK → re-adding is a no-op, not a 500.
+    $pdo->prepare('INSERT IGNORE INTO event_transactions (event_id, transaction_id, added_by) VALUES (?, ?, ?)')
+        ->execute([$eventId, $txId, $uid]);
+
+    $nm = $pdo->prepare('SELECT name FROM events WHERE event_id = ?');
+    $nm->execute([$eventId]);
+    echo json_encode(['ok' => true, 'event' => ['id' => $eventId, 'name' => (string)$nm->fetchColumn()]],
+                     JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+
+if ($action === 'remove_from_event') {
+    // Detach a transaction from an event. Same two gates as add (can-see-tx + can-see-event)
+    // — any member may curate a shared event's membership, including rows someone else added.
+    $txId    = (string)($in['transaction_id'] ?? '');
+    $eventId = (int)($in['event_id'] ?? 0);
+
+    if (!tx_visible($pdo, $txId, $uid))       { http_response_code(403); echo json_encode(['error' => 'not allowed']); exit; }
+    if (!event_visible($pdo, $eventId, $uid)) { http_response_code(404); echo json_encode(['error' => 'event not found']); exit; }
+
+    $del = $pdo->prepare('DELETE FROM event_transactions WHERE event_id = ? AND transaction_id = ?');
+    $del->execute([$eventId, $txId]);
+    echo json_encode(['ok' => true, 'removed' => $del->rowCount()]);
+    exit;
+}
+
 if ($action === 'set_splits') {
     // Replace a transaction's split set (#8). Splits DRIVE the spend math (the
     // aggregation LEFT JOIN drops no remainder), so they must sum to the parent

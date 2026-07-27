@@ -14,8 +14,8 @@
  *   2. Permanently DELETE the Item, its accounts, and ALL their child rows.
  *      There are NO ON DELETE cascades on the items→accounts→children chain, so the
  *      deletes are issued explicitly, child-first, inside one transaction. (The side
- *      tables transaction_tags / transaction_splits / refund_watch DO cascade off
- *      transactions, so deleting transactions clears them.)
+ *      tables transaction_tags / transaction_splits / refund_watch / event_transactions
+ *      DO cascade off transactions, so deleting transactions clears them.)
  *   3. Rewrite the household net-worth snapshot so the removal shows immediately.
  *
  * Owner-only (mirrors rename/visibility/cadence): only the user who linked/created the
@@ -159,7 +159,7 @@ try {
     if ($accountIds) {
         $ph = implode(',', array_fill(0, count($accountIds), '?'));
         // Order matters only in that transactions must precede accounts; the side
-        // tables (tags/splits/refund_watch) cascade off transactions automatically.
+        // tables (tags/splits/refund_watch/event_transactions) cascade off transactions.
         // Each row references accounts(account_id) with NO cascade, so delete each.
         foreach ([
             'transactions',

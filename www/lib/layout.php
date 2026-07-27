@@ -39,6 +39,7 @@ function nav_items(): array
         ['key' => 'bills',        'href' => '/bills.php',        'label' => 'Upcoming bills', 'icon' => 'calendar', 'group' => 'everyday', 'tab' => 'more',      'desc' => 'Bills due & payment calendar'],
         ['key' => 'safetospend',  'href' => '/safe_to_spend.php', 'label' => 'Safe to spend', 'icon' => 'wallet',  'group' => 'everyday', 'tab' => 'more',      'desc' => "What's safe to spend this month"],
         ['key' => 'refunds',      'href' => '/refunds.php',      'label' => 'Refunds',       'icon' => 'refund',   'group' => 'everyday', 'tab' => 'more',      'desc' => 'Track purchases awaiting a credit'],
+        ['key' => 'events',       'href' => '/events.php',       'label' => 'Events & trips', 'icon' => 'calendar', 'group' => 'everyday', 'tab' => 'spend',     'desc' => 'What a trip or occasion cost'],
 
         // WORTH — net worth & planning.
         ['key' => 'networth',     'href' => '/networth.php',     'label' => 'Net worth',     'icon' => 'trend',    'group' => 'worth',    'tab' => 'worth',     'desc' => 'Net worth & composition over time'],
@@ -336,17 +337,20 @@ function render_investment_activity(string $title, array $rows, array $o): void
 <?php }
 
 /**
- * Shared per-transaction metadata strip (#8) — tags, note + split affordances — shown
- * under a transaction row on transactions.php + account.php so both stay identical.
- * Expects a row already passed through attach_tx_meta() (queries.php), i.e. $t['tags']
- * (= [['id','name'],…]), $t['splits'] (= [['category','amount','note'],…]) and the
- * selected $t['note'] are present. Returns an HTML string the caller echoes inside
- * .row-main. The interactive parts are wired by app.js (initTxTags / initTxNotes /
- * initTxSplits) against api/account.php — the data-* attributes are the contract:
+ * Shared per-transaction metadata strip (#8) — tags, events, note + split affordances —
+ * shown under a transaction row on transactions.php / account.php / event.php so they all
+ * stay identical. Expects a row already passed through attach_tx_meta() (queries.php), i.e.
+ * $t['tags'] (= [['id','name'],…]), $t['splits'] (= [['category','amount','note'],…]),
+ * $t['events'] (= [['id','name'],…], migration 035 — only present when attach_tx_meta was
+ * given the viewer's $uid) and the selected $t['note'] are present. Returns an HTML string
+ * the caller echoes inside .row-main. The interactive parts are wired by app.js (initTxTags
+ * / initTxNotes / initTxSplits / initTxEvents) against api/account.php — the data-*
+ * attributes are the contract:
  *   .tx-meta[data-tx][data-amount][data-expense]  · .tag-chip[data-tag-id] + .tag-x
- *   · .tag-add-btn · .note-btn · .split-btn. Splits are offered only on an expense
- *   (amount > 0 = money OUT); data-amount is the positive parent total the split
- *   editor must reconcile to. pretty_cat()/usd() come from queries.php (loaded first).
+ *   · .tag-add-btn · .event-chip[data-event-id] + .event-x · .event-add-btn · .note-btn
+ *   · .split-btn. Splits are offered only on an expense (amount > 0 = money OUT);
+ *   data-amount is the positive parent total the split editor must reconcile to.
+ *   pretty_cat()/usd() come from queries.php (loaded first).
  */
 function render_tx_meta(array $t): string
 {
@@ -355,6 +359,7 @@ function render_tx_meta(array $t): string
     $expense = $amt > 0;                       // Plaid sign: + = money OUT
     $tags    = $t['tags']   ?? [];
     $splits  = $t['splits'] ?? [];
+    $events  = $t['events'] ?? [];              // events/trips this tx belongs to (migration 035)
     $note    = (string)($t['note'] ?? '');
     // Quick-rule (#10): the inline "+ rule" shortcut prefills from the row's merchant/
     // description + its currently-shown category (the rule editor is wired by app.js
@@ -371,6 +376,16 @@ function render_tx_meta(array $t): string
                 <span class="tag-chip" data-tag-id="<?= (int)$tg['id'] ?>">#<?= e($tg['name']) ?><button type="button" class="tag-x" data-tx="<?= e($tid) ?>" data-tag-id="<?= (int)$tg['id'] ?>" aria-label="Remove tag <?= e($tg['name']) ?>">×</button></span>
             <?php endforeach; ?>
             <button type="button" class="meta-btn tag-add-btn" data-tx="<?= e($tid) ?>">+ tag</button>
+        </span>
+        <?php // Events / trips (migration 035). The chip links to the event; the × detaches.
+              // Only EVIS-visible events reach here (attach_tx_meta gates them), so a shared
+              // row never advertises another member's private trip. The "+ event" button is
+              // always offered — the picker's "＋ New event…" is the discovery path. ?>
+        <span class="tx-events">
+            <?php foreach ($events as $evc): ?>
+                <span class="event-chip" data-event-id="<?= (int)$evc['id'] ?>"><a href="/event.php?id=<?= (int)$evc['id'] ?>"><?= e($evc['name']) ?></a><button type="button" class="event-x" data-tx="<?= e($tid) ?>" data-event-id="<?= (int)$evc['id'] ?>" aria-label="Remove from <?= e($evc['name']) ?>">×</button></span>
+            <?php endforeach; ?>
+            <button type="button" class="meta-btn event-add-btn" data-tx="<?= e($tid) ?>" title="Add this to an event or trip">+ event</button>
         </span>
         <button type="button" class="meta-btn note-btn<?= $note !== '' ? ' has-note' : '' ?>" data-tx="<?= e($tid) ?>"><?= $note !== '' ? e($note) : 'note' ?></button>
         <?php if ($canRule): ?>

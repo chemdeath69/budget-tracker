@@ -53,8 +53,9 @@ $txRowsRaw = q_transactions($pdo, $uid, $txFilters + [
 ]);
 $txHasNext = count($txRowsRaw) > PAGE_SIZE;
 $txns      = array_slice($txRowsRaw, 0, PAGE_SIZE);
-attach_tx_meta($pdo, $txns);   // notes/tags/splits for the page (#8)
+attach_tx_meta($pdo, $txns, (int)$uid);   // notes/tags/splits/events for the page (#8, 035)
 $tagOptions = all_tags($pdo);  // add-tag autocomplete vocabulary (#8)
+$evOptions  = q_event_options($pdo, $uid);   // "+ event" picker options (migration 035)
 $txExport  = '/api/export.php?' . http_build_query(['account_id' => $accountId] + $txFilters);
 
 $liabs   = $debt ? q_liabilities($pdo, $uid, $accountId) : [];
@@ -496,5 +497,6 @@ render_header($acct['name'] ?: 'Account', '', ['back' => '/index.php']);
 
 <script type="application/json" id="cat-options"><?= json_encode($catOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script type="application/json" id="tag-options"><?= json_encode($tagOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+<script type="application/json" id="event-options"><?= json_encode($evOptions, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
 <?php render_footer(); ?>
