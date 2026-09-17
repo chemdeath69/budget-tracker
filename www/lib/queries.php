@@ -782,6 +782,210 @@ function q_cash_change(PDO $pdo, int $uid, int $days): ?array
     return ['as_of' => $baseDate, 'baseline' => round($baseline, 2), 'current' => round($current, 2), 'accounts' => $n];
 }
 
+/**
+ * Stable-cohort account balance history for the assistant. The cohort is selected from
+ * the viewer's CURRENT visible accounts, then held fixed for every historical point: a
+ * date is eligible only when account_balance_history has one row for EVERY account in
+ * that cohort. This prevents a newly linked account from masquerading as growth and
+ * prevents missing daily rows from being treated as zero or silently carried forward.
+ *
+ * Groups are canonical account_group() keys. In particular, `investments` excludes
+ * retirement because account_group() classifies retirement first. Assets add; credit and
+ * loans subtract. The current endpoint comes from accounts.balance_current, while every
+ * historical/monthly point comes only from stored complete snapshots.
+ *
+ * Returns roster/coverage metadata, every complete snapshot (for non-LLM callers), the
+ * earliest complete baseline, live current value, comparison, and deterministic monthly
+ * checkpoints (last complete snapshot in each calendar month, bookended by baseline and
+ * current). All account names/balances originate in q_accounts(), so VIS is the access gate.
+ */
+function q_balance_history(PDO $pdo, int $uid, array $groups, int $lookbackDays = 365): array
+{
+    $allowed = ['checking', 'savings', 'investments', 'retirement', 'credit', 'loans'];
+    $groups = array_values(array_unique(array_filter(
+        array_map(fn($g) => strtolower(trim((string)$g)), array_filter($groups, 'is_scalar')),
+        fn($g) => in_array($g, $allowed, true)
+    )));
+    if (!$groups) $groups = ['checking', 'savings', 'credit', 'investments'];
+    $lookbackDays = max(7, min(3650, $lookbackDays));
+    $today = new DateTimeImmutable('today');
+    $from = $today->modify("-{$lookbackDays} day")->format('Y-m-d');
+
+    $accounts = [];
+    foreach (q_accounts($pdo, $uid) as $a) {
+        $group = account_group($a);
+        if (!in_array($group, $groups, true)) continue;
+        $a['_group'] = $group;
+        $accounts[(string)$a['account_id']] = $a;
+    }
+
+    $empty = static function (string $status, array $roster = []) use ($groups, $lookbackDays, $from): array {
+        return [
+            'coverage_status' => $status, 'selected_groups' => $groups,
+            'lookback_days' => $lookbackDays, 'lookback_start' => $from,
+            'account_count' => count($roster), 'accounts' => $roster,
+            'earliest_complete_date' => null, 'complete_snapshot_count' => 0,
+            'complete_snapshots' => [], 'baseline' => null, 'current' => null,
+            'comparison' => null, 'monthly' => [], 'caveats' => [],
+        ];
+    };
+    if (!$accounts) return $empty('no_accounts');
+
+    // The IDs came from q_accounts(), but repository policy requires EVERY read to carry VIS
+    // independently as well. Give each dynamic ID a distinct named placeholder so native
+    // prepares never see a repeated name and never mix named + positional binds.
+    $ids = array_keys($accounts);
+    $idParams = [];
+    foreach ($ids as $n => $id) $idParams[":bh{$n}"] = $id;
+    $marks = implode(',', array_keys($idParams));
+    $st = $pdo->prepare(
+        "SELECT abh.account_id, abh.snapshot_date, abh.balance
+         FROM account_balance_history abh
+         JOIN accounts a ON a.account_id = abh.account_id
+         JOIN items i ON i.item_id = a.item_id
+         WHERE " . VIS . " AND abh.account_id IN ({$marks})
+         ORDER BY abh.snapshot_date ASC, abh.account_id ASC"
+    );
+    $st->execute([':uid' => $uid] + $idParams);
+
+    $byDate = [];
+    $first = [];
+    $windowFirst = [];
+    $windowLast = [];
+    foreach ($st->fetchAll() as $r) {
+        $id = (string)$r['account_id'];
+        $date = (string)$r['snapshot_date'];
+        if (!isset($first[$id])) $first[$id] = $date;
+        if ($date >= $from) {
+            $byDate[$date][$id] = (float)$r['balance'];
+            if (!isset($windowFirst[$id])) $windowFirst[$id] = $date;
+            $windowLast[$id] = $date;
+        }
+    }
+
+    $roster = [];
+    $hasManual = false;
+    foreach ($accounts as $id => $a) {
+        $manual = is_manual($a);
+        $hasManual = $hasManual || $manual;
+        $roster[] = [
+            'id' => $id,
+            'name' => (string)($a['name'] ?? ''),
+            'institution' => (string)($a['institution_name'] ?? ''),
+            'group' => $a['_group'],
+            'source' => (string)($a['source'] ?? 'plaid'),
+            'manual' => $manual,
+            'first_snapshot' => $first[$id] ?? null,
+            'first_snapshot_in_window' => $windowFirst[$id] ?? null,
+            'last_snapshot_in_window' => $windowLast[$id] ?? null,
+            'has_coverage' => isset($windowFirst[$id]),
+        ];
+    }
+
+    $point = static function (string $date, array $balances, array $cohort) use ($groups): array {
+        $groupTotals = array_fill_keys($groups, 0.0);
+        foreach ($cohort as $id => $a) {
+            $sign = in_array($a['_group'], ['credit', 'loans'], true) ? -1.0 : 1.0;
+            $group = $a['_group'];
+            $groupTotals[$group] = ($groupTotals[$group] ?? 0.0) + $sign * (float)$balances[$id];
+        }
+        foreach ($groupTotals as &$value) $value = round($value, 2);
+        unset($value);
+        return ['date' => $date, 'net' => round(array_sum($groupTotals), 2), 'groups' => $groupTotals];
+    };
+
+    $complete = [];
+    foreach ($byDate as $date => $balances) {
+        if (count($balances) !== count($accounts)) continue;
+        // Count equality is sufficient because every returned account_id is in the fixed cohort
+        // and ABH's primary key guarantees at most one row per account/date.
+        $complete[] = $point($date, $balances, $accounts);
+    }
+
+    $caveats = [];
+    if ($hasManual) {
+        $caveats[] = 'Manual-account balances can remain unchanged between statement or document imports.';
+    }
+    if (!$complete) {
+        $out = $empty('no_overlap', $roster);
+        $withoutCoverage = array_values(array_filter($roster, fn($a) => !$a['has_coverage']));
+        if ($withoutCoverage) {
+            $names = array_map(fn($a) => $a['name'] !== '' ? $a['name'] : $a['id'], $withoutCoverage);
+            $caveats[] = 'No complete overlap within the lookback: no in-window snapshot for '
+                . implode(', ', $names) . '.';
+        } else {
+            $caveats[] = 'Every selected account has some history in the lookback, but no single date has a snapshot for every account; missing rows are not carried forward.';
+        }
+        $out['caveats'] = $caveats;
+        return $out;
+    }
+
+    $baseline = $complete[0];
+    $liveBalances = [];
+    foreach ($accounts as $id => $a) $liveBalances[$id] = (float)($a['balance_current'] ?? 0.0);
+    $current = $point($today->format('Y-m-d'), $liveBalances, $accounts);
+    $delta = static function (float $now, float $before): array {
+        return [
+            'change' => round($now - $before, 2),
+            'percent' => abs($before) < 0.01 ? null : round(($now - $before) / abs($before) * 100, 1),
+        ];
+    };
+    $groupDelta = static function (array $after, array $before) use ($groups): array {
+        $changes = [];
+        foreach ($groups as $group) {
+            $changes[$group] = round((float)$after[$group] - (float)$before[$group], 2);
+        }
+        return $changes;
+    };
+    $comparison = $delta($current['net'], $baseline['net']) + [
+        'from_date' => $baseline['date'], 'to_date' => $current['date'],
+    ];
+    $comparison['group_changes'] = $groupDelta($current['groups'], $baseline['groups']);
+
+    // Baseline is always explicit. Thereafter choose the final complete snapshot in each
+    // calendar month. A final live point makes the partial current month understandable.
+    $monthly = [$baseline + ['kind' => 'baseline', 'change' => null, 'percent' => null]];
+    $lastByMonth = [];
+    foreach (array_slice($complete, 1) as $snapshot) {
+        $lastByMonth[substr($snapshot['date'], 0, 7)] = $snapshot;
+    }
+    $previous = $baseline;
+    foreach ($lastByMonth as $snapshot) {
+        $change = $delta($snapshot['net'], $previous['net']);
+        $groupChanges = $groupDelta($snapshot['groups'], $previous['groups']);
+        $monthly[] = $snapshot + ['kind' => 'month_end'] + $change + ['group_changes' => $groupChanges];
+        $previous = $snapshot;
+    }
+    $change = $delta($current['net'], $previous['net']);
+    $groupChanges = $groupDelta($current['groups'], $previous['groups']);
+    $monthly[] = $current + ['kind' => 'current'] + $change + ['group_changes' => $groupChanges];
+
+    $status = $baseline['date'] < $current['date'] ? 'complete' : 'insufficient_history';
+    if ($baseline['date'] > $from) {
+        $caveats[] = "Complete overlap begins {$baseline['date']}; newer or intermittent account coverage shortens the requested window.";
+    }
+    if ($status === 'insufficient_history') {
+        $caveats[] = 'The complete overlap begins today, so there is not yet an earlier comparable point.';
+    }
+
+    return [
+        'coverage_status' => $status,
+        'selected_groups' => $groups,
+        'lookback_days' => $lookbackDays,
+        'lookback_start' => $from,
+        'account_count' => count($roster),
+        'accounts' => $roster,
+        'earliest_complete_date' => $baseline['date'],
+        'complete_snapshot_count' => count($complete),
+        'complete_snapshots' => $complete,
+        'baseline' => $baseline,
+        'current' => $current,
+        'comparison' => $comparison,
+        'monthly' => $monthly,
+        'caveats' => $caveats,
+    ];
+}
+
 /** Spending by category over the last $days days (TRUE expense — outflows only).
  *  Session 86: applies the SAME true-expense exclusions as every other spend read
  *  (transfers via expense_exclude_clause + credit-card payments) so the by-category

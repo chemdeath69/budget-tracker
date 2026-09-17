@@ -141,6 +141,7 @@ function assistant_tool_label(string $name): string
         'get_retirement'           => 'Checking your retirement',
         'get_goals'                => 'Reviewing your goals',
         'get_cash'                 => 'Checking your cash on hand',
+        'get_balance_history'      => 'Reviewing balance history',
         'get_cash_forecast'        => 'Projecting your cash flow',
         'get_safe_to_spend'        => 'Calculating safe-to-spend',
         'get_debt_plan'            => 'Modeling your debt payoff',
@@ -298,6 +299,14 @@ function assistant_tools(): array
             ]],
         ],
         [
+            'name'        => 'get_balance_history',
+            'description' => 'Stable-cohort historical balance comparison across caller-selected current visible account groups. Use for questions that combine checking, savings, credit cards, loans, taxable/non-retirement investments, or retirement and ask how their net value changed. `investments` means NON-RETIREMENT investments because the canonical classifier separates retirement first. Chooses the earliest stored date where EVERY selected current account has a snapshot, so a newly linked account shortens the window instead of creating fake growth. Assets add; credit/loans subtract. Returns exact application-computed baseline/current/group contributions and calendar-month checkpoints; missing rows are never zero-filled or carried forward. Coverage metadata and manual-account caveats explain shortened/unavailable comparisons.',
+            'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
+                'groups' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => ['checking', 'savings', 'credit', 'loans', 'investments', 'retirement']], 'description' => 'Current account groups to compare. Defaults to checking+savings+credit+investments. Use `investments` without `retirement` for non-retirement investments.'],
+                'lookback_days' => $int('Maximum historical lookback', 365, 7, 3650),
+            ]],
+        ],
+        [
             'name'        => 'get_cash_forecast',
             'description' => 'Forward-looking cash-flow projection: walks today\'s checking+savings balance day-by-day over the next 30/60/90 days, adding projected recurring income, subtracting scheduled bills, and spreading average daily spending. Returns the projected low point (and when it hits), the projected end balance, and whether the balance is projected to go negative. Answers "will we run low on cash before payday", "what\'s our cash forecast". An estimate — only Plaid-detected recurring income is projected (irregular income is not).',
             'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'required' => [], 'properties' => [
@@ -390,7 +399,7 @@ Rules:
 - Format money as US dollars (e.g. $1,234.56). Round sensibly. Use the user's own words for categories when natural (e.g. "dining" for FOOD_AND_DRINK).
 - You can call several tools, in sequence, to build an answer (e.g. find an account, then its transactions). Be efficient — request only what you need, and prefer one focused query over many broad ones.
 - For counts, totals, or averages over transactions ("how many times did we eat at X", "what did we spend at Y this year", "spend by month"), call aggregate_transactions — it answers in ONE call. NEVER page through search_transactions to count or add up rows.
-- For how spending shifts over time by category (trends, "is dining going up"), call get_spending_trend. There are dedicated tools for planning questions — get_safe_to_spend (what's left to spend this month), get_cash / get_cash_forecast (cash on hand now / projected low), get_debt_plan (payoff what-ifs, incl. "what if we pay an extra \$X/month"), and get_budget_history (per-category budget vs actual over time) — prefer them over assembling the answer yourself.
+- For how spending shifts over time by category (trends, "is dining going up"), call get_spending_trend. For historical balance comparisons across accounts or account classes, call get_balance_history — it uses stored credit/investment history too, holds the current cohort stable, and computes exact monthly changes; never claim that history is unavailable unless its coverage result says so. There are dedicated tools for planning questions — get_safe_to_spend (what's left to spend this month), get_cash / get_cash_forecast (cash on hand now / projected low), get_debt_plan (payoff what-ifs, incl. "what if we pay an extra \$X/month"), and get_budget_history (per-category budget vs actual over time) — prefer them over assembling the answer yourself.
 - For investing and home questions, prefer the dedicated tools over raw holdings: get_property (home value, equity, mortgage, refinance), get_allocation (asset mix vs target), get_fees (expense ratios / fee drag), get_dividends (dividend income + projection), get_security (one holding by ticker/name — price, position, return, dividends), and get_peer_comparison (spending vs the typical US household). Several carry honest-number caveats (fee coverage, lot reconciliation, peer bracket) — surface those caveats rather than dropping them.
 - The account, custom-category, and goal names for THIS household are listed at the end of this prompt — use them to scope queries directly (e.g. pass `account` to search/aggregate) instead of calling get_accounts just to discover a name. If an answer leans on current balances or recent activity and the data might be behind, you can call get_data_freshness and caveat accordingly.
 - Merchant/payee names in the data often include punctuation, abbreviations, or extra words the user will NOT type exactly — the bar "O'Aces Bar & Grill" for "OAces", "AMZN MKTP" for Amazon, "SQ *COFFEE" for a coffee shop. So when the user names a place/store/business, do NOT assume a plain search matches: call find_merchants with a short approximate term (it matches ignoring punctuation/spacing/case and tolerates small typos) to discover the real name(s) and visit counts, then answer from those, or pass the exact returned merchant name to search_transactions. The candidate list may contain a few near-misses — examine the names (and any context the user gave, like "my favorite bar") and use only the one(s) that genuinely match; if two are plausible, briefly ask or present the options. Only say "no transactions / none" AFTER find_merchants also comes back empty.
@@ -808,6 +817,16 @@ function assistant_dispatch(PDO $pdo, int $uid, string $name, array $in): array
                 // Cap the daily series — Claude has the current value + change; full history rarely needed.
                 'history'      => count($series) > 60 ? array_slice($series, -60) : $series,
             ];
+        }
+
+        case 'get_balance_history': {
+            $groups = is_array($in['groups'] ?? null) ? $in['groups'] : [];
+            $lookback = $clampInt($in['lookback_days'] ?? null, 365, 7, 3650);
+            $result = q_balance_history($pdo, $uid, $groups, $lookback);
+            // The raw complete daily series is useful to application callers/tests but needlessly
+            // expensive in an LLM turn; monthly checkpoints already contain exact app-computed deltas.
+            unset($result['complete_snapshots']);
+            return $result;
         }
 
         case 'get_cash_forecast': {
@@ -1307,8 +1326,10 @@ function assistant_clean_messages(array $messages): array
  *                        int $round), BEFORE the tools run — so the UI can show "Searching
  *                        transactions…". Best-effort: an exception from it is swallowed, and passing
  *                        null (the default, e.g. the non-streaming endpoint) is a total no-op.
+ * @param ?callable $http optional Messages transport seam for deterministic end-to-end tests;
+ *                        production callers omit it and use assistant_http().
  */
-function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?callable $onProgress = null): array
+function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?callable $onProgress = null, ?callable $http = null): array
 {
     $fail = fn(string $e) => ['ok' => false, 'reply' => null, 'tools' => [], 'rounds' => 0, 'error' => $e, 'usage' => ['input' => 0, 'output' => 0]];
 
@@ -1321,6 +1342,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
     $model  = assistant_model($cfg);
     $system = assistant_system_prompt($pdo, $uid);
     $tools  = assistant_tools();
+    $http ??= 'assistant_http';
 
     // Prompt caching (#27 v2): send `system` as a block array with ONE ephemeral breakpoint.
     // The wire render order is tools → system → messages, so this single breakpoint caches the
@@ -1350,7 +1372,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
     $tokIn = 0; $tokOut = 0;
 
     for ($round = 0; $round < ASSISTANT_MAX_ROUNDS; $round++) {
-        $json = assistant_http($key, $buildBody($work));
+        $json = $http($key, $buildBody($work));
         if (isset($json['__error'])) {
             error_log('assistant: ' . $json['__error']);
             return $fail('Sorry — I could not reach the assistant just now. Please try again.');
@@ -1435,7 +1457,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
             // Nudge via a FINAL USER MESSAGE (not by editing $system) so the cached tools+system
             // prefix stays intact — appending to $system would invalidate the whole cache (#27 v2).
             $work[] = ['role' => 'user', 'content' => 'You have gathered enough data — answer now without calling more tools.'];
-            $json = assistant_http($key, $buildBody($work));
+            $json = $http($key, $buildBody($work));
             if (isset($json['__error'])) return $fail('Sorry — I could not finish that. Please try again.');
             $tokIn  += (int)($json['usage']['input_tokens'] ?? 0);
             $tokOut += (int)($json['usage']['output_tokens'] ?? 0);
@@ -1457,7 +1479,7 @@ function assistant_respond(PDO $pdo, int $uid, array $messages, array $cfg, ?cal
     // Hit the round cap without a final text answer — ask one last time, no tools.
     // Same cache-preserving nudge as the token-cap path: append a user turn, keep $system unchanged.
     $work[] = ['role' => 'user', 'content' => 'Answer now with what you have; do not call any more tools.'];
-    $json = assistant_http($key, $buildBody($work));
+    $json = $http($key, $buildBody($work));
     $text = '';
     if (!isset($json['__error'])) {
         foreach (($json['content'] ?? []) as $b) {
